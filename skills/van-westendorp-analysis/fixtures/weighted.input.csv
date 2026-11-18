@@ -1,0 +1,5 @@
+respondent_id,too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive,weight
+W1,1,2,3,4,5,3,1
+W2,2,3,4,5,4,2,3
+W3,3,4,5,6,5,3,1
+W4,4,5,6,7,3,1,1

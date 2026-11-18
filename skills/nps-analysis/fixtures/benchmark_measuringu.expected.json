@@ -1,0 +1,13 @@
+{
+  "source": "Lewis and Sauro, MeasuringU, 6 July 2021: https://measuringu.com/nps-benchmark-test/ (values as published, as proportions; one-tailed). Run with --counts 61,30,16 --benchmark B --tail one",
+  "counts": "61,30,16",
+  "n": 107,
+  "nps_adjusted": 0.41, "var_adjusted": 0.546, "se": 0.070,
+  "tests": [
+    {"benchmark": 40, "z": 0.129, "p_value": 0.449, "significant": false},
+    {"benchmark": 30, "z": 1.548, "p_value": 0.061, "significant": false},
+    {"benchmark": 20, "z": 2.967, "p_value": 0.002, "significant": true}
+  ],
+  "one_sided_lower_bound_95": 0.29,
+  "two_tailed_hand": {"benchmark": 30, "p_value": 0.1216}
+}

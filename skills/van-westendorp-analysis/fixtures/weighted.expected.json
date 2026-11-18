@@ -1,0 +1,119 @@
+{
+  "args": [
+    "--weight",
+    "weight"
+  ],
+  "respondents": {
+    "analysed": 4,
+    "weight_total": 6.0
+  },
+  "price_points": {
+    "pmc": {
+      "price": 3.25,
+      "status": "interpolated"
+    },
+    "opp": {
+      "price": 4.0,
+      "status": "exact"
+    },
+    "ipp": {
+      "price": 3.666667,
+      "status": "interpolated"
+    },
+    "pme": {
+      "price": 4.25,
+      "status": "interpolated"
+    }
+  },
+  "weighted_counts_of_6": {
+    "price": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "too_cheap": [
+      6,
+      5,
+      2,
+      1,
+      0,
+      0,
+      0
+    ],
+    "cheap": [
+      6,
+      6,
+      5,
+      2,
+      1,
+      0,
+      0
+    ],
+    "expensive": [
+      0,
+      0,
+      1,
+      4,
+      5,
+      6,
+      6
+    ],
+    "too_expensive": [
+      0,
+      0,
+      0,
+      1,
+      4,
+      5,
+      6
+    ]
+  },
+  "nms": {
+    "curve": [
+      {
+        "price": 1,
+        "trial": 0.0
+      },
+      {
+        "price": 2,
+        "trial": 0.116667
+      },
+      {
+        "price": 3,
+        "trial": 0.3
+      },
+      {
+        "price": 4,
+        "trial": 0.166667
+      },
+      {
+        "price": 5,
+        "trial": 0.1
+      },
+      {
+        "price": 6,
+        "trial": 0.0
+      },
+      {
+        "price": 7,
+        "trial": 0.0
+      }
+    ],
+    "trial_max": {
+      "price": 3,
+      "trial": 0.3
+    },
+    "revenue_max": {
+      "price": 3,
+      "revenue_index": 0.9
+    }
+  },
+  "unweighted_ipp": {
+    "price": 4.0,
+    "status": "exact"
+  }
+}

@@ -1,0 +1,13 @@
+respondent,segment,set,item1,item2,item3,best,worst
+r1,smb,1,A,B,C,A,C
+r1,smb,2,A,B,D,A,D
+r1,smb,3,A,C,D,A,D
+r1,smb,4,B,C,D,B,D
+r2,smb,1,A,B,C,B,C
+r2,smb,2,A,B,D,A,D
+r2,smb,3,A,C,D,C,A
+r2,smb,4,B,C,D,B,D
+r3,ent,1,A,B,C,A,B
+r3,ent,2,A,B,D,D,B
+r3,ent,3,A,C,D,A,C
+r3,ent,4,B,C,D,C,B

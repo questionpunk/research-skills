@@ -1,0 +1,28 @@
+{
+  "title": "Mini JSON fixture (synthetic)",
+  "questions": [
+    {
+      "id": "A",
+      "text": "How satisfied are you with the price and quality of the product?",
+      "type": "single",
+      "options": ["Very satisfied", "Satisfied", "Neutral", "Dissatisfied", "Very dissatisfied"]
+    },
+    {
+      "id": "B",
+      "text": "How many employees does your company have?",
+      "required": true,
+      "options": ["1-10", "10-50", "51-200", "250 or more"]
+    },
+    {
+      "id": "C",
+      "text": "How much do you agree or disagree with each statement?",
+      "type": "grid",
+      "rows": ["Checkout was fast.", "I never had to wait for support."],
+      "options": ["Strongly agree", "Agree", "Neither agree nor disagree", "Disagree", "Strongly disagree"]
+    },
+    {
+      "id": "D",
+      "text": "What should we improve first?"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+Thanks for helping us. This takes about 1 minute.
+
+How satisfied or dissatisfied are you with the service overall?
+- Very satisfied
+- Somewhat satisfied
+- Neither satisfied nor dissatisfied
+- Somewhat dissatisfied
+- Very dissatisfied
+Do you always tip?
+- Yes
+- No
+What should we improve?

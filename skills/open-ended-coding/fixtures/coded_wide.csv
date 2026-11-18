@@ -1,0 +1,21 @@
+id,plan,answer,code_PRICE,code_SUPPORT,code_SPEED,code_UX,code_OTHER,code_UNCODABLE,code_NO_ANSWER
+1,free,Too expensive for what it does,1,0,0,0,0,0,0
+2,paid,Support took three days to reply,0,1,0,0,0,0,0
+3,free,,0,0,0,0,0,0,1
+4,paid,The app is slow and the price went up,1,0,1,0,0,0,0
+5,free,n/a,0,0,0,0,0,1,0
+6,paid,"Love it, but pages load slowly",0,0,1,0,0,0,0
+7,free,Pricing is confusing,1,0,0,0,0,0,0
+8,paid,,0,0,0,0,0,0,1
+9,free,Hard to find the export button,0,0,0,1,0,0,0
+10,paid,Support chat never answers and the menus are a maze,0,1,0,1,0,0,0
+11,free,asdf,0,0,0,0,0,1,0
+12,paid,Costs too much,1,0,0,0,0,0,0
+13,free,,0,0,0,0,0,0,1
+14,paid,I wish it had a dark mode,0,0,0,0,1,0,0
+15,free,Slow on my phone,0,0,1,0,0,0,0
+16,paid,"Price is fine, support is not",0,1,0,0,0,0,0
+17,free,Too pricey and slow,1,0,1,0,0,0,0
+18,paid,Navigation is confusing,0,0,0,1,0,0,0
+19,free,Cheaper plan please,1,0,0,0,0,0,0
+20,paid,"Billing support was rude, and it is overpriced",1,1,0,0,0,0,0

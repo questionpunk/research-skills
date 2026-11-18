@@ -1,0 +1,11 @@
+{
+  "compare": "2026-Q1,2026-Q2",
+  "counts": {"very": 31, "somewhat": 43, "not": 33, "na": 3, "blank": 0},
+  "earlier": {"period": "2026-Q1", "very": 12, "base": 52, "pct": 23.1, "ci_low_pct": 13.7, "ci_high_pct": 36.1},
+  "later": {"period": "2026-Q2", "very": 18, "base": 53, "pct": 34.0, "ci_low_pct": 22.7, "ci_high_pct": 47.4},
+  "change_points": 10.9,
+  "ci_low_points": -6.4,
+  "ci_high_points": 27.3,
+  "verdict": "cannot_tell",
+  "rows_without_period": 2
+}

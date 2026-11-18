@@ -1,0 +1,242 @@
+{
+ "note": "Written by hand from the rule definitions in references/rules.md before the script was run. See README.md.",
+ "questions": 14,
+ "findings": [
+  {
+   "question": "1",
+   "line": 3,
+   "rule": "SB010",
+   "kind": "overlap",
+   "severity": "high",
+   "match": "$25,000-$50,000 / $50,000-$100,000; $50,000-$100,000 / $100,000-$150,000"
+  },
+  {
+   "question": "1",
+   "line": 3,
+   "rule": "SB016",
+   "kind": "opening",
+   "severity": "low",
+   "match": "income"
+  },
+  {
+   "question": "1",
+   "line": 3,
+   "rule": "SB016",
+   "kind": "required",
+   "severity": "medium",
+   "match": "income"
+  },
+  {
+   "question": "2",
+   "line": 9,
+   "rule": "SB001",
+   "kind": "joined",
+   "severity": "medium",
+   "match": "speed and reliability"
+  },
+  {
+   "question": "2",
+   "line": 9,
+   "rule": "SB009",
+   "kind": "balance",
+   "severity": "high",
+   "match": "3 positive vs 1 negative labels"
+  },
+  {
+   "question": "3",
+   "line": 16,
+   "rule": "SB002",
+   "kind": "wording",
+   "severity": "high",
+   "match": "don't you; amazing"
+  },
+  {
+   "question": "3",
+   "line": 16,
+   "rule": "SB005",
+   "kind": "single",
+   "severity": "medium",
+   "match": "n't"
+  },
+  {
+   "question": "4",
+   "line": 20,
+   "rule": "SB003",
+   "kind": "absolute",
+   "severity": "medium",
+   "match": "always"
+  },
+  {
+   "question": "5",
+   "line": 24,
+   "rule": "SB004",
+   "kind": "hypothetical",
+   "severity": "medium",
+   "match": "would you pay; if we added"
+  },
+  {
+   "question": "6",
+   "line": 28,
+   "rule": "SB005",
+   "kind": "double",
+   "severity": "high",
+   "match": "not; not"
+  },
+  {
+   "question": "7",
+   "line": 32,
+   "rule": "SB006",
+   "kind": "options",
+   "severity": "low",
+   "match": "Often; Sometimes; Rarely"
+  },
+  {
+   "question": "8",
+   "line": 38,
+   "rule": "SB007",
+   "kind": "term",
+   "severity": "low",
+   "match": "SSO"
+  },
+  {
+   "question": "9",
+   "line": 43,
+   "rule": "SB008",
+   "kind": "words",
+   "severity": "low",
+   "match": "34 words"
+  },
+  {
+   "question": "9",
+   "line": 43,
+   "rule": "SB010",
+   "kind": "gap",
+   "severity": "high",
+   "match": "1-4 hours / 6-24 hours"
+  },
+  {
+   "question": "10",
+   "line": 49,
+   "rule": "SB011",
+   "kind": "none",
+   "severity": "medium",
+   "match": "no 'None of these' option"
+  },
+  {
+   "question": "10",
+   "line": 49,
+   "rule": "SB011",
+   "kind": "other",
+   "severity": "low",
+   "match": "no 'Other' option"
+  },
+  {
+   "question": "11",
+   "line": 55,
+   "rule": "SB014",
+   "kind": "grid",
+   "severity": "medium",
+   "match": "agree/disagree grid, 2 rows"
+  },
+  {
+   "question": "11b",
+   "line": 57,
+   "rule": "SB005",
+   "kind": "single",
+   "severity": "medium",
+   "match": "not"
+  },
+  {
+   "question": "12",
+   "line": 64,
+   "rule": "SB012",
+   "kind": "direction",
+   "severity": "medium",
+   "match": "Strongly disagree ... Strongly agree"
+  },
+  {
+   "question": "12",
+   "line": 64,
+   "rule": "SB012",
+   "kind": "length",
+   "severity": "medium",
+   "match": "4 points, others have 5"
+  },
+  {
+   "question": "12",
+   "line": 64,
+   "rule": "SB014",
+   "kind": "single",
+   "severity": "low",
+   "match": "agree/disagree options"
+  },
+  {
+   "question": "13",
+   "line": 70,
+   "rule": "SB013",
+   "kind": "count",
+   "severity": "low",
+   "match": "11 options"
+  },
+  {
+   "question": "14",
+   "line": 84,
+   "rule": "SB011",
+   "kind": "dk",
+   "severity": "low",
+   "match": "no 'Not sure' option"
+  },
+  {
+   "question": "2",
+   "line": 9,
+   "rule": "SB018",
+   "kind": "experience",
+   "severity": "low",
+   "match": "how satisfied"
+  },
+  {
+   "question": "2",
+   "line": 9,
+   "rule": "SB019",
+   "kind": "one_sided",
+   "severity": "low",
+   "match": "how satisfied"
+  },
+  {
+   "question": "7",
+   "line": 32,
+   "rule": "SB017",
+   "kind": "no_period",
+   "severity": "low",
+   "match": "how often"
+  },
+  {
+   "question": "10",
+   "line": 49,
+   "rule": "SB017",
+   "kind": "no_period",
+   "severity": "low",
+   "match": "have you used"
+  },
+  {
+   "question": "12",
+   "line": 64,
+   "rule": "SB027",
+   "kind": "even_points",
+   "severity": "info",
+   "match": "4 points, no midpoint"
+  }
+ ],
+ "summary": {
+  "total": 27,
+  "high": 5,
+  "medium": 10,
+  "low": 12,
+  "info": 1
+ },
+ "length": {
+  "points": 16.0,
+  "seconds": 120.0,
+  "minutes": 2.0
+ }
+}

@@ -1,0 +1,91 @@
+{
+  "name": "research-skills",
+  "description": "QuestionPunk research skills: survey design, pricing research, feedback analysis and interview method skills.",
+  "owner": {
+    "name": "QuestionPunk",
+    "url": "https://www.questionpunk.com"
+  },
+  "metadata": {
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "research-skills",
+      "source": "./",
+      "strict": false,
+      "description": "Every skill in the pack.",
+      "category": "research",
+      "skills": [
+        "./skills/survey-bias-check",
+        "./skills/survey-from-decision",
+        "./skills/qsf-convert",
+        "./skills/open-ended-coding",
+        "./skills/nps-analysis",
+        "./skills/pmf-survey",
+        "./skills/van-westendorp-analysis",
+        "./skills/maxdiff-design",
+        "./skills/maxdiff-analysis",
+        "./skills/survey-sample-size",
+        "./skills/ai-interview-guide",
+        "./skills/survey-data-cleaning"
+      ]
+    },
+    {
+      "name": "survey-design",
+      "source": "./",
+      "strict": false,
+      "description": "Design, check and size questionnaires before they go out.",
+      "category": "research",
+      "skills": [
+        "./skills/survey-bias-check",
+        "./skills/survey-from-decision",
+        "./skills/qsf-convert",
+        "./skills/survey-sample-size"
+      ]
+    },
+    {
+      "name": "pricing-research",
+      "source": "./",
+      "strict": false,
+      "description": "Van Westendorp, MaxDiff, conjoint and Gabor-Granger: design and analysis.",
+      "category": "research",
+      "skills": [
+        "./skills/van-westendorp-analysis",
+        "./skills/maxdiff-design",
+        "./skills/maxdiff-analysis"
+      ]
+    },
+    {
+      "name": "feedback-analysis",
+      "source": "./",
+      "strict": false,
+      "description": "Clean, code and analyze survey answers: NPS, PMF, crosstabs, open ends.",
+      "category": "research",
+      "skills": [
+        "./skills/open-ended-coding",
+        "./skills/nps-analysis",
+        "./skills/pmf-survey",
+        "./skills/survey-data-cleaning"
+      ]
+    },
+    {
+      "name": "interviews",
+      "source": "./",
+      "strict": false,
+      "description": "Interview guides, JTBD, concept and message tests, idea validation.",
+      "category": "research",
+      "skills": [
+        "./skills/ai-interview-guide"
+      ]
+    },
+    {
+      "name": "questionpunk",
+      "source": {
+        "source": "github",
+        "repo": "questionpunk/claude-plugin"
+      },
+      "description": "Optional: connect the QuestionPunk MCP server to field studies and read results.",
+      "category": "research"
+    }
+  ]
+}

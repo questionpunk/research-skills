@@ -1,0 +1,699 @@
+{
+  "SurveyEntry": {
+    "SurveyID": "SV_synthetic000001",
+    "SurveyName": "Commuter study (synthetic)",
+    "SurveyDescription": null,
+    "SurveyOwnerID": "UR_synthetic000001",
+    "SurveyBrandID": "example",
+    "DivisionID": null,
+    "SurveyLanguage": "EN",
+    "SurveyActiveResponseSet": "RS_synthetic000001",
+    "SurveyStatus": "Inactive",
+    "SurveyStartDate": "0000-00-00 00:00:00",
+    "SurveyExpirationDate": "0000-00-00 00:00:00",
+    "SurveyCreationDate": "2026-01-01 00:00:00",
+    "CreatorID": "UR_synthetic000001",
+    "LastModified": "2026-01-02 00:00:00",
+    "LastAccessed": "0000-00-00 00:00:00",
+    "LastActivated": "0000-00-00 00:00:00",
+    "Deleted": null
+  },
+  "SurveyElements": [
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "BL",
+      "PrimaryAttribute": "Survey Blocks",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": null,
+      "Payload": {
+        "0": {
+          "Type": "Default",
+          "Description": "Intro",
+          "ID": "BL_synthetic000001",
+          "BlockElements": [
+            {"Type": "Question", "QuestionID": "QID1"},
+            {
+              "Type": "Question",
+              "QuestionID": "QID2",
+              "SkipLogic": [
+                {
+                  "SkipLogicID": 1,
+                  "ChoiceLocator": "q://QID2/SelectableChoice/2",
+                  "Condition": "Selected",
+                  "SkipToDestination": "ENDOFBLOCK",
+                  "Locator": "q://QID2/SelectableChoice/2",
+                  "SkipToDescription": "Do you commute to work? <strong>No</strong> Is <strong>Selected</strong>",
+                  "Description": "If <strong title=\"No\">No</strong> Is <strong>Selected</strong>, Then Skip To <strong>End of Block</strong>",
+                  "QuestionID": "QID2"
+                },
+                {
+                  "SkipLogicID": 3,
+                  "ChoiceLocator": "q://QID2/SelectableChoice/1",
+                  "Condition": "NotSelected",
+                  "SkipToDestination": "QID4",
+                  "Locator": "q://QID2/SelectableChoice/1",
+                  "SkipToDescription": "Do you commute to work? <strong>Yes</strong> Is <strong>Not Selected</strong>",
+                  "Description": "If <strong title=\"Yes\">Yes</strong> Is <strong>Not Selected</strong>, Then Skip To <strong>How many minutes is your commute?</strong>",
+                  "QuestionID": "QID2"
+                }
+              ]
+            },
+            {"Type": "Question", "QuestionID": "QID3"},
+            {"Type": "Page Break"},
+            {
+              "Type": "Question",
+              "QuestionID": "QID4",
+              "SkipLogic": [
+                {
+                  "SkipLogicID": 4,
+                  "ChoiceLocator": "q://QID4/ChoiceTextEntryValue",
+                  "Condition": "Empty",
+                  "SkipToDestination": "ENDOFSURVEY",
+                  "Locator": "q://QID4/ChoiceTextEntryValue",
+                  "SkipToDescription": "How many minutes is your commute? <strong>Is Empty</strong>",
+                  "Description": "If <strong>How many minutes is your commute?</strong> <strong>Is Empty</strong>, Then Skip To <strong>End of Survey</strong>",
+                  "QuestionID": "QID4"
+                }
+              ]
+            }
+          ]
+        },
+        "1": {
+          "Type": "Trash",
+          "Description": "Trash / Unused Questions",
+          "ID": "BL_synthetic000002",
+          "BlockElements": [{"Type": "Question", "QuestionID": "QID9"}]
+        },
+        "4": {
+          "Type": "Standard",
+          "SubType": "",
+          "Description": "Ratings",
+          "ID": "BL_synthetic000003",
+          "BlockElements": [
+            {"Type": "Question", "QuestionID": "QID5"},
+            {"Type": "Question", "QuestionID": "QID6"},
+            {"Type": "Question", "QuestionID": "QID7"},
+            {"Type": "Question", "QuestionID": "QID8"},
+            {"Type": "Question", "QuestionID": "QID10"}
+          ]
+        },
+        "7": {
+          "Type": "Standard",
+          "SubType": "",
+          "Description": "Follow-up",
+          "ID": "BL_synthetic000004",
+          "BlockElements": [
+            {"Type": "Question", "QuestionID": "QID11"},
+            {"Type": "Question", "QuestionID": "QID12"},
+            {"Type": "Question", "QuestionID": "QID13"},
+            {"Type": "Question", "QuestionID": "QID14"},
+            {"Type": "Question", "QuestionID": "QID15"}
+          ]
+        }
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "FL",
+      "PrimaryAttribute": "Survey Flow",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": null,
+      "Payload": {
+        "Type": "Root",
+        "FlowID": "FL_1",
+        "Flow": [
+          {
+            "Type": "EmbeddedData",
+            "FlowID": "FL_2",
+            "EmbeddedData": [
+              {"Description": "source", "Type": "Recipient", "Field": "source", "VariableType": "String", "DataVisibility": [], "AnalyzeText": false}
+            ]
+          },
+          {"Type": "Block", "ID": "BL_synthetic000001", "FlowID": "FL_3", "Autofill": []},
+          {"Type": "Standard", "ID": "BL_synthetic000003", "FlowID": "FL_4", "Autofill": []},
+          {
+            "Type": "Branch",
+            "FlowID": "FL_5",
+            "Description": "New Branch",
+            "BranchLogic": {
+              "0": {
+                "0": {
+                  "LogicType": "EmbeddedField",
+                  "LeftOperand": "source",
+                  "Operator": "EqualTo",
+                  "RightOperand": "panel",
+                  "Type": "Expression",
+                  "Description": "<span class=\"ConjDesc\">If</span>  <span class=\"LeftOpDesc\">source</span> <span class=\"OpDesc\">Is Equal to</span> <span class=\"RightOpDesc\"> panel </span>"
+                },
+                "Type": "If"
+              },
+              "Type": "BooleanExpression"
+            },
+            "Flow": [
+              {"Type": "Standard", "ID": "BL_synthetic000004", "FlowID": "FL_8", "Autofill": []},
+              {"Type": "EndSurvey", "FlowID": "FL_9"}
+            ]
+          }
+        ],
+        "Properties": {"Count": 9, "RemovedFieldsets": []}
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "NT",
+      "PrimaryAttribute": "NT_synthetic000001",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": null,
+      "Payload": {
+        "Notes": [{"Message": "Check wording with the transport team.", "ID": "NO_synthetic000001", "UserID": "UR_synthetic000001", "Timestamp": 1767225600, "Removed": false}],
+        "UserStatuses": {"UR_synthetic000001": "Expanded"},
+        "ParentID": "QID2",
+        "ID": "NT_synthetic000001"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SO",
+      "PrimaryAttribute": "Survey Options",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": null,
+      "Payload": {
+        "BackButton": "true",
+        "SaveAndContinue": "true",
+        "SurveyProtection": "PublicSurvey",
+        "BallotBoxStuffingPrevention": "false",
+        "NoIndex": "Yes",
+        "SecureResponseFiles": "true",
+        "SurveyExpiration": "None",
+        "SurveyTermination": "DefaultMessage",
+        "Header": "",
+        "Footer": "",
+        "ProgressBarDisplay": "Text",
+        "PartialData": "+1 week",
+        "ValidationMessage": "",
+        "PreviousButton": " \u2190 ",
+        "NextButton": " \u2192 ",
+        "SkinLibrary": "example",
+        "SkinType": "templated",
+        "Skin": {"brandingId": null, "templateId": "*base", "overrides": null},
+        "NewScoring": 1
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SCO",
+      "PrimaryAttribute": "Scoring",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": null,
+      "Payload": {
+        "ScoringCategories": [],
+        "ScoringCategoryGroups": [],
+        "ScoringSummaryCategory": null,
+        "ScoringSummaryAfterQuestions": 0,
+        "ScoringSummaryAfterSurvey": 0,
+        "DefaultScoringCategory": null,
+        "AutoScoringCategory": null
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "PROJ",
+      "PrimaryAttribute": "CORE",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": "1.1.0",
+      "Payload": {"ProjectCategory": "CORE", "SchemaVersion": "1.1.0"}
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "STAT",
+      "PrimaryAttribute": "Survey Statistics",
+      "SecondaryAttribute": null,
+      "TertiaryAttribute": null,
+      "Payload": {"MobileCompatible": true, "ID": "Survey Statistics"}
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "QC",
+      "PrimaryAttribute": "Survey Question Count",
+      "SecondaryAttribute": "20",
+      "TertiaryAttribute": null,
+      "Payload": null
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "RS",
+      "PrimaryAttribute": "RS_synthetic000001",
+      "SecondaryAttribute": "Default Response Set",
+      "TertiaryAttribute": null,
+      "Payload": null
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID1",
+      "SecondaryAttribute": "Welcome. This takes 5 minutes.",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "<p>Welcome.</p>\n\n<p>This takes <b>5 minutes</b>.</p>",
+        "DefaultChoices": false,
+        "DataExportTag": "welcome",
+        "QuestionType": "DB",
+        "Selector": "TB",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "Welcome. This takes 5 minutes.",
+        "ChoiceOrder": [],
+        "Validation": {"Settings": {"Type": "None"}},
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 4,
+        "NextAnswerId": 1,
+        "QuestionID": "QID1"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID2",
+      "SecondaryAttribute": "Do you commute to work?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Do you commute to work?",
+        "DataExportTag": "commute",
+        "QuestionType": "MC",
+        "Selector": "SAVR",
+        "SubSelector": "TX",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "Do you commute to work?",
+        "Choices": {"1": {"Display": "Yes"}, "2": {"Display": "No"}, "4": {"Display": "Sometimes"}},
+        "ChoiceOrder": [1, 4, 2],
+        "RecodeValues": {"1": "1", "2": "0", "4": "2"},
+        "Validation": {"Settings": {"ForceResponse": "ON", "ForceResponseType": "ON", "Type": "None"}},
+        "Language": [],
+        "NextChoiceId": 5,
+        "NextAnswerId": 1,
+        "QuestionID": "QID2"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID3",
+      "SecondaryAttribute": "How do you travel? Select all",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "How do you travel? <span style=\"color:red\">Select all</span>",
+        "DataExportTag": "modes",
+        "QuestionType": "MC",
+        "Selector": "MAVR",
+        "SubSelector": "TX",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "How do you travel? Select all",
+        "Choices": {
+          "1": {"Display": "Car"},
+          "2": {"Display": "Bike &amp; scooter"},
+          "3": {"Display": "Other", "TextEntry": "true"},
+          "4": {"Display": "None", "ExclusiveAnswer": true}
+        },
+        "ChoiceOrder": ["1", "2", "3", "4"],
+        "Randomization": {"Advanced": null, "TotalRandSubset": "", "Type": "All"},
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "Language": [],
+        "NextChoiceId": 5,
+        "NextAnswerId": 1,
+        "QuestionID": "QID3",
+        "DisplayLogic": {
+          "0": {
+            "0": {
+              "LogicType": "Question",
+              "QuestionID": "QID2",
+              "QuestionIsInLoop": "no",
+              "ChoiceLocator": "q://QID2/SelectableChoice/1",
+              "Operator": "Selected",
+              "QuestionIDFromLocator": "QID2",
+              "LeftOperand": "q://QID2/SelectableChoice/1",
+              "Type": "Expression",
+              "Description": "<span class=\"ConjDesc\">If</span> <span class=\"QuestionDesc\">Do you commute to work?</span> <span class=\"LeftOpDesc\">Yes</span> <span class=\"OpDesc\">Is Selected</span> "
+            },
+            "1": {
+              "LogicType": "Question",
+              "QuestionID": "QID2",
+              "QuestionIsInLoop": "no",
+              "ChoiceLocator": "q://QID2/SelectableChoice/4",
+              "Operator": "Selected",
+              "QuestionIDFromLocator": "QID2",
+              "LeftOperand": "q://QID2/SelectableChoice/4",
+              "Type": "Expression",
+              "Description": "<span class=\"ConjDesc\">Or</span> <span class=\"QuestionDesc\">Do you commute to work?</span> <span class=\"LeftOpDesc\">Sometimes</span> <span class=\"OpDesc\">Is Selected</span> ",
+              "Conjuction": "Or"
+            },
+            "Type": "If"
+          },
+          "Type": "BooleanExpression",
+          "inPage": false
+        }
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID4",
+      "SecondaryAttribute": "How many minutes is your commute?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "How many minutes is your commute?",
+        "DefaultChoices": false,
+        "DataExportTag": "commute mins",
+        "QuestionType": "TE",
+        "Selector": "SL",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "How many minutes is your commute?",
+        "Validation": {
+          "Settings": {
+            "ForceResponse": "OFF",
+            "ForceResponseType": "ON",
+            "Type": "ContentType",
+            "ContentType": "ValidNumber",
+            "ValidNumber": {"Min": "0", "Max": "300"}
+          }
+        },
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 4,
+        "NextAnswerId": 1,
+        "SearchSource": {"AllowFreeResponse": "false"},
+        "QuestionID": "QID4"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID5",
+      "SecondaryAttribute": "How much do you agree?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "How much do you agree?",
+        "DefaultChoices": false,
+        "DataExportTag": "agree",
+        "QuestionType": "Matrix",
+        "Selector": "Likert",
+        "SubSelector": "SingleAnswer",
+        "Configuration": {"QuestionDescriptionOption": "UseText", "TextPosition": "inline", "ChoiceColumnWidth": 25, "RepeatHeaders": "none", "WhiteSpace": "OFF", "MobileFirst": true},
+        "QuestionDescription": "How much do you agree?",
+        "Choices": {"1": {"Display": "My commute is cheap"}, "2": {"Display": "My commute is reliable"}},
+        "ChoiceOrder": ["2", "1"],
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 3,
+        "NextAnswerId": 4,
+        "Answers": {"1": {"Display": "Disagree"}, "2": {"Display": "Neutral"}, "3": {"Display": "Agree"}},
+        "AnswerOrder": [1, 2, 3],
+        "ChoiceDataExportTags": {"1": "agree_cheap", "2": "agree_reliable"},
+        "QuestionID": "QID5"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID6",
+      "SecondaryAttribute": "How likely are you to recommend your commute?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "How likely are you to recommend your commute?",
+        "DataExportTag": "nps",
+        "QuestionType": "MC",
+        "Selector": "NPS",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "How likely are you to recommend your commute?",
+        "Choices": [{"Display": "0"}, {"Display": "1"}, {"Display": "2"}, {"Display": "3"}, {"Display": "4"}, {"Display": "5"}, {"Display": "6"}, {"Display": "7"}, {"Display": "8"}, {"Display": "9"}, {"Display": "10"}],
+        "ChoiceOrder": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+        "Validation": {"Settings": {"ForceResponse": "RequestResponse", "ForceResponseType": "RequestResponse", "Type": "None"}},
+        "Language": [],
+        "NextChoiceId": 11,
+        "NextAnswerId": 1,
+        "QuestionID": "QID6",
+        "DefaultChoices": false,
+        "GradingData": [],
+        "ColumnLabels": [{"Display": "Not at all likely", "IsLabelDefault": true}, {"Display": "Extremely likely", "IsLabelDefault": true}],
+        "DisplayLogic": {
+          "0": {
+            "0": {
+              "LogicType": "EmbeddedField",
+              "LeftOperand": "source",
+              "Operator": "EqualTo",
+              "RightOperand": "panel",
+              "Type": "Expression",
+              "Description": "<span class=\"ConjDesc\">If</span>  <span class=\"LeftOpDesc\">source</span> <span class=\"OpDesc\">Is Equal to</span> <span class=\"RightOpDesc\"> panel </span>"
+            },
+            "Type": "If"
+          },
+          "Type": "BooleanExpression",
+          "inPage": false
+        }
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID7",
+      "SecondaryAttribute": "Rate your commute overall.",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Rate your commute overall.",
+        "DefaultChoices": false,
+        "DataExportTag": "overall",
+        "QuestionType": "Slider",
+        "Selector": "HSLIDER",
+        "Configuration": {"QuestionDescriptionOption": "UseText", "CSSliderMin": 0, "CSSliderMax": 100, "GridLines": 10, "SnapToGrid": false, "NumDecimals": "0", "ShowValue": true, "CustomStart": false, "NotApplicable": false, "MobileFirst": true},
+        "QuestionDescription": "Rate your commute overall.",
+        "Choices": {"1": {"Display": "Overall"}},
+        "ChoiceOrder": ["1"],
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 2,
+        "NextAnswerId": 1,
+        "Labels": [],
+        "QuestionID": "QID7"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID8",
+      "SecondaryAttribute": "Compare the two routes",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Compare the two routes",
+        "DataExportTag": "sbs",
+        "QuestionType": "SBS",
+        "Selector": "SBSMatrix",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "Compare the two routes",
+        "Choices": {"1": {"Display": "Route A"}, "2": {"Display": "Route B"}},
+        "ChoiceOrder": [1, 2],
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "Language": [],
+        "NumberOfQuestions": 2,
+        "AdditionalQuestions": {
+          "1": {
+            "QuestionText": "Speed",
+            "Answers": {"1": {"Display": "Slow"}, "2": {"Display": "Fast"}},
+            "RecodeValues": [],
+            "VariableNaming": [],
+            "AnalyzeChoices": [],
+            "QuestionType": "Matrix",
+            "Selector": "Likert",
+            "SubSelector": "SingleAnswer",
+            "ChoiceColumnWidthPixels": null,
+            "DataExportTag": "sbs#1",
+            "QuestionID": "QID8#1",
+            "Choices": {"1": {"Display": "Route A"}, "2": {"Display": "Route B"}},
+            "ChoiceDataExportTags": false,
+            "Validation": {"Settings": {"ForceResponse": "ON"}},
+            "QuestionDescription": "Speed",
+            "Configuration": {"QuestionDescriptionOption": "UseText"}
+          },
+          "2": {
+            "QuestionText": "Comfort",
+            "Answers": {"1": {"Display": "Poor"}, "2": {"Display": "Good"}},
+            "RecodeValues": [],
+            "VariableNaming": [],
+            "AnalyzeChoices": [],
+            "QuestionType": "Matrix",
+            "Selector": "Likert",
+            "SubSelector": "MultipleAnswer",
+            "ChoiceColumnWidthPixels": null,
+            "DataExportTag": "sbs#2",
+            "QuestionID": "QID8#2",
+            "Choices": {"1": {"Display": "Route A"}, "2": {"Display": "Route B"}},
+            "ChoiceDataExportTags": false,
+            "Validation": {"Settings": {"ForceResponse": "OFF"}},
+            "QuestionDescription": "Comfort",
+            "Configuration": {"QuestionDescriptionOption": "UseText"}
+          }
+        },
+        "QuestionID": "QID8"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID9",
+      "SecondaryAttribute": "Old draft question",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Old draft question",
+        "DataExportTag": "old",
+        "QuestionType": "TE",
+        "Selector": "SL",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "Old draft question",
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "Language": [],
+        "QuestionID": "QID9"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID10",
+      "SecondaryAttribute": "Timing",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Timing",
+        "DataExportTag": "timer",
+        "QuestionType": "Timing",
+        "Selector": "PageTimer",
+        "Configuration": {"QuestionDescriptionOption": "UseText", "MinSeconds": "0", "MaxSeconds": "0"},
+        "QuestionDescription": "Timing",
+        "Choices": {"1": {"Display": "First Click"}, "2": {"Display": "Last Click"}, "3": {"Display": "Page Submit"}, "4": {"Display": "Click Count"}},
+        "Language": [],
+        "QuestionID": "QID10"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID11",
+      "SecondaryAttribute": "Anything else?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Anything else?",
+        "DefaultChoices": false,
+        "DataExportTag": "Q2_other",
+        "QuestionType": "TE",
+        "Selector": "ESTB",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "Anything else?",
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "GradingData": [],
+        "Language": [],
+        "QuestionID": "QID11"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID12",
+      "SecondaryAttribute": "City list",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Which city?",
+        "DataExportTag": "commute",
+        "QuestionType": "MC",
+        "Selector": "DL",
+        "Configuration": {"QuestionDescriptionOption": "SpecifyLabel"},
+        "QuestionDescription": "City list",
+        "Choices": {"1": {"Display": "Lisbon"}, "2": {"Display": "Porto"}},
+        "ChoiceOrder": [1, 2],
+        "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}},
+        "Language": [],
+        "NextChoiceId": 3,
+        "NextAnswerId": 1,
+        "QuestionID": "QID12"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID13",
+      "SecondaryAttribute": "How many hours per week?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "How many hours per week?",
+        "DefaultChoices": false,
+        "DataExportTag": "hours",
+        "QuestionType": "Matrix",
+        "Selector": "TE",
+        "SubSelector": "Short",
+        "Configuration": {"QuestionDescriptionOption": "UseText", "TextPosition": "inline", "ChoiceColumnWidth": 25, "RepeatHeaders": "none", "MobileFirst": true},
+        "QuestionDescription": "How many hours per week?",
+        "Choices": {"1": {"Display": "Working"}, "2": {"Display": "Commuting"}},
+        "ChoiceOrder": ["1", "2"],
+        "Validation": {"Settings": {"ForceResponse": "OFF", "Type": "None"}},
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 3,
+        "NextAnswerId": 2,
+        "Answers": {"1": {"Display": "Hours"}},
+        "AnswerOrder": ["1"],
+        "ChoiceDataExportTags": false,
+        "QuestionID": "QID13"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID14",
+      "SecondaryAttribute": "How can we reach you?",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "How can we reach you?",
+        "DefaultChoices": false,
+        "DataExportTag": "contact",
+        "QuestionType": "TE",
+        "Selector": "FORM",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "How can we reach you?",
+        "Choices": {"1": {"Display": "Name"}, "2": {"Display": "Phone"}},
+        "ChoiceOrder": ["1", "2"],
+        "Validation": {"Settings": {"ForceResponse": "OFF", "Type": "None"}},
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 3,
+        "NextAnswerId": 1,
+        "SearchSource": {"AllowFreeResponse": "false"},
+        "QuestionID": "QID14"
+      }
+    },
+    {
+      "SurveyID": "SV_synthetic000001",
+      "Element": "SQ",
+      "PrimaryAttribute": "QID15",
+      "SecondaryAttribute": "Split 100 points between the modes.",
+      "TertiaryAttribute": null,
+      "Payload": {
+        "QuestionText": "Split 100 points between the modes.",
+        "DefaultChoices": false,
+        "DataExportTag": "split",
+        "QuestionType": "CS",
+        "Selector": "VRTL",
+        "SubSelector": "TX",
+        "Configuration": {"QuestionDescriptionOption": "UseText"},
+        "QuestionDescription": "Split 100 points between the modes.",
+        "Choices": {"1": {"Display": "Car"}, "2": {"Display": "Bike"}},
+        "ChoiceOrder": ["1", "2"],
+        "Validation": {"Settings": {"EnforceRange": "OFF", "Type": "ChoicesTotal", "ChoiceTotal": "100"}},
+        "GradingData": [],
+        "Language": [],
+        "NextChoiceId": 3,
+        "NextAnswerId": 1,
+        "Labels": [],
+        "ClarifyingSymbolType": "None",
+        "QuestionID": "QID15",
+        "Randomization": {"Advanced": null, "Type": "All", "TotalRandSubset": ""}
+      }
+    }
+  ]
+}

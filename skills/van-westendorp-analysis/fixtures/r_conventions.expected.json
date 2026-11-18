@@ -1,0 +1,264 @@
+{
+  "input": "basic.input.csv",
+  "source": "Hand arithmetic under the rules read in the R package pricesensitivitymeter source (fixtures/README.md section 7)",
+  "compat_r": {
+    "args": [
+      "--compat",
+      "r"
+    ],
+    "price_points": {
+      "pmc": {
+        "price": 6.5,
+        "status": "interpolated"
+      },
+      "opp": {
+        "price": 9.0,
+        "status": "exact"
+      },
+      "ipp": {
+        "price": 9.25,
+        "status": "interpolated"
+      },
+      "pme": {
+        "price": 11.5,
+        "status": "interpolated"
+      }
+    },
+    "alternative_range": {
+      "low": 7.666667,
+      "high": 10.0,
+      "definition": "narrower"
+    },
+    "curve_counts_of_10": {
+      "price": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        12,
+        14,
+        15,
+        16,
+        18,
+        20
+      ],
+      "too_cheap": [
+        10,
+        8,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "cheap": [
+        10,
+        10,
+        10,
+        8,
+        7,
+        6,
+        5,
+        4,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expensive": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        3,
+        3,
+        5,
+        7,
+        8,
+        9,
+        10,
+        10,
+        10
+      ],
+      "too_expensive": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        10
+      ]
+    }
+  },
+  "compat_r_1_3_0": {
+    "args": [
+      "--compat",
+      "r-1.3.0"
+    ],
+    "price_points": {
+      "pmc": {
+        "price": 7.0,
+        "status": "first_met"
+      },
+      "opp": {
+        "price": 9.0,
+        "status": "first_met"
+      },
+      "ipp": {
+        "price": 10.0,
+        "status": "first_met"
+      },
+      "pme": {
+        "price": 12.0,
+        "status": "first_met"
+      }
+    },
+    "alternative_range": {
+      "low": 8.0,
+      "high": 10.0,
+      "definition": "narrower"
+    },
+    "curve_counts_of_10": {
+      "price": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        12,
+        14,
+        15,
+        16,
+        18,
+        20
+      ],
+      "too_cheap": [
+        9,
+        8,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "cheap": [
+        10,
+        10,
+        9,
+        8,
+        7,
+        6,
+        5,
+        4,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expensive": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        3,
+        3,
+        5,
+        7,
+        8,
+        9,
+        10,
+        10,
+        10
+      ],
+      "too_expensive": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        10
+      ]
+    }
+  },
+  "explicit_flags": {
+    "args": [
+      "--strict",
+      "--boundary",
+      "exclusive-forced-ends",
+      "--no-interpolate",
+      "--tie",
+      "min"
+    ],
+    "price_points": {
+      "pmc": {
+        "price": 7.0,
+        "status": "first_met"
+      },
+      "opp": {
+        "price": 9.0,
+        "status": "first_met"
+      },
+      "ipp": {
+        "price": 10.0,
+        "status": "first_met"
+      },
+      "pme": {
+        "price": 12.0,
+        "status": "first_met"
+      }
+    }
+  }
+}

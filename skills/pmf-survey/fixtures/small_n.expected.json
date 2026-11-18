@@ -1,0 +1,4 @@
+{
+  "counts": {"very": 4, "somewhat": 4, "not": 2, "na": 0, "blank": 0},
+  "score": {"very": 4, "base": 10, "pct": 40.0, "ci_low_pct": 16.8, "ci_high_pct": 68.7, "verdict": "cannot_tell", "small_base": true}
+}

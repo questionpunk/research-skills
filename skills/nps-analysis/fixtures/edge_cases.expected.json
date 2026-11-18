@@ -1,0 +1,9 @@
+{
+  "source": "Hand arithmetic in fixtures/README.md, section 6",
+  "all_promoters": {"n": 10, "nps": 100.0, "adjusted_wald": {"ci_low": 47.50, "ci_high": 100.0}, "wald": {"ci_low": 100.0, "ci_high": 100.0}},
+  "single_response": {"n": 1, "nps": 100.0, "adjusted_wald": {"ci_low": -48.50, "ci_high": 98.50}},
+  "empty_segment": {"finance": {"n": 0}, "sales": {"n": 4, "nps": 25.0}, "support": {"n": 3, "nps": 0.0}},
+  "dirty": {"rows_total": 12, "rows_valid": 7, "excluded": {"blank": 1, "non_numeric": 1, "non_integer": 1, "out_of_range": 2}, "nps": 14.29},
+  "scale_1_5": {"promoters": 5, "passives": 2, "detractors": 3, "nps": 20.0},
+  "scale_1_10": {"promoters": 4, "passives": 3, "detractors": 3, "nps": 10.0}
+}

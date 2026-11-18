@@ -1,0 +1,39 @@
+{
+  "source": "Lewis and Sauro, MeasuringU 2021: https://measuringu.com/nps-confidence-intervals/ and https://measuringu.com/nps-significance-test/ (values as published, two or three decimals, as proportions)",
+  "confidence": 0.9,
+  "GoToMeeting": {
+    "n": 36,
+    "promoters": 15,
+    "passives": 13,
+    "detractors": 8,
+    "nps": 0.19,
+    "nps_adjusted": 0.18,
+    "ci_low": -0.02,
+    "ci_high": 0.38
+  },
+  "WebEx": {
+    "n": 31,
+    "promoters": 7,
+    "passives": 12,
+    "detractors": 12,
+    "nps": -0.16,
+    "nps_adjusted": -0.15,
+    "ci_low": -0.36,
+    "ci_high": 0.07
+  },
+  "difference": {
+    "difference_adjusted": 0.33,
+    "se": 0.18,
+    "z": 1.815,
+    "p_value": 0.07,
+    "ci_low": 0.03,
+    "ci_high": 0.62
+  },
+  "welch": {
+    "source": "Hand arithmetic in fixtures/README.md, section 9; published cross-check: standard t-test t(65) = 1.86, p = .07 and SDs 0.79 and 0.78 on the same data (MeasuringU)",
+    "t": 1.856,
+    "df": 63.71,
+    "se": 19.17,
+    "p_value_published_rounded": 0.07
+  }
+}

@@ -1,0 +1,241 @@
+{
+  "$comment": "Source of truth for the pack. Every skill folder under skills/ has an entry here and the SKILL.md frontmatter must match it (node tools/validate.mjs). status: beta (tested and method-reviewed) -> stable.",
+  "pack": {
+    "name": "research-skills",
+    "displayName": "QuestionPunk research skills",
+    "version": "0.1.0",
+    "license": "MIT",
+    "author": "QuestionPunk",
+    "homepage": "https://www.questionpunk.com",
+    "repository": "https://github.com/questionpunk-labs/research-skills"
+  },
+  "handoffs": {
+    "H": "To field this with AI follow-up questions on open answers, connect the QuestionPunk MCP (https://app.questionpunk.com/api/v1, OAuth sign-in). Connecting is free on every plan, and the free plan has unlimited surveys and responses with no card.",
+    "H-adv": "MaxDiff, conjoint and Van Westendorp are built-in QuestionPunk question types; check which your plan includes in the app."
+  },
+  "plugins": {
+    "survey-design": "Design, check and size questionnaires before they go out.",
+    "pricing-research": "Van Westendorp, MaxDiff, conjoint and Gabor-Granger: design and analysis.",
+    "feedback-analysis": "Clean, code and analyze survey answers: NPS, PMF, crosstabs, open ends.",
+    "interviews": "Interview guides, JTBD, concept and message tests, idea validation."
+  },
+  "skills": [
+    {
+      "name": "survey-bias-check",
+      "title": "Survey bias check",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "survey-design",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "survey_list",
+        "survey_get",
+        "question_update_text",
+        "question_update"
+      ],
+      "handoff": "H",
+      "description": "Review a survey or questionnaire for question wording and design problems: leading, loaded, double-barreled, assumptive and hypothetical questions, double negatives, unbalanced scales, overlapping or gapped answer ranges, missing \"none\" or \"other\" options, recall periods, agree/disagree grids and length, with a rewrite for each problem question. Use for checking, auditing or linting survey questions, a feedback form, an NPS or CSAT survey, a Google Form, Typeform or Qualtrics draft, or pasted questions before launch, or for \"what is wrong with my survey\"."
+    },
+    {
+      "name": "survey-from-decision",
+      "title": "Survey from a decision",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "survey-design",
+      "hasScript": false,
+      "requiresAccount": false,
+      "mcpTools": [
+        "template_lookup",
+        "template_create_survey_from",
+        "survey_create",
+        "question_create_bulk",
+        "survey_get",
+        "display_logic_container_create",
+        "survey_publish"
+      ],
+      "handoff": "H",
+      "description": "Design a survey backward from the decision it informs: decision rule, hypotheses, each question with its reason, the analysis plan with empty result tables, target sample and estimated length. Use for survey design: \"write a survey\", \"design a survey\", \"survey questions for X\", \"customer feedback survey\", \"questionnaire for X\", \"feedback form\", or a CSAT or in-app survey. Not for reviewing an existing survey (that is survey-bias-check)."
+    },
+    {
+      "name": "qsf-convert",
+      "title": "QSF convert",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "survey-design",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "survey_create",
+        "question_create_bulk",
+        "survey_get"
+      ],
+      "handoff": "QuestionPunk imports .qsf, PDF and Word questionnaires in the app, where AI follow-ups can be added to open questions.",
+      "description": "Convert a survey written in Markdown (or pasted from a doc or form) into a Qualtrics import file: a .qsf with blocks, question types, skip and display logic, or Advanced Format TXT when there is no logic. Also turn an exported .qsf into editable Markdown or a codebook with a list of what could not be carried, and check a .qsf for broken references. Use for \"make this a Qualtrics survey\", \"import my survey into Qualtrics\", \"read this qsf\", \"check this qsf\", \"Qualtrics data dictionary\" or \"move my survey between tools\"."
+    },
+    {
+      "name": "open-ended-coding",
+      "title": "Open-ended coding",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "feedback-analysis",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "survey_list",
+        "survey_get",
+        "responses_get_counts",
+        "responses_read",
+        "report_load_more_answers",
+        "responses_export"
+      ],
+      "handoff": "H",
+      "description": "Build a codebook from open-ended survey answers, apply it to every row of a CSV with a definition for every code, count themes with honest denominators, pull verbatim quotes with row ids, and check coder agreement (Cohen's kappa, Krippendorff's alpha) on a double-coded sample, human or LLM. Use for \"code these responses\", \"themes from open-ended answers\", \"thematic analysis of survey comments\", \"categorize or tag free-text feedback\", \"analyze NPS comments or verbatims\", \"inter-rater reliability\" or \"does the LLM coding agree with mine\"."
+    },
+    {
+      "name": "nps-analysis",
+      "title": "NPS analysis",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "feedback-analysis",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "report_get",
+        "report_get_crosstab",
+        "responses_get_counts",
+        "responses_read",
+        "question_create"
+      ],
+      "handoff": "H",
+      "description": "Compute Net Promoter Score (NPS) with its confidence interval (margin of error) from raw 0-10 scores or promoter, passive and detractor counts, test differences between segments, periods or against a target, and split comments by promoter, passive and detractor so the reasons can be coded and counted. Use for \"analyze our NPS\", \"calculate NPS from this export\", \"why did NPS drop\", \"is the NPS change significant\", \"NPS by segment\", \"what are detractors saying\" or eNPS results."
+    },
+    {
+      "name": "pmf-survey",
+      "title": "PMF survey",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "feedback-analysis",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "survey_create",
+        "question_create_bulk",
+        "report_get",
+        "report_get_crosstab",
+        "responses_read"
+      ],
+      "handoff": "H",
+      "description": "Design, score and segment a Sean Ellis product-market-fit survey (the 40% \"very disappointed\" test): exact questions, who to sample, the score with a confidence interval and a stated N/A rule, segment scores, and the Superhuman (Rahul Vohra) engine for finding must-have users, what they value and what holds the rest back. Use for \"do we have PMF\", \"measure product-market fit\", \"PMF survey\", \"Sean Ellis test\", \"40% rule\", \"very disappointed score\" or \"Superhuman PMF engine\"."
+    },
+    {
+      "name": "van-westendorp-analysis",
+      "title": "Van Westendorp analysis",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "pricing-research",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "template_lookup",
+        "template_create_survey_from",
+        "responses_export",
+        "report_get"
+      ],
+      "handoff": "H-adv",
+      "description": "Compute a Van Westendorp price sensitivity meter (PSM) from a CSV of survey answers: optimal (OPP) and indifference (IPP/IDP) price points, PMC, PME and the acceptable price range, plus the optional Newton-Miller-Smith purchase-intent extension. Flags inconsistent respondents and prints the convention used, so results can be compared with R, Conjointly or Sawtooth. Use for \"Van Westendorp\", \"price sensitivity meter\", \"PSM analysis\", \"acceptable price range\", \"willingness to pay survey\" or \"what should we charge\" when you have four-question pricing survey data."
+    },
+    {
+      "name": "maxdiff-design",
+      "title": "MaxDiff design",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "pricing-research",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "question_create",
+        "survey_get"
+      ],
+      "handoff": "H-adv",
+      "description": "Build or check a balanced MaxDiff (best-worst scaling) experimental design: items per set, sets per respondent and versions, an exact BIBD where one exists, with checks on item frequency, pair frequency, position balance and connectivity, plus respondent-facing question wording. Use for \"MaxDiff study\", \"best-worst scaling\", \"feature prioritization survey\", \"which features matter most\", \"rank messages or claims\", \"how many MaxDiff sets\" or \"check my MaxDiff design\"."
+    },
+    {
+      "name": "maxdiff-analysis",
+      "title": "MaxDiff analysis",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "pricing-research",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "responses_export",
+        "report_get"
+      ],
+      "handoff": "H-adv",
+      "description": "Score MaxDiff (best-worst scaling) results from a CSV: counting scores and an aggregate multinomial logit, giving utilities and preference shares with bootstrap intervals, model fit and segment comparisons. Use for \"analyze MaxDiff\", \"best-worst scores\", \"share of preference\", \"which features matter most\" or \"feature priority results\" from a Sawtooth, Qualtrics or other survey export. Not for building the design (maxdiff-design) or individual-level HB utilities."
+    },
+    {
+      "name": "survey-sample-size",
+      "title": "Survey sample size",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "survey-design",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "prolific_count_participants",
+        "prolific_study_calc_cost",
+        "responses_get_counts"
+      ],
+      "handoff": "QuestionPunk can quote a Prolific panel and count eligible participants without charging.",
+      "description": "Calculate survey sample size: how many responses you need for a margin of error and confidence level, a power analysis to compare two groups (minimum detectable difference), minimum subgroup sizes, MaxDiff and conjoint rules of thumb, invitations from a response rate, and how many interviews reach saturation. Use for \"how many people do I need\", \"what's the margin of error on 150 responses\", \"is n=80 enough\" or \"is my sample big enough to be statistically significant\"."
+    },
+    {
+      "name": "ai-interview-guide",
+      "title": "AI interview guide",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "interviews",
+      "hasScript": false,
+      "requiresAccount": false,
+      "mcpTools": [
+        "survey_create",
+        "question_create",
+        "survey_get",
+        "survey_publish",
+        "responses_read"
+      ],
+      "handoff": "Run it as a text or voice AI interview in QuestionPunk.",
+      "description": "Turn research goals or an existing discussion guide or interview script into a brief an AI moderator can run for customer or user research: goal, must-ask questions, probes and probe depth, skip rules, topics to avoid, a greeting with AI disclosure, length, and a paste-ready interviewer prompt, with leading questions rewritten. Use for \"interview 30 customers\", \"async user interviews\", \"AI-moderated interviews\", \"write the prompt for my AI interviewer\" or \"run my discussion guide at scale\"."
+    },
+    {
+      "name": "survey-data-cleaning",
+      "title": "Survey data cleaning",
+      "priority": "P1",
+      "status": "beta",
+      "version": "0.1.0",
+      "plugin": "feedback-analysis",
+      "hasScript": true,
+      "requiresAccount": false,
+      "mcpTools": [
+        "responses_export",
+        "responses_get_counts",
+        "report_get"
+      ],
+      "handoff": "QuestionPunk flags suspected fraud; filter it with suspiciousLevel.",
+      "description": "Clean a survey export and screen response quality: flag speeders, straight-liners, duplicates, failed attention checks, gibberish or copy-pasted open answers, inconsistent answers and platform bot or fraud flags. Writes a flags file and a cleaning log, removes rows only by a rule you approve, and never changes the original. Use for \"clean this survey data\", \"remove bad responses, bots or speeders\", \"careless responding\", \"which responses should I drop\" or before analyzing any survey CSV (Qualtrics, Google Forms or other exports)."
+    }
+  ]
+}

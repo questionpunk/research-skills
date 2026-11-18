@@ -1,0 +1,6 @@
+{
+  "source": "Hand arithmetic in fixtures/README.md, section 10; t critical value 2.262 (df 9, two-sided 95%) from the NIST t table",
+  "n_pairs": 10, "only_earlier": 2, "only_later": 1, "moved_up": 4, "unchanged": 5, "moved_down": 1,
+  "mean_change": 40.0, "sd": 84.33, "se": 26.67, "t": 1.5, "df": 9, "ci_low": -20.32, "ci_high": 100.32,
+  "p_value_between": [0.10, 0.20]
+}

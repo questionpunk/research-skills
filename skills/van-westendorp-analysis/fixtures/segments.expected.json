@@ -1,0 +1,93 @@
+{
+  "args": [
+    "--segment",
+    "plan"
+  ],
+  "price_points": {
+    "pmc": {
+      "price": 7.5,
+      "status": "interpolated"
+    },
+    "opp": {
+      "price": 9.5,
+      "status": "interpolated"
+    },
+    "ipp": {
+      "price": 9.666667,
+      "status": "interpolated"
+    },
+    "pme": {
+      "price": 11.5,
+      "status": "interpolated"
+    }
+  },
+  "segments": {
+    "starter": {
+      "respondents": {
+        "analysed": 5
+      },
+      "price_points": {
+        "pmc": {
+          "price": 5.0,
+          "status": "exact"
+        },
+        "opp": {
+          "price": 6.5,
+          "status": "flat",
+          "interval": [
+            6,
+            7
+          ]
+        },
+        "ipp": {
+          "price": 7.333333,
+          "status": "interpolated"
+        },
+        "pme": {
+          "price": 8.666667,
+          "status": "interpolated"
+        }
+      },
+      "alternative_range": {
+        "low": 5.5,
+        "high": 8.0
+      }
+    },
+    "team": {
+      "respondents": {
+        "analysed": 5
+      },
+      "price_points": {
+        "pmc": {
+          "price": 10.0,
+          "status": "exact"
+        },
+        "opp": {
+          "price": 13.0,
+          "status": "flat",
+          "interval": [
+            12,
+            14
+          ]
+        },
+        "ipp": {
+          "price": 12.0,
+          "status": "exact"
+        },
+        "pme": {
+          "price": 15.0,
+          "status": "exact"
+        }
+      },
+      "alternative_range": {
+        "low": 10.666667,
+        "high": 14.5
+      }
+    }
+  },
+  "starter_opp_by_tie": {
+    "min": 6.0,
+    "max": 7.0,
+    "midpoint": 6.5
+  }
+}

@@ -1,0 +1,80 @@
+[[AdvancedFormat]]
+
+[[ED:source]]
+[[ED:wave:2]]
+
+[[Block:Session]]
+
+[[Question:MC:SingleAnswer:Vertical]]
+[[ID:rating]]
+How would you rate the session?
+[[AdvancedChoices]]
+[[Choice:1]]
+Good
+[[Choice:0]]
+Poor
+[[Choice:99]]
+Did not attend
+
+[[Question:MC:MultipleAnswer:Vertical]]
+[[ID:topics]]
+Which topics did you attend?
+[[Choices]]
+Pricing
+Research &amp; design
+
+[[PageBreak]]
+
+[[Question:Matrix:SingleAnswer]]
+[[ID:agree]]
+How much do you agree?
+[[Choices]]
+It was useful
+It was well paced
+[[AdvancedAnswers]]
+[[Answer:0]]
+Disagree
+[[Answer:1]]
+Agree
+
+[[Block:Closing]]
+
+[[Question:DB]]
+[[ID:thanks]]
+Thank you.<br>Two more questions.
+
+[[Question:RO]]
+[[ID:formats]]
+Rank the formats.
+[[Choices]]
+Talk
+Workshop
+
+[[Question:CS]]
+[[ID:budget]]
+Split 100 points.
+[[Choices]]
+Talks
+Workshops
+
+[[Question:TE:Form]]
+[[ID:contact]]
+Stay in touch?
+[[Choices]]
+Name
+Email
+
+[[Question:TE:Essay]]
+[[ID:more]]
+Anything else?
+
+[[Question:TE:SingleLine]]
+[[ID:city]]
+Your city
+
+[[Question:MC:DropDown]]
+[[ID:role]]
+Your role
+[[Choices]]
+Researcher
+Other

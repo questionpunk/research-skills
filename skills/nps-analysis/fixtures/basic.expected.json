@@ -1,0 +1,25 @@
+{
+  "source": "Hand arithmetic in fixtures/README.md, sections 1 to 3",
+  "overall": {"n": 40, "promoters": 18, "passives": 10, "detractors": 12, "nps": 15.0,
+    "adjusted_wald": {"ci_low": -11.29, "ci_high": 39.19},
+    "wald": {"ci_low": -11.43, "ci_high": 41.43}},
+  "segments": {
+    "smb": {"n": 25, "promoters": 15, "passives": 5, "detractors": 5, "nps": 40.0,
+      "adjusted_wald": {"ci_low": 6.08, "ci_high": 65.35}},
+    "enterprise": {"n": 15, "promoters": 3, "passives": 5, "detractors": 7, "nps": -26.67,
+      "adjusted_wald": {"ci_low": -57.69, "ci_high": 13.25}}
+  },
+  "smb_vs_enterprise": {
+    "difference": 66.67,
+    "adjusted_wald": {"difference_adjusted": 57.94, "z": 2.457, "p_value": 0.0140, "ci_low": 11.71, "ci_high": 104.16},
+    "wald": {"z": 2.609, "p_value": 0.0091, "ci_low": 16.58, "ci_high": 116.75}
+  },
+  "periods": {
+    "2026-Q2": {"n": 20, "promoters": 7, "passives": 6, "detractors": 7, "nps": 0.0},
+    "2026-Q3": {"n": 20, "promoters": 11, "passives": 4, "detractors": 5, "nps": 30.0}
+  },
+  "q3_vs_q2": {"difference": 30.0, "adjusted_wald": {"z": 1.070, "p_value": 0.2846}},
+  "comments": {"promoters": {"respondents": 18, "with_comment": 13},
+    "passives": {"respondents": 10, "with_comment": 8},
+    "detractors": {"respondents": 12, "with_comment": 10}}
+}

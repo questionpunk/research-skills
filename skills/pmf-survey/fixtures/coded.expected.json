@@ -1,0 +1,6 @@
+{
+  "map": ["1=very", "2=somewhat", "3=not", "4=na"],
+  "counts": {"very": 5, "somewhat": 3, "not": 2, "na": 1, "blank": 0},
+  "score": {"very": 5, "base": 10, "pct": 50.0, "ci_low_pct": 23.7, "ci_high_pct": 76.3, "verdict": "cannot_tell", "small_base": true},
+  "unknown_labels_without_map": ["1", "2", "3", "4"]
+}

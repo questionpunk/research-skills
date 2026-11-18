@@ -1,0 +1,7 @@
+{
+  "args": [],
+  "price_points": {
+    "pmc": {"price": 2.0, "status": "exact"},
+    "pme": {"price": 2.0, "status": "exact"}
+  }
+}

@@ -1,0 +1,82 @@
+{
+ "note": "Hand-worked; JSON input has no line numbers. See README.md.",
+ "questions": 4,
+ "findings": [
+  {
+   "question": "A",
+   "line": null,
+   "rule": "SB001",
+   "kind": "joined",
+   "severity": "medium",
+   "match": "price and quality"
+  },
+  {
+   "question": "B",
+   "line": null,
+   "rule": "SB010",
+   "kind": "gap",
+   "severity": "high",
+   "match": "51-200 / 250 or more"
+  },
+  {
+   "question": "B",
+   "line": null,
+   "rule": "SB010",
+   "kind": "overlap",
+   "severity": "high",
+   "match": "1-10 / 10-50"
+  },
+  {
+   "question": "C",
+   "line": null,
+   "rule": "SB014",
+   "kind": "grid",
+   "severity": "medium",
+   "match": "agree/disagree grid, 2 rows"
+  },
+  {
+   "question": "Cb",
+   "line": null,
+   "rule": "SB003",
+   "kind": "absolute",
+   "severity": "medium",
+   "match": "never"
+  },
+  {
+   "question": "Cb",
+   "line": null,
+   "rule": "SB005",
+   "kind": "single",
+   "severity": "medium",
+   "match": "never"
+  },
+  {
+   "question": "A",
+   "line": null,
+   "rule": "SB018",
+   "kind": "experience",
+   "severity": "low",
+   "match": "how satisfied"
+  },
+  {
+   "question": "A",
+   "line": null,
+   "rule": "SB019",
+   "kind": "one_sided",
+   "severity": "low",
+   "match": "how satisfied"
+  }
+ ],
+ "summary": {
+  "total": 8,
+  "high": 2,
+  "medium": 4,
+  "low": 2,
+  "info": 0
+ },
+ "length": {
+  "points": 7.0,
+  "seconds": 52.5,
+  "minutes": 0.88
+ }
+}

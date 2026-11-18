@@ -1,0 +1,15 @@
+{
+  "args": ["--nms-weights", "0.75,0.25,0.10,0,0"],
+  "source": "Orme, Pricing Research Tools You Must Know (Sawtooth Software), Newton-Miller-Smith example",
+  "nms": {
+    "n": 1,
+    "curve": [
+      {"price": 100, "trial": 0.0, "revenue_index": 0.0},
+      {"price": 130, "trial": 0.75, "revenue_index": 97.5},
+      {"price": 175, "trial": 0.1, "revenue_index": 17.5},
+      {"price": 200, "trial": 0.0, "revenue_index": 0.0}
+    ],
+    "trial_max": {"price": 130, "trial": 0.75},
+    "revenue_max": {"price": 130, "revenue_index": 97.5}
+  }
+}

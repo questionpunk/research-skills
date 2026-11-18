@@ -1,0 +1,109 @@
+{
+  "args": [],
+  "nms": {
+    "n": 4,
+    "curve": [
+      {
+        "price": 10,
+        "trial": 0.0,
+        "revenue_index": 0.0
+      },
+      {
+        "price": 20,
+        "trial": 0.3,
+        "revenue_index": 6.0
+      },
+      {
+        "price": 30,
+        "trial": 0.4,
+        "revenue_index": 12.0
+      },
+      {
+        "price": 40,
+        "trial": 0.1875,
+        "revenue_index": 7.5
+      },
+      {
+        "price": 50,
+        "trial": 0.0625,
+        "revenue_index": 3.125
+      },
+      {
+        "price": 60,
+        "trial": 0.0,
+        "revenue_index": 0.0
+      }
+    ],
+    "trial_max": {
+      "price": 30,
+      "trial": 0.4
+    },
+    "revenue_max": {
+      "price": 30,
+      "revenue_index": 12.0
+    }
+  },
+  "modified_variant_curve": [
+    {
+      "price": 10,
+      "trial": 0.55,
+      "revenue_index": 5.5
+    },
+    {
+      "price": 20,
+      "trial": 0.55,
+      "revenue_index": 11.0
+    },
+    {
+      "price": 30,
+      "trial": 0.4,
+      "revenue_index": 12.0
+    }
+  ],
+  "modified_variant_revenue_max": {
+    "price": 28.333333,
+    "revenue_index": 12.041667,
+    "trial": 0.425,
+    "on_grid": false
+  },
+  "preset_orme_cpg_curve": [
+    {
+      "price": 10,
+      "trial": 0.0
+    },
+    {
+      "price": 20,
+      "trial": 0.25
+    },
+    {
+      "price": 30,
+      "trial": 0.26875
+    },
+    {
+      "price": 40,
+      "trial": 0.075
+    },
+    {
+      "price": 50,
+      "trial": 0.03125
+    },
+    {
+      "price": 60,
+      "trial": 0.0
+    }
+  ],
+  "too_cheap_prob_0_2_curve": [
+    {
+      "price": 10,
+      "trial": 0.2
+    },
+    {
+      "price": 20,
+      "trial": 0.4
+    },
+    {
+      "price": 30,
+      "trial": 0.4
+    }
+  ]
+}

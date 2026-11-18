@@ -1,0 +1,13 @@
+{
+  "args": [],
+  "opp_interval": [
+    2,
+    5
+  ],
+  "opp_by_tie": {
+    "min": 2.0,
+    "max": 5.0,
+    "midpoint": 3.5,
+    "mean": 3.333333
+  }
+}

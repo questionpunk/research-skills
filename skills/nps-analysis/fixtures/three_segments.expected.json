@@ -1,0 +1,6 @@
+{
+  "source": "Hand arithmetic in fixtures/README.md, section 5",
+  "p_values": {"free|pro": 0.008838, "free|team": 0.066726, "pro|team": 0.431989},
+  "bonferroni": {"free|pro": 0.026513, "free|team": 0.200177, "pro|team": 1.0},
+  "holm": {"free|pro": 0.026513, "free|team": 0.133452, "pro|team": 0.431989}
+}

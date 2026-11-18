@@ -1,0 +1,11 @@
+{
+  "args": [],
+  "respondents": {"read": 13, "incomplete": 1, "inconsistent": 2, "inconsistent_ids": ["R11", "R12"], "analysed": 10},
+  "price_points": {
+    "pmc": {"price": 7.5, "status": "interpolated"},
+    "opp": {"price": 9.5, "status": "interpolated"},
+    "ipp": {"price": 9.666667, "status": "interpolated"},
+    "pme": {"price": 11.5, "status": "interpolated"}
+  },
+  "keep_inconsistent": {"analysed": 12, "opp": 9.5}
+}

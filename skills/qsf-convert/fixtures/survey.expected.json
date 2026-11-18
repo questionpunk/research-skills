@@ -1,0 +1,131 @@
+{
+  "_comment": "Hand-written from the shapes in references/sources.md, not produced by the script. tests/ asserts that every field here appears with this value in the .qsf built from survey.input.md.",
+  "entry": {"SurveyName": "Product feedback pulse", "SurveyLanguage": "EN", "SurveyStatus": "Inactive"},
+  "element_codes": ["BL", "FL", "SO", "SCO", "PROJ", "STAT", "QC", "RS", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ", "SQ"],
+  "question_count": "12",
+  "blocks": [
+    {
+      "Type": "Default",
+      "Description": "Screener",
+      "BlockElements": [
+        {
+          "Type": "Question",
+          "QuestionID": "QID1",
+          "SkipLogic": [
+            {"SkipLogicID": 1, "ChoiceLocator": "q://QID1/SelectableChoice/2", "Locator": "q://QID1/SelectableChoice/2", "Condition": "Selected", "SkipToDestination": "ENDOFSURVEY", "QuestionID": "QID1"},
+            {"SkipLogicID": 2, "ChoiceLocator": "q://QID1/SelectableChoice/3", "Locator": "q://QID1/SelectableChoice/3", "Condition": "Selected", "SkipToDestination": "QID3", "QuestionID": "QID1"}
+          ]
+        },
+        {"Type": "Question", "QuestionID": "QID2"},
+        {"Type": "Question", "QuestionID": "QID3"},
+        {"Type": "Page Break"},
+        {"Type": "Question", "QuestionID": "QID4"}
+      ]
+    },
+    {"Type": "Trash", "Description": "Trash / Unused Questions", "BlockElements": []},
+    {
+      "Type": "Standard",
+      "Description": "Experience",
+      "BlockElements": [
+        {"Type": "Question", "QuestionID": "QID5"},
+        {"Type": "Question", "QuestionID": "QID6"},
+        {"Type": "Question", "QuestionID": "QID7"},
+        {"Type": "Question", "QuestionID": "QID8"},
+        {"Type": "Question", "QuestionID": "QID9"},
+        {"Type": "Question", "QuestionID": "QID10"},
+        {"Type": "Question", "QuestionID": "QID11"},
+        {"Type": "Question", "QuestionID": "QID12"}
+      ]
+    }
+  ],
+  "flow": {"Type": "Root", "FlowID": "FL_1", "node_types": ["Block", "Standard"], "node_flow_ids": ["FL_2", "FL_3"], "Count": 3},
+  "questions": [
+    {
+      "QuestionID": "QID1", "DataExportTag": "used", "QuestionType": "MC", "Selector": "SAVR", "SubSelector": "TX",
+      "QuestionText": "Have you used the product in the last 30 days?",
+      "Choices": {"1": {"Display": "Yes"}, "2": {"Display": "No"}, "3": {"Display": "Not sure"}},
+      "ChoiceOrder": ["1", "2", "3"],
+      "Validation": {"Settings": {"ForceResponse": "ON", "ForceResponseType": "ON", "Type": "None"}}
+    },
+    {
+      "QuestionID": "QID2", "DataExportTag": "features", "QuestionType": "MC", "Selector": "MAVR", "SubSelector": "TX",
+      "QuestionText": "Which features did you use?<br>Select all that apply.",
+      "Choices": {
+        "1": {"Display": "Reports &amp; exports"},
+        "2": {"Display": "Sharing"},
+        "3": {"Display": "Other", "TextEntry": "true"},
+        "4": {"Display": "None of these", "ExclusiveAnswer": true}
+      },
+      "ChoiceOrder": ["1", "2", "3", "4"],
+      "Validation": {"Settings": {"ForceResponse": "RequestResponse", "ForceResponseType": "RequestResponse", "Type": "None"}},
+      "DisplayLogic": {
+        "0": {
+          "0": {"LogicType": "Question", "QuestionID": "QID1", "QuestionIsInLoop": "no", "ChoiceLocator": "q://QID1/SelectableChoice/1", "Operator": "Selected", "QuestionIDFromLocator": "QID1", "LeftOperand": "q://QID1/SelectableChoice/1", "Type": "Expression"},
+          "Type": "If"
+        },
+        "Type": "BooleanExpression",
+        "inPage": false
+      }
+    },
+    {
+      "QuestionID": "QID3", "DataExportTag": "role", "QuestionType": "MC", "Selector": "DL", "SubSelector": null,
+      "Choices": {"1": {"Display": "Researcher"}, "2": {"Display": "Product manager"}, "3": {"Display": "Designer"}},
+      "ChoiceOrder": ["1", "2", "3"],
+      "Validation": {"Settings": {"ForceResponse": "OFF", "ForceResponseType": "ON", "Type": "None"}}
+    },
+    {
+      "QuestionID": "QID4", "DataExportTag": "intro", "QuestionType": "DB", "Selector": "TB", "SubSelector": null,
+      "QuestionText": "The next questions are about your <strong>overall</strong> experience.",
+      "QuestionDescription": "The next questions are about your overall experience.",
+      "Choices": null,
+      "Validation": {"Settings": {"Type": "None"}}
+    },
+    {
+      "QuestionID": "QID5", "DataExportTag": "nps", "QuestionType": "MC", "Selector": "NPS", "SubSelector": null,
+      "Choices": [{"Display": "0"}, {"Display": "1"}, {"Display": "2"}, {"Display": "3"}, {"Display": "4"}, {"Display": "5"}, {"Display": "6"}, {"Display": "7"}, {"Display": "8"}, {"Display": "9"}, {"Display": "10"}],
+      "ChoiceOrder": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+      "ColumnLabels": [{"Display": "Not at all likely", "IsLabelDefault": true}, {"Display": "Extremely likely", "IsLabelDefault": true}],
+      "Validation": {"Settings": {"ForceResponse": "ON", "ForceResponseType": "ON", "Type": "None"}}
+    },
+    {
+      "QuestionID": "QID6", "DataExportTag": "agree", "QuestionType": "Matrix", "Selector": "Likert", "SubSelector": "SingleAnswer",
+      "Choices": {"1": {"Display": "It is easy to use"}, "2": {"Display": "It saves me time"}},
+      "ChoiceOrder": ["1", "2"],
+      "Answers": {"1": {"Display": "Disagree"}, "2": {"Display": "Neither"}, "3": {"Display": "Agree"}},
+      "AnswerOrder": ["1", "2", "3"]
+    },
+    {
+      "QuestionID": "QID7", "DataExportTag": "often", "QuestionType": "Matrix", "Selector": "Likert", "SubSelector": "MultipleAnswer",
+      "Choices": {"1": {"Display": "Reports"}, "2": {"Display": "Sharing"}},
+      "Answers": {"1": {"Display": "Weekdays"}, "2": {"Display": "Weekends"}},
+      "AnswerOrder": ["1", "2"]
+    },
+    {
+      "QuestionID": "QID8", "DataExportTag": "effort", "QuestionType": "Slider", "Selector": "HSLIDER", "SubSelector": null,
+      "Choices": {"1": {"Display": "Setup"}},
+      "ChoiceOrder": ["1"],
+      "Labels": {"1": {"Display": "Very little"}, "2": {"Display": "A great deal"}}
+    },
+    {
+      "QuestionID": "QID9", "DataExportTag": "priorities", "QuestionType": "RO", "Selector": "DND", "SubSelector": "TX",
+      "Choices": {"1": {"Display": "Speed"}, "2": {"Display": "Price &lt; value"}, "3": {"Display": "Support"}},
+      "ChoiceOrder": ["1", "2", "3"]
+    },
+    {
+      "QuestionID": "QID10", "DataExportTag": "why", "QuestionType": "TE", "Selector": "ML", "SubSelector": null,
+      "Choices": null,
+      "DisplayLogic": {
+        "0": {
+          "0": {"LogicType": "Question", "QuestionID": "QID1", "LeftOperand": "q://QID1/SelectableChoice/1", "Operator": "Selected", "Type": "Expression"},
+          "1": {"LogicType": "Question", "QuestionID": "QID3", "LeftOperand": "q://QID3/SelectableChoice/3", "Operator": "NotSelected", "Type": "Expression", "Conjuction": "Or"},
+          "Type": "If"
+        },
+        "Type": "BooleanExpression",
+        "inPage": false
+      }
+    },
+    {"QuestionID": "QID11", "DataExportTag": "email", "QuestionType": "TE", "Selector": "SL", "SubSelector": null},
+    {"QuestionID": "QID12", "DataExportTag": "story", "QuestionType": "TE", "Selector": "ESTB", "SubSelector": null}
+  ],
+  "slider_configuration": {"QID8": {"CSSliderMin": 1, "CSSliderMax": 7, "GridLines": 6}}
+}

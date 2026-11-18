@@ -1,0 +1,13 @@
+{
+  "tables": [
+    {"column": "persona", "segments": [
+      {"segment": "Founder", "very": 4, "base": 5, "pct": 80.0, "ci_low_pct": 37.6, "ci_high_pct": 96.4},
+      {"segment": "Manager", "very": 1, "base": 7, "pct": 14.3, "ci_low_pct": 2.6, "ci_high_pct": 51.3}
+    ]},
+    {"column": "plan", "segments": [
+      {"segment": "Paid", "very": 4, "base": 6, "pct": 66.7, "ci_low_pct": 30.0, "ci_high_pct": 90.3},
+      {"segment": "Free", "very": 1, "base": 6, "pct": 16.7, "ci_low_pct": 3.0, "ci_high_pct": 56.4}
+    ]}
+  ],
+  "segment_intervals_read": 4
+}

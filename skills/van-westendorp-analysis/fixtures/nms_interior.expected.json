@@ -1,0 +1,16 @@
+{
+  "args": [],
+  "nms": {
+    "n": 1,
+    "curve": [
+      {"price": 10, "trial": 0.0, "revenue_index": 0.0},
+      {"price": 20, "trial": 0.7, "revenue_index": 14.0},
+      {"price": 30, "trial": 0.5, "revenue_index": 15.0},
+      {"price": 100, "trial": 0.0, "revenue_index": 0.0}
+    ],
+    "trial_max": {"price": 20, "trial": 0.7},
+    "revenue_max": {"price": 50, "revenue_index": 17.857143, "trial": 0.357143, "on_grid": false},
+    "revenue_max_on_grid": {"price": 30, "revenue_index": 15.0}
+  },
+  "price_points": {"opp": {"price": 25.0, "status": "flat", "interval": [20, 30]}}
+}

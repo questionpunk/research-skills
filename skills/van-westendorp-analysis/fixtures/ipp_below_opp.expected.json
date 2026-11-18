@@ -1,0 +1,17 @@
+{
+  "args": [],
+  "price_points": {
+    "opp": {
+      "price": 9.25,
+      "status": "flat",
+      "interval": [
+        9,
+        9.5
+      ]
+    },
+    "ipp": {
+      "price": 2.75,
+      "status": "interpolated"
+    }
+  }
+}

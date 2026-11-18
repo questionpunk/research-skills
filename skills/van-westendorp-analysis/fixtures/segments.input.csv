@@ -1,0 +1,11 @@
+respondent_id,too_cheap,cheap,expensive,too_expensive,plan
+R01,2,4,6,8,starter
+R02,3,5,8,10,starter
+R03,4,6,8,12,starter
+R04,4,7,10,12,starter
+R05,5,8,10,14,starter
+R06,6,9,12,15,team
+R07,7,10,12,16,team
+R08,8,10,14,18,team
+R09,9,12,15,20,team
+R10,10,14,16,20,team

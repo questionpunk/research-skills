@@ -1,0 +1,14 @@
+respondent_id,account,disappointment
+r001,A,Very disappointed
+r002,A,Very disappointed
+r003,A,Somewhat disappointed
+r004,B,Very disappointed
+r005,B,Somewhat disappointed
+r006,C,Very disappointed
+r007,D,Somewhat disappointed
+r008,D,Not disappointed
+r009,E,N/A - I no longer use Acme
+r010,E,N/A - I no longer use Acme
+r011,F,Very disappointed
+r012,F,N/A - I no longer use Acme
+r013,,Somewhat disappointed

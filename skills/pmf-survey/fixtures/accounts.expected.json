@@ -1,0 +1,5 @@
+{
+  "counts": {"very": 5, "somewhat": 4, "not": 1, "na": 3, "blank": 0},
+  "score": {"very": 5, "base": 10, "pct": 50.0, "ci_low_pct": 23.7, "ci_high_pct": 76.3},
+  "accounts": {"accounts": 7, "accounts_outside_base": 1, "respondents_without_account": 1, "very": 3, "base": 6, "pct": 50.0, "ci_low_pct": 18.8, "ci_high_pct": 81.2}
+}

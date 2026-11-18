@@ -1,0 +1,34 @@
+{
+  "args": [],
+  "questions": 3,
+  "respondents": {
+    "analysed": 10,
+    "consistency_rule": "cheap <= expensive <= too expensive"
+  },
+  "price_points": {
+    "pmc": {
+      "price": null,
+      "status": "unavailable"
+    },
+    "opp": {
+      "price": null,
+      "status": "unavailable"
+    },
+    "ipp": {
+      "price": 9.666667,
+      "status": "interpolated"
+    },
+    "pme": {
+      "price": 11.5,
+      "status": "interpolated"
+    }
+  },
+  "acceptable_range": {
+    "low": null,
+    "high": 11.5
+  },
+  "alternative_range": {
+    "low": null,
+    "high": 11.0
+  }
+}

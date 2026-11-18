@@ -1,0 +1,7 @@
+{
+  "benefits_among_very": [{"benefit": "Speed", "n": 5}, {"benefit": "Focus", "n": 2}],
+  "core_benefit": "Speed",
+  "somewhat_split": {"somewhat": 6, "benefit_matches": 3, "benefit_differs": 3, "benefit_unknown": 0},
+  "other_benefits": [{"benefit": "Focus", "n": 2}, {"benefit": "Design", "n": 1}],
+  "with_core_benefit_FOCUS": {"benefit_matches": 2, "benefit_differs": 4}
+}

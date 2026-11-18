@@ -1,0 +1,41 @@
+respondent_id,nps_score,plan,quarter,comment
+r001,9,smb,2026-Q2,Support answered within the hour
+r002,10,smb,2026-Q2,Setup took ten minutes
+r003,10,smb,2026-Q2,
+r004,9,smb,2026-Q2,The reports save me a day a month
+r005,10,smb,2026-Q2,Easy to share with my team
+r006,10,smb,2026-Q2,
+r007,7,smb,2026-Q2,"Fine, but the mobile app is slow"
+r008,8,smb,2026-Q2,Missing a calendar integration
+r009,7,smb,2026-Q2,Does the job
+r010,0,smb,2026-Q2,The export keeps failing
+r011,3,smb,2026-Q2,Onboarding call never happened
+r012,5,smb,2026-Q2,Price went up without notice
+r013,9,enterprise,2026-Q2,Support answered within the hour
+r014,7,enterprise,2026-Q2,
+r015,8,enterprise,2026-Q2,"Fine, but the mobile app is slow"
+r016,7,enterprise,2026-Q2,Missing a calendar integration
+r017,0,enterprise,2026-Q2,Onboarding call never happened
+r018,3,enterprise,2026-Q2,Price went up without notice
+r019,5,enterprise,2026-Q2,Too expensive for what we use
+r020,6,enterprise,2026-Q2,Invoices are confusing
+r021,9,smb,2026-Q3,
+r022,10,smb,2026-Q3,The reports save me a day a month
+r023,10,smb,2026-Q3,Easy to share with my team
+r024,9,smb,2026-Q3,
+r025,10,smb,2026-Q3,Support answered within the hour
+r026,10,smb,2026-Q3,Setup took ten minutes
+r027,9,smb,2026-Q3,
+r028,10,smb,2026-Q3,The reports save me a day a month
+r029,10,smb,2026-Q3,Easy to share with my team
+r030,7,smb,2026-Q3,
+r031,8,smb,2026-Q3,"Fine, but the mobile app is slow"
+r032,0,smb,2026-Q3,Invoices are confusing
+r033,3,smb,2026-Q3,
+r034,9,enterprise,2026-Q3,The reports save me a day a month
+r035,10,enterprise,2026-Q3,Easy to share with my team
+r036,7,enterprise,2026-Q3,Missing a calendar integration
+r037,8,enterprise,2026-Q3,Does the job
+r038,0,enterprise,2026-Q3,Invoices are confusing
+r039,3,enterprise,2026-Q3,
+r040,5,enterprise,2026-Q3,The export keeps failing

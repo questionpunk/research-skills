@@ -1,0 +1,7 @@
+{
+  "note": "Negative cases for SB017-SB027: each question sits next to a new rule without breaking it. See README.md.",
+  "questions": 10,
+  "findings": [],
+  "summary": {"total": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
+  "length": {"points": 16.5, "seconds": 123.8, "minutes": 2.06}
+}

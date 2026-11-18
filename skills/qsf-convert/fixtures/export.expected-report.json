@@ -1,0 +1,23 @@
+{
+  "_comment": "Hand-written (see fixtures/README.md). 'warnings_contain': one fragment per thing in export.input.qsf that the Markdown cannot hold; the test requires a warning for each and no others. The three lists are the fixed conversion report.",
+  "warnings_contain": [
+    "flow: branch not represented (condition: If source Is Equal to panel)",
+    "flow: an 'end of survey' element is not represented",
+    "trash: 1 question(s) in the Trash block were left out",
+    "QID4: export tag 'commute mins'",
+    "QID12: export tag 'commute'",
+    "QID3 (modes): HTML formatting removed from the question text (<span>)",
+    "QID4 (q4): validation rule not represented (Type ContentType)",
+    "QID4 (q4): skip logic not represented",
+    "QID6 (nps): display logic not represented: If source Is Equal to panel",
+    "QID8 (sbs): side-by-side question written as 2 separate question(s), one per column",
+    "QID10 (timer): question left out, type Timing/PageTimer",
+    "QID12 (q12): custom question label not represented ('City list')",
+    "survey-level elements not represented: NT",
+    "survey options"
+  ],
+  "questions_in_file": 15,
+  "converted": ["QID1", "QID2", "QID5", "QID7", "QID11", "QID13", "QID14", "QID15"],
+  "converted_with_changes": ["QID3", "QID4", "QID6", "QID8", "QID12"],
+  "not_converted": {"QID9": "it is in the Trash block", "QID10": "type Timing/PageTimer is outside the supported set"}
+}

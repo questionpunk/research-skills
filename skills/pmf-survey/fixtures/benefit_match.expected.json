@@ -1,0 +1,4 @@
+{
+  "counts": {"very": 5, "somewhat": 6, "not": 2, "na": 0, "blank": 0},
+  "somewhat_split": {"somewhat": 6, "benefit_matches": 3, "benefit_differs": 2, "benefit_unknown": 1}
+}

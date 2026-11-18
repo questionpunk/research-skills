@@ -1,0 +1,7 @@
+{
+  "source": "Hand arithmetic in fixtures/README.md, section 11",
+  "coded_respondents": 12,
+  "price": {"mentions": 5, "nps_mentioned": -40.0, "ci_low": -79.78, "ci_high": 29.78, "nps_rest": 42.86, "difference": -82.86, "diff_ci_low": -126.78, "diff_ci_high": 16.78},
+  "support": {"mentions": 5, "nps_mentioned": 20.0, "nps_rest": 0.0},
+  "ease of use": {"mentions": 5, "nps_mentioned": 60.0, "nps_rest": -28.57}
+}

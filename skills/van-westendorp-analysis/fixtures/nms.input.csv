@@ -1,0 +1,5 @@
+respondent_id,too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive
+N1,10,20,30,40,5,3
+N2,10,20,40,50,4,2
+N3,20,30,40,60,5,4
+N4,20,30,50,60,3,1

@@ -1,0 +1,13 @@
+respondent,segment,version,set,best,worst
+r1,smb,1,1,A,C
+r1,smb,1,2,A,D
+r1,smb,1,3,A,D
+r1,smb,1,4,B,D
+r2,smb,1,1,B,C
+r2,smb,1,2,A,D
+r2,smb,1,3,C,A
+r2,smb,1,4,B,D
+r3,ent,1,1,A,B
+r3,ent,1,2,D,B
+r3,ent,1,3,A,C
+r3,ent,1,4,C,B

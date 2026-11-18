@@ -1,0 +1,7 @@
+code,label,definition,include,exclude,example_quote
+PRICE,Price too high or unclear,The respondent complains about what the product costs or about how pricing is presented.,"Too expensive, price rises, confusing plans, asks for a cheaper plan",Price mentioned as acceptable; billing support behaviour (SUPPORT),Costs too much
+SUPPORT,Support quality,The respondent complains about help from the support team.,"Slow replies, no reply, rude or unhelpful agents",Missing help articles (OTHER),Support took three days to reply
+SPEED,Slow performance,The respondent says the product is slow.,"Slow pages, slow app, lag",Slow support replies (SUPPORT),Slow on my phone
+UX,Hard to use or navigate,The respondent cannot find things or finds the interface confusing.,"Navigation, menus, hidden buttons",Confusing pricing plans (PRICE),Navigation is confusing
+OTHER,Other,A real answer that fits no code above.,,,
+UNCODABLE,Uncodable,"Text with no usable content: n/a, gibberish, off-topic.",,,

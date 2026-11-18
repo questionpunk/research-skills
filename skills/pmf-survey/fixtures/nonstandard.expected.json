@@ -1,0 +1,6 @@
+{
+  "without_map": {"exit_code": 2, "stderr_contains": ["Non-standard answer wording", "not comparable with the 40% benchmark", "Mildly disappointed"]},
+  "map": ["Mildly disappointed=somewhat"],
+  "score": {"very": 4, "base": 10, "pct": 40.0, "ci_low_pct": 16.8, "ci_high_pct": 68.7, "verdict": "not_comparable"},
+  "benchmark_comparable": false
+}

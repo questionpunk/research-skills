@@ -1,0 +1,14 @@
+{
+  "counts": {"very": 30, "somewhat": 25, "not": 17, "na": 3, "blank": 0},
+  "score": {"very": 30, "base": 72, "pct": 41.7, "ci_low_pct": 31.0, "ci_high_pct": 53.2, "verdict": "cannot_tell", "small_base": false},
+  "pct_with_na_in_base": 40.0,
+  "segments": [
+    {"segment": "Founder", "very": 18, "base": 30, "na": 2, "pct": 60.0, "ci_low_pct": 42.3, "ci_high_pct": 75.4, "verdict": "above", "small_base": false, "share_of_very_pct": 60.0},
+    {"segment": "Manager", "very": 9, "base": 30, "na": 1, "pct": 30.0, "ci_low_pct": 16.7, "ci_high_pct": 47.9, "verdict": "cannot_tell", "small_base": false, "share_of_very_pct": 30.0},
+    {"segment": "Engineer", "very": 3, "base": 12, "na": 0, "pct": 25.0, "ci_low_pct": 8.9, "ci_high_pct": 53.2, "verdict": "cannot_tell", "small_base": true, "share_of_very_pct": 10.0}
+  ],
+  "focus": {"segments": ["Founder", "Manager"], "very": 27, "base": 60, "pct": 45.0, "ci_low_pct": 33.1, "ci_high_pct": 57.5, "verdict": "cannot_tell", "small_base": false},
+  "benefits_among_very": [{"benefit": "speed", "n": 18}, {"benefit": "focus", "n": 8}, {"benefit": "design", "n": 4}],
+  "core_benefit": "speed",
+  "somewhat_split": {"somewhat": 25, "benefit_matches": 10, "benefit_differs": 13, "benefit_unknown": 2}
+}

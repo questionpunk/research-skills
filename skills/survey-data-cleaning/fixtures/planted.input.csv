@@ -1,0 +1,21 @@
+id,duration_sec,email,ip,g1,g2,g3,g4,g5,g6,b1,b2,b3,b4,ac1,ac2,age,years_experience,uses_product,sessions_per_week,open_feedback
+R01,600,ana@example.com,192.0.2.1,4,5,3,4,2,4,3,4,2,5,Strongly disagree,4,34,10,Weekly,3,The onboarding was confusing but support helped me quickly.
+R02,540,ben@example.com,192.0.2.2,2,2,3,4,4,5,1,2,2,3,Strongly disagree,4,45,20,Never,0,I have not tried it yet so I cannot say much.
+R03,660,cy@example.com,192.0.2.3,5,4,4,4,3,2,1,1,1,,Strongly disagree,4,29,5,Daily,7,Fast and reliable for my team.
+R04,150,dee@example.com,192.0.2.4,1,3,2,5,4,1,2,5,1,3,Agree,1,38,12,Monthly,1,kkkkkk
+R05,620,dana@example.com,192.0.2.5,3,3,4,2,5,4,4,3,3,2,Strongly disagree,4,24,30,Weekly,2,Reports are useful but exports are slow.
+R06,580,eli@example.com,192.0.2.6,5,5,5,5,5,5,4,5,3,4,Strongly disagree,4,52,25,Daily,6,Love it and use it every single day.
+R07,700,fay@example.com,192.0.2.7,4,3,4,2,3,5,2,3,4,4,Strongly disagree,4,41,15,Weekly,4,Works well for us.
+R08,700,fay@example.com,192.0.2.7,4,3,4,2,3,5,2,3,4,4,Strongly disagree,4,41,15,Weekly,4,Works well for us.
+R09,610,gus@example.com,192.0.2.9,2,4,3,3,5,1,2,2,2,2,Strongly disagree,4,Prefer not to say,8,Monthly,1,Decent tool though the mobile app needs work.
+R10,590,hal@example.com,192.0.2.10,3,4,2,2,2,5,5,4,3,1,Strongly disagree,4,36,9,Weekly,3,x
+R11,200,ida@example.com,192.0.2.11,4,2,5,3,3,4,3,1,4,2,Strongly disagree,4,27,4,Daily,5,No
+R12,630,jon@example.com,192.0.2.12,4,4,4,4,4,2,3,2,5,4,Strongly disagree,4,48,22,Weekly,2,Good value overall and easy to set up.
+R13,570,kim@example.com,192.0.2.2,1,2,4,3,5,5,2,4,4,1,Strongly disagree,4,33,7,Monthly,1,Setup took a while but it runs fine now.
+R14,640,lee@example.com,192.0.2.14,3,5,4,4,2,1,5,5,2,3,Disagree,4,31,40,Weekly,3,Customer service answered within an hour.
+R15,,mo@example.com,192.0.2.15,2,3,5,4,1,3,4,2,3,5,Strongly disagree,4,39,14,Daily,7,bcdfg
+R16,900,Dana@Example.com ,192.0.2.16,5,3,3,2,4,4,1,3,2,2,Strongly disagree,4,57,30,Weekly,2,The dashboard is clear and the alerts are helpful.
+R17,480,nia@example.com,192.0.2.17,4,1,3,5,2,4,3,5,1,2,strongly disagree ,,26,3,Monthly,2,Does what it promises without fuss.
+R18,605,oz@example.com,192.0.2.18,3,2,4,4,5,3,,,,,Strongly disagree,4,,,,,
+R19,595,pat@example.com,192.0.2.19,2,5,4,3,3,1,4,1,3,5,Strongly disagree,4,44,18,Weekly,4,The onboarding was confusing but support helped me quickly.
+R20,120,quin@example.com,192.0.2.20,3,3,3,3,3,3,3,3,1,2,Agree,2,22,2,Never,5,asdfgh

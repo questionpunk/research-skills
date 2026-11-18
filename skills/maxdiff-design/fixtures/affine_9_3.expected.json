@@ -1,0 +1,93 @@
+{
+ "parameters": {
+  "items": 9,
+  "items_per_set": 3,
+  "sets_per_version": 12,
+  "versions": 1
+ },
+ "is_bibd": true,
+ "meets_criteria": true,
+ "times_shown_per_respondent": 4.0,
+ "item_frequency": {
+  "P1": 4,
+  "P2": 4,
+  "P3": 4,
+  "P4": 4,
+  "P5": 4,
+  "P6": 4,
+  "P7": 4,
+  "P8": 4,
+  "P9": 4
+ },
+ "pair_frequency": {
+  "pairs": 36,
+  "min": 1,
+  "max": 1,
+  "mean": 1.0,
+  "sd": 0.0,
+  "pairs_never_together": 0
+ },
+ "position_frequency": {
+  "P1": [
+   4,
+   0,
+   0
+  ],
+  "P2": [
+   3,
+   1,
+   0
+  ],
+  "P3": [
+   3,
+   0,
+   1
+  ],
+  "P4": [
+   1,
+   3,
+   0
+  ],
+  "P5": [
+   0,
+   4,
+   0
+  ],
+  "P6": [
+   0,
+   3,
+   1
+  ],
+  "P7": [
+   1,
+   0,
+   3
+  ],
+  "P8": [
+   0,
+   1,
+   3
+  ],
+  "P9": [
+   0,
+   0,
+   4
+  ]
+ },
+ "connectivity": {
+  "overall_components": 1,
+  "versions_connected": 1,
+  "versions": 1
+ },
+ "item_correlation": {
+  "min": -0.125,
+  "max": -0.125,
+  "undefined_pairs": 0
+ },
+ "statuses": {
+  "fail": [],
+  "warn": [
+   "positional balance"
+  ]
+ }
+}

@@ -1,0 +1,26 @@
+{
+  "note": "Second flawed fixture for SB017-SB027. Written by hand before the new rules were run. See README.md.",
+  "questions": 13,
+  "findings": [
+    {"question": "intro", "line": 3, "rule": "SB024", "kind": "leading", "severity": "medium", "match": "experts say; we want to show"},
+    {"question": "intro", "line": 3, "rule": "SB024", "kind": "no_time_estimate", "severity": "low", "match": "no time or length estimate"},
+    {"question": "1", "line": 5, "rule": "SB025", "kind": "open_first", "severity": "low", "match": "open question first"},
+    {"question": "2", "line": 7, "rule": "SB006", "kind": "options", "severity": "low", "match": "Often; Sometimes"},
+    {"question": "2", "line": 7, "rule": "SB017", "kind": "no_period", "severity": "low", "match": "how often"},
+    {"question": "2", "line": 7, "rule": "SB018", "kind": "behaviour", "severity": "medium", "match": "how often"},
+    {"question": "3", "line": 11, "rule": "SB019", "kind": "mismatch", "severity": "high", "match": "how satisfied / Yes; No"},
+    {"question": "4", "line": 15, "rule": "SB020", "kind": "unlabelled", "severity": "medium", "match": "1 to 5 with no labels"},
+    {"question": "5", "line": 22, "rule": "SB021", "kind": "behaviour", "severity": "low", "match": "cheated"},
+    {"question": "6", "line": 26, "rule": "SB022", "kind": "combined", "severity": "medium", "match": "None / Other"},
+    {"question": "7", "line": 32, "rule": "SB023", "kind": "computation", "severity": "low", "match": "average; as a percentage"},
+    {"question": "8", "line": 34, "rule": "SB017", "kind": "long_window", "severity": "low", "match": "past 12 months"},
+    {"question": "9", "line": 39, "rule": "SB008", "kind": "words", "severity": "low", "match": "24 words"},
+    {"question": "9", "line": 39, "rule": "SB026", "kind": "load", "severity": "low", "match": "conditional clause; exclusion; long parenthetical; inline list"},
+    {"question": "10", "line": 41, "rule": "SB014", "kind": "grid", "severity": "medium", "match": "agree/disagree grid, 11 rows"},
+    {"question": "10", "line": 41, "rule": "SB025", "kind": "grid_rows", "severity": "low", "match": "11 rows"},
+    {"question": "10", "line": 41, "rule": "SB027", "kind": "even_points", "severity": "info", "match": "4 points, no midpoint"},
+    {"question": null, "line": null, "rule": "SB025", "kind": "open_count", "severity": "low", "match": "4 open questions"}
+  ],
+  "summary": {"total": 17, "high": 1, "medium": 5, "low": 11, "info": 1},
+  "length": {"points": 33.0, "seconds": 247.5, "minutes": 4.12}
+}

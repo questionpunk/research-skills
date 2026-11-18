@@ -1,0 +1,8 @@
+{
+  "source": "Same cell counts as basic.input.csv, so basic.expected.json applies; the mix shift is hand arithmetic in fixtures/README.md, section 8",
+  "mix_shift": {"earlier": "2026-Q2", "later": "2026-Q3", "change": 30.0, "within_segments": 26.73, "mix": 3.27,
+    "segments": {"smb": {"within": 18.03, "mix": 1.97}, "enterprise": {"within": 8.71, "mix": 1.29}}},
+  "n_for_10_point_margin": {"adjusted_wald": 271, "wald": 280},
+  "eleven_counts": "1,0,1,1,2,3,4,5,5,8,10",
+  "wald_benchmark_0": {"z": 1.1123, "p_value": 0.2660}
+}

@@ -1,0 +1,7 @@
+id,duration_sec,email,ip,g1,g2,g3,g4,g5,g6,b1,b2,b3,b4,ac1,ac2,age,years_experience,uses_product,sessions_per_week,open_feedback
+C01,600,ana@example.com,192.0.2.1,4,5,3,4,2,4,3,4,2,5,Strongly disagree,4,34,10,Weekly,3,The onboarding was confusing but support helped me quickly.
+C02,540,ben@example.com,192.0.2.2,2,2,3,4,4,5,1,2,2,3,Strongly disagree,4,45,20,Never,0,I have not tried it yet so I cannot say much.
+C03,660,cy@example.com,192.0.2.3,5,4,4,4,3,2,1,1,1,2,Strongly disagree,4,29,5,Daily,7,Fast and reliable for my team.
+C04,620,dana@example.com,192.0.2.5,3,3,4,2,5,4,4,3,3,2,Strongly disagree,4,54,30,Weekly,2,Reports are useful but exports are slow.
+C05,700,fay@example.com,192.0.2.7,4,3,4,2,3,5,2,3,4,4,Strongly disagree,4,41,15,Weekly,4,Works well for us.
+C06,480,nia@example.com,192.0.2.17,4,1,3,5,2,4,3,5,1,2,Strongly disagree,4,26,3,Monthly,2,Does what it promises without fuss.

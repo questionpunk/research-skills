@@ -1,0 +1,89 @@
+{
+ "parameters": {
+  "items": 7,
+  "items_per_set": 3,
+  "sets_per_version": 4,
+  "versions": 1
+ },
+ "is_bibd": false,
+ "meets_criteria": false,
+ "times_shown_per_respondent": 1.7143,
+ "item_frequency": {
+  "A": 3,
+  "B": 2,
+  "C": 2,
+  "D": 2,
+  "E": 1,
+  "F": 1,
+  "G": 1
+ },
+ "pair_frequency": {
+  "pairs": 21,
+  "min": 0,
+  "max": 2,
+  "mean": 0.5714,
+  "sd": 0.7284,
+  "pairs_never_together": 12
+ },
+ "position_frequency": {
+  "A": [
+   3,
+   0,
+   0
+  ],
+  "B": [
+   0,
+   2,
+   0
+  ],
+  "C": [
+   0,
+   1,
+   1
+  ],
+  "D": [
+   0,
+   0,
+   2
+  ],
+  "E": [
+   1,
+   0,
+   0
+  ],
+  "F": [
+   0,
+   1,
+   0
+  ],
+  "G": [
+   0,
+   0,
+   1
+  ]
+ },
+ "connectivity": {
+  "overall_components": 2,
+  "versions_connected": 0,
+  "versions": 1
+ },
+ "statuses": {
+  "fail": [
+   "one-way balance within each version",
+   "one-way balance overall",
+   "connectivity"
+  ],
+  "warn": [
+   "two-way balance within each version",
+   "every pair of items appears together",
+   "positional balance",
+   "times each item is shown per respondent",
+   "item correlations"
+  ]
+ },
+ "item_correlation": {
+  "min": -1.0,
+  "max": 1.0,
+  "undefined_pairs": 0
+ }
+}
