@@ -3,7 +3,7 @@
   "pack": {
     "name": "research-skills",
     "displayName": "QuestionPunk research skills",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "license": "MIT",
     "author": "QuestionPunk",
     "homepage": "https://www.questionpunk.com",
@@ -295,7 +295,7 @@
       "title": "Kano analysis",
       "priority": "P2",
       "status": "beta",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "plugin": "feedback-analysis",
       "hasScript": true,
       "requiresAccount": false,
@@ -363,11 +363,12 @@
       "title": "Gabor-Granger analysis",
       "priority": "P2",
       "status": "beta",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "plugin": "pricing-research",
       "hasScript": true,
       "requiresAccount": false,
       "mcpTools": [
+        "question_create",
         "responses_get_counts",
         "responses_read"
       ],
