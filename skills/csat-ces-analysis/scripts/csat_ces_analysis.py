@@ -118,6 +118,9 @@ PRESET_HINTS["effort5"] = ("Those are the CES 1.0 effort labels (1 = very low ef
                            "--metric ces5.")
 # "5 - Very satisfied", "5 = Very satisfied", "5. Very", "(5) Very", "5: Very", "5 Very": a number, then a
 # separator or a space, then a label. "2hrs" or "1st" are not read as points.
+# An --id-col named like this holds ticket or case ids, which cannot show repeat customers.
+TICKET_ID_RE = re.compile(r"ticket|case|conversation|chat|interaction|order|request|incident|response|submission",
+                          re.I)
 LABELLED_RE = re.compile(r"^\s*(?:\(\s*(-?\d{1,3})\s*\)\s*|(-?\d{1,3})\s*(?:[-–—:=.)]\s*|\s+))([^\W\d_].*)$")
 # Zendesk exports binary CSAT as "Good, I'm satisfied" / "Bad, I'm unsatisfied".
 GOOD_BAD_RE = re.compile(r"^\s*(good|bad)\b", re.I)
@@ -491,6 +494,42 @@ def text_answers(raw_values):
     return counts
 
 
+# A label that names an end of a rating scale: "Very satisfied", "Strongly agree", "Not at all likely",
+# "Completely". "Not very ..." and the like are inner points of a 4-point scale, so they never count.
+END_LABEL_RE = re.compile(r"\b(?:very|extremely|strongly|completely|totally|entirely|absolutely|highly|at all)\b",
+                          re.I)
+INNER_LABEL_RE = re.compile(
+    r"\bnot\s+(?:very|extremely|strongly|completely|totally|entirely|absolutely|highly)\b", re.I)
+
+
+def labelled_scale(raw_values):
+    """Read the scale from labelled-number answers ("1 - Very dissatisfied" ... "5 - Very satisfied").
+    Returns None when no answer is a labelled number; else (scale, source, None) when the lowest and the highest
+    labelled codes both carry only end-point labels, or (None, None, reason) when they do not."""
+    seen = {}
+    for raw in raw_values:
+        text = (raw or "").strip()
+        pair = labelled_number(text)
+        if pair and as_number(text) is None:
+            seen.setdefault(pair[0], set()).add(pair[1])
+    if not seen:
+        return None
+    low, high = min(seen), max(seen)
+
+    def shown(point):
+        return f"{point} = " + " / ".join(repr(label) for label in sorted(seen[point]))
+
+    if low == high:
+        return None, None, f"every labelled answer is {shown(low)}"
+    inner = [p for p in (low, high)
+             if not all(END_LABEL_RE.search(lab) and not INNER_LABEL_RE.search(lab) for lab in seen[p])]
+    if inner:
+        return None, None, ("the labelled answers run from " + shown(low) + " to " + shown(high) + ", and " +
+                            " and ".join(shown(p) for p in inner) + " does not read as an end point (very, "
+                            "extremely, strongly, completely, not at all), so an end of the scale may be missing")
+    return (low, high), f"from the labelled answers: {shown(low)} and {shown(high)} read as the end points", None
+
+
 def resolve_scale_and_labels(raw_values, declared, fixed, user_labels, allowed, hints):
     """Decide the answer scale and the text-label map. The scale never comes from the answers that happen to
     appear: a question where nobody chose an end point looks like a shorter scale. In order:
@@ -498,7 +537,10 @@ def resolve_scale_and_labels(raw_values, declared, fixed, user_labels, allowed, 
       2. --labels: its lowest and highest points set the scale when 1 did not;
       3. a built-in preset (only those in `allowed`) that reads the text answers. With a known scale only presets
          of that scale count; with none, the preset must be the only fitting format, else stop and ask;
-      4. numeric answers with no scale from 1-3 stop with exit 2 and ask for --scale.
+      4. labelled-number answers ("1 - Very dissatisfied") with no scale from 1-3: the lowest and highest
+         labelled codes set the scale when both carry end-point labels (labelled_scale) and no plain number falls
+         outside them;
+      5. otherwise numeric answers with no scale stop with exit 2 and ask for --scale.
     `hints` maps a preset outside `allowed` to advice (for example, which --metric reads it).
     Returns (scale, scale_source, labels or None, label_source or None)."""
     scale, source = (declared, "given (--scale)") if declared else (fixed if fixed else (None, None))
@@ -549,8 +591,15 @@ def resolve_scale_and_labels(raw_values, declared, fixed, user_labels, allowed, 
     if scale is None:
         numbers = [v for v, reason in (read_point(r, None) for r in raw_values) if reason is None]
         seen = f"numbers from {min(numbers)} to {max(numbers)}" if numbers else "no readable numbers"
+        found = labelled_scale(raw_values)
+        why = ""
+        if found:
+            if found[0] and all(found[0][0] <= v <= found[0][1] for v in numbers):
+                return found[0], found[1], None, None
+            why = (f"; {found[2]}" if found[2] else
+                   f"; some plain numbers fall outside the labelled codes {found[0][0]}-{found[0][1]}")
         raise InputError(
-            f"the answers are {seen}, and the scale cannot be read from the answers: if nobody chose an end point "
+            f"the answers are {seen}{why}. The scale cannot be read from the answers: if nobody chose an end point "
             "the scale looks shorter than it was. Pass --scale MIN-MAX from the questionnaire (for example "
             "--scale 1-5), or --labels.")
     return scale, source, None, None
@@ -1074,17 +1123,22 @@ def analyse(args):
                     seen.setdefault(r["id"], set()).add(r["period"])
             shared = sum(1 for periods in seen.values() if len(periods) > 1)
             if shared:
-                warnings.append(f"{shared} respondent id(s) answered in more than one period. The period tests "
-                                "assume independent samples, so their p-values are approximate.")
+                warnings.append(f"{shared} {args.id_col!r} value(s) answered in more than one period. The period "
+                                "tests assume independent samples, so their p-values are approximate.")
     elif args.compare_periods:
         raise InputError("--compare-periods needs --period-col")
     if args.id_col:
         ids = [r["id"] for r in records if r.get("id")]
         repeats = len(ids) - len(set(ids))
+        result["input"]["id_col"] = args.id_col
         result["input"]["repeat_answers"] = repeats
         if repeats:
-            warnings.append(f"{repeats} answer(s) come from ids that answered more than once (for example several "
-                            "tickets from one customer). Tests treat every answer as independent.")
+            warnings.append(f"{repeats} answer(s) share a {args.id_col!r} value with an earlier answer. Tests treat "
+                            "every answer as independent.")
+        if TICKET_ID_RE.search(args.id_col):
+            notes.append(f"--id-col {args.id_col!r} looks like a ticket or case id, not a customer id: distinct "
+                         "values count tickets, and repeat customers cannot be seen. Pass a customer id column to "
+                         "check independence.")
     adjust(comparisons, args.adjust, alpha)
     families = {}
     for c in comparisons:
@@ -1144,7 +1198,8 @@ def group_of(value, positive, negative, metric, middle_name):
 
 
 def split_comments(records, positive, negative, metric, middle_name):
-    """Per group: answers, answers with a comment, and (with --id-col) distinct customers behind them."""
+    """Per group: answers, answers with a comment, and (with --id-col) distinct values of that column behind them
+    (customers only when the column holds customer ids)."""
     out = {}
     for name in (metric["negative"], middle_name, metric["positive"]):
         members = [r for r in records if group_of(r["value"], positive, negative, metric, middle_name) == name]
@@ -1288,7 +1343,8 @@ def render(result):
         for k, v in result["comments"].items():
             if k == "written_to":
                 continue
-            ids = f", {v['distinct_ids']} distinct ids" if "distinct_ids" in v else ""
+            ids = (f", {v['distinct_ids']} distinct {result['input'].get('id_col', 'id')!r} values"
+                   if "distinct_ids" in v else "")
             parts.append(f"{k} {v['with_comment']} of {v['answers']} answers{ids}")
         lines += ["", "Comments: " + "; ".join(parts)]
         if result["comments"].get("written_to"):

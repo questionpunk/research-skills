@@ -60,6 +60,9 @@ TABLE_MARGINS = (0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.10)
 TABLE_DIFFERENCES = (0.02, 0.03, 0.05, 0.075, 0.10, 0.15, 0.20)
 TABLE_D = (0.1, 0.2, 0.3, 0.4, 0.5, 0.8)
 TABLE_N_FACTORS = (0.5, 1, 2, 4)
+NPS_TABLE_MARGINS = (0.03, 0.05, 0.07, 0.10)  # +/-3, 5, 7 and 10 NPS points
+NPS_TABLE_DIFFERENCES = (0.05, 0.10, 0.15, 0.20)  # 5, 10, 15 and 20 NPS points
+Z_DIGITS = 6  # z printed as 1.959964, not 1.96: the script computes with the exact quantile
 
 
 class InputError(Exception):
@@ -237,7 +240,7 @@ def cmd_proportion(args):
         p = fraction(0.5 if args.p is None else args.p, "--p")
     z = z_value(0.5 + confidence / 2.0)
     notes = []
-    result = {"z": round(z, 4)}
+    result = {"z": round(z, Z_DIGITS)}
     assumptions = ["Proportion p = %g%s." % (round(p, 4), " (the most cautious value: it gives the largest n)" if p == 0.5 else "")]
     assumptions += interval_assumptions(confidence, deff, how, population)
     sample = describe_sample(population, deff)
@@ -335,7 +338,7 @@ def cmd_mean(args):
     population = check_population(args.population)
     z = z_value(0.5 + confidence / 2.0)
     notes = []
-    result = {"z": round(z, 4)}
+    result = {"z": round(z, Z_DIGITS)}
     assumptions = ["Standard deviation %g, in the same units as the margin; it is a planning guess, so check it against a pilot or an earlier wave." % sd]
     assumptions += interval_assumptions(confidence, deff, how, population)
     sample = describe_sample(population, deff)
@@ -507,7 +510,7 @@ def cmd_compare(args):
     equal = abs(ratio - 1.0) < EPS
     sided = "two-sided" if args.sides == 2 else "one-sided"
     notes = []
-    result = {"z_alpha": round(z_alpha, 4), "z_beta": round(z_beta, 4)}
+    result = {"z_alpha": round(z_alpha, Z_DIGITS), "z_beta": round(z_beta, Z_DIGITS)}
     assumptions = ["Significance level alpha = %g, %s; power %g%%." % (alpha, sided, power * 100)]
     if comparisons > 1:
         result["alpha_per_comparison"] = round(alpha_each, 6)
@@ -939,7 +942,7 @@ def cmd_nps(args):
         raise InputError("the variance is 0 (every answer in one category): there is no sampling spread to plan for")
     z = z_value(0.5 + confidence / 2.0)
     notes = []
-    result = {"variance": round(variance, 4), "z": round(z, 4)}
+    result = {"variance": round(variance, 4), "z": round(z, Z_DIGITS)}
     assumptions = [basis, "NPS in points = 100 x (share of promoters - share of detractors); margins below are in NPS points."]
     sample = describe_sample(population, deff)
     statement = ""
@@ -968,6 +971,15 @@ def cmd_nps(args):
             achieved = phi(shift - z_alpha) + (phi(-shift - z_alpha) if args.sides == 2 else 0.0)
             result.update({"n": args.n, "power_at_n": round(achieved, 3), "sufficient": args.n >= n_group})
             notes.append("Power is for the difference assumed before fielding, never for an observed one.")
+        if args.table:
+            rows = []
+            for step in NPS_TABLE_DIFFERENCES:
+                row = {"difference": step, "n_per_group": ceil_n((z_alpha + z_beta) ** 2 * 2 * variance / step ** 2 * deff)}
+                if args.n is not None:
+                    shift_row = step * math.sqrt(n_eff / (2 * variance))
+                    row["power_at_n"] = round(phi(shift_row - z_alpha) + (phi(-shift_row - z_alpha) if args.sides == 2 else 0.0), 3)
+                rows.append(row)
+            result["table"] = rows
         notes.append("Lewis and Sauro (2021c) give the same formula and subtract 3 per group when the analysis uses the adjusted-Wald test (which adds 3); this keeps the 3 as a margin.")
         formula = "n per group = (z_a + z_b)^2 (Var1 + Var2) / diff^2 with Var1 = Var2 (Lewis and Sauro 2021c, without their -3)"
         sources = ["Rocks 2016, The American Statistician 70(4) (NPS variance)", "Lewis and Sauro 2021b, How to statistically compare two Net Promoter Scores (MeasuringU)", "Lewis and Sauro 2021c, Sample sizes for comparing Net Promoter Scores (MeasuringU)"]
@@ -995,6 +1007,17 @@ def cmd_nps(args):
                     n, pct(margin_given), confidence * 100, round(variance, 4), sample)
             if n < 30:
                 notes.append("Under 30 responses: report the adjusted-Wald interval from the nps-analysis skill rather than this normal approximation (Rocks 2016).")
+        if args.table:
+            if args.margin is None:
+                rows = []
+                for factor in TABLE_N_FACTORS:
+                    n_row = max(1, int(round(args.n * factor)))
+                    if population and n_row > population:
+                        continue
+                    rows.append({"n": n_row, "margin_of_error": round(z * math.sqrt(variance * deff / n_row) * (fpc_factor(n_row, population) if population else 1.0), 4)})
+                result["table"] = rows
+            else:
+                result["table"] = [{"margin": m, "n_required": interval_n(z * z * variance / (m * m), population, deff)} for m in NPS_TABLE_MARGINS]
         formula = "n0 = z^2 Var / e^2, Var = p_pro + p_det - (p_pro - p_det)^2; m = n0 deff; with a population N: n = m / (1 + (m - 1)/N)"
         sources = ["Rocks 2016, The American Statistician 70(4) (NPS variance and Wald interval)", "Lewis and Sauro 2021c, Sample sizes for comparing Net Promoter Scores (MeasuringU)", "Cochran 1977, Sampling Techniques, ch. 4"]
     notes.append("A proportion's +/-5 points (n = 385) is not an NPS's +/-5 points: the NPS is a difference of two shares and needs about %.1f times as many responses at this variance." % (variance / 0.25))
@@ -1437,6 +1460,7 @@ def build_parser():
     p.add_argument("--alpha", type=float, default=0.05, help="with --diff: significance level (default 0.05)")
     p.add_argument("--power", type=float, default=0.80, help="with --diff: power (default 0.80)")
     p.add_argument("--sides", type=int, choices=[1, 2], default=2, help="with --diff: one- or two-sided test (default 2)")
+    p.add_argument("--table", action="store_true", help="add a sensitivity table: n at +/-3, 5, 7 and 10 points, the margin at other n, or n per group for 5 to 20 point differences")
     design_options(p)
     p.set_defaults(func=cmd_nps)
 

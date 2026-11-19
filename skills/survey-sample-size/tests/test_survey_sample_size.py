@@ -402,5 +402,28 @@ class ReviewRegressionTest(unittest.TestCase):
         self.assertTrue(any("Fewer than 5 expected" in n for n in notes))
 
 
+class QaPolishRegressionTest(unittest.TestCase):
+    """Usability fixes from the 2026-11-19 end-to-end QA."""
+
+    def test_nps_table_rows(self):
+        report = result("nps", "--promoters", "0.4", "--detractors", "0.2", "--margin", "0.05", "--table")["result"]
+        rows = {row["margin"]: row["n_required"] for row in report["table"]}
+        self.assertEqual(sorted(rows), [0.03, 0.05, 0.07, 0.10])
+        self.assertEqual(rows[0.05], report["n_required"])  # the row agrees with the headline
+        self.assertEqual(rows[0.03], 2391)  # ceil(1.959964^2 x 0.56 / 0.03^2)
+        by_n = result("nps", "--n", "200", "--table")["result"]["table"]
+        self.assertEqual([row["n"] for row in by_n], [100, 200, 400, 800])
+        self.assertAlmostEqual(by_n[1]["margin_of_error"], result("nps", "--n", "200")["result"]["margin_of_error"])
+        diff = result("nps", "--diff", "0.10", "--n", "500", "--table")["result"]
+        rows = {row["difference"]: row for row in diff["table"]}
+        self.assertEqual(rows[0.10]["n_per_group"], diff["n_per_group"])
+        self.assertAlmostEqual(rows[0.10]["power_at_n"], diff["power_at_n"])
+        self.assertIn("n required", run("nps", "--margin", "0.05", "--table").stdout)
+
+    def test_z_is_printed_exactly(self):
+        self.assertEqual(result("nps", "--margin", "0.05")["result"]["z"], 1.959964)
+        self.assertEqual(result("proportion", "--margin", "0.05")["result"]["z"], 1.959964)
+
+
 if __name__ == "__main__":
     unittest.main()

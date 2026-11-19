@@ -28,6 +28,13 @@ Group comparisons · Thresholds · Pitfalls · References
   the lowest and highest points of `--labels`, or the one built-in label map that fits the text answers;
   when the labels fit maps of different lengths ("Agree" and "Neutral" are on the 5- and 7-point agree
   scales) or numbers come with no scale, the script stops and asks.
+- **Labelled numbers carry the questionnaire's end labels** (this skill's rule, shared by `csat-ces-analysis`,
+  `likert-analysis` and `ux-scale-scoring`). Answers such as "1 - Very dissatisfied" ... "5 - Very satisfied"
+  set the scale from the lowest and highest labelled codes only when both labels read as end points (very,
+  extremely, strongly, completely, totally, entirely, absolutely, highly, at all; never "not very ...") and no
+  plain number falls outside them; the scale line names the two labels. An end label on a code nobody chose
+  cannot be seen, so a 7-point scale whose "7 - Extremely satisfied" went unused would read as 1-6 if "6 - Very
+  satisfied" were chosen: pass `--scale` when the questionnaire had more points.
 
 ## Medians or means
 

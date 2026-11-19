@@ -576,5 +576,50 @@ class ReviewRegressionTest(unittest.TestCase):
             self.assertEqual({(c["a"], c["b"]) for c in out["comparisons"]}, {("a", "b")})
 
 
+class QaPolishRegressionTest(unittest.TestCase):
+    """Usability fixes from the 2026-11-19 end-to-end QA."""
+
+    def write(self, tmp, text):
+        path = pathlib.Path(tmp) / "in.csv"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_labelled_numbers_with_both_end_labels_set_the_scale(self):
+        rows = ["1 - Very dissatisfied", "2 - Dissatisfied", "3 - Neutral", "4 - Satisfied", "5 - Very satisfied",
+                "5 - Very satisfied", "4"]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "csat\n" + "\n".join(rows) + "\n")
+            out = run_json(path, "--score-col", "csat")
+            self.assertEqual((out["scale"]["min"], out["scale"]["max"]), (1, 5))
+            self.assertIn("from the labelled answers", out["scale"]["source"])
+            self.assertEqual(out["overall"]["n"], 7)
+            self.assertIn("Scale: from the labelled answers", run(path, "--score-col", "csat").stdout)
+
+    def test_labelled_numbers_without_both_end_labels_still_stop(self):
+        cases = {"low end missing": ["2 - Dissatisfied", "3 - Neutral", "5 - Very satisfied"],
+                 "not very is inner": ["2 - Not very satisfied", "4 - Very satisfied"],
+                 "plain number outside": ["1 - Very dissatisfied", "5 - Very satisfied", "7"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, rows in cases.items():
+                proc = run(self.write(tmp, "csat\n" + "\n".join(rows) + "\n"), "--score-col", "csat")
+                self.assertEqual(proc.returncode, 2, name)
+                self.assertIn("--scale", proc.stderr, name)
+
+    def test_ticket_id_column_is_named_not_called_customers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "ticket_id,csat,comment\nT1,5,great\nT2,1,bad\nT3,4,ok\nT3,2,meh\n")
+            args = [path, "--score-col", "csat", "--scale", "1-5", "--id-col", "ticket_id", "--comment-col", "comment"]
+            out = run_json(*args)
+            self.assertEqual(out["input"]["id_col"], "ticket_id")
+            self.assertTrue(any("looks like a ticket or case id" in n for n in out["notes"]))
+            self.assertTrue(any("share a 'ticket_id' value" in w for w in out["warnings"]))
+            text = run(*args).stdout
+            self.assertIn("distinct 'ticket_id' values", text)
+            self.assertNotIn("distinct ids", text)
+            path = self.write(tmp, "customer,csat\nC1,5\nC2,1\nC2,4\n")
+            customer = run_json(path, "--score-col", "csat", "--scale", "1-5", "--id-col", "customer")
+        self.assertFalse(any("ticket or case id" in n for n in customer["notes"]))
+
+
 if __name__ == "__main__":
     unittest.main()

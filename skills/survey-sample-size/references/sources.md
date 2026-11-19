@@ -5,7 +5,8 @@ Checked on 2026-11-12. Each entry says how it was checked: **primary** (the sour
 Worked examples that reproduce the numbers are in [`../fixtures/README.md`](../fixtures/README.md).
 
 Notation: z is the standard normal quantile (1.96 for 95% confidence or a two-sided alpha of 0.05; 1.645
-for a one-sided alpha of 0.05; 0.8416 for 80% power; 1.2816 for 90% power), p a proportion, q = 1 − p,
+for a one-sided alpha of 0.05; 0.8416 for 80% power; 1.2816 for 90% power). The script computes with the
+exact quantile (`statistics.NormalDist`) and prints it to six decimals (1.959964). p is a proportion, q = 1 − p,
 e the margin of error (half the width of the confidence interval), N the population size.
 
 ## Formulas
@@ -162,6 +163,9 @@ e the margin of error (half the width of the confidence interval), N the populat
 - Under 30 responses the normal approximation is poor (Rocks 2016, Table 1); the script says to use the
   adjusted-Wald interval of `nps-analysis` instead.
 - Two different samples (two waves, two segments) are independent: use `compare`.
+- `nps --table` (this skill's choice of rows): n at ±3, 5, 7 and 10 NPS points with `--margin`; the margin
+  at half, one, two and four times `--n` (as `proportion`); n per group (and power at `--n`) for 5, 10, 15
+  and 20 point differences with `--diff`. Each row uses the formula above.
 
 ### Subgroups (`subgroups`)
 

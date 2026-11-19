@@ -18,7 +18,8 @@ and conventions · Pitfalls · References
   (read). That is an instruction to respondents, not a rule for filling gaps after collection. The script
   excludes participants with skipped items by default; `--impute-midpoint` scores up to `--max-imputed`
   skipped items (default 1, this skill's convention) as 3, writes the count per participant to
-  `--scores-out`, and prints the complete-case mean beside the result. Say which was used.
+  `--scores-out`, and prints the complete-case mean beside the result, per group too, and reruns each
+  comparison on complete cases only (its own adjustment family). Say which was used.
 - Published check: Brooke's scored example totals 22 → 55 (`fixtures/brooke_1996.*`).
 - A SUS on any scale other than 1-5, or with reworded items beyond small substitutions ("website" for
   "system"), is not the SUS; the benchmarks below do not transfer. The script refuses a non 1-5 SUS.
@@ -75,6 +76,13 @@ and conventions · Pitfalls · References
   ("closest Bangor adjective"): it is this skill's assignment rule, not a published one; Sauro and Lewis
   assign adjectives by score ranges, which can differ near the boundaries. Bangor et al. note "OK" may read
   as acceptable although it sits well below average.
+- **Grade beside adjective.** The curved grade and the closest adjective are two schemes, so they can part
+  ways (62.0 is grade D but closest to "Good", 71.4). When the adjective falls outside this skill's pairing
+  (A: Excellent or Best Imaginable; B: Good or Excellent; C: OK or Good; D: Poor or OK; F: Worst Imaginable,
+  Awful or Poor), the script prints a note saying they come from different published schemes. The pairing
+  is this skill's reading of the two tables side by side, not a published crosswalk.
+- **Pooled line with groups.** With `--group-col` the all-participants line pools the designs or tasks; it
+  keeps its mean and interval but gets no grade, percentile or adjective, which describe one product's mean.
 
 ## UMUX-Lite
 
@@ -122,6 +130,10 @@ and conventions · Pitfalls · References
   zero-variance rule holds on every Python version (Python 3.9's float sum left a tiny SD and an enormous t).
 - Against a target: one-sample t, two-tailed by default; `--tail above` for "is our SUS above 68" when the
   question was fixed before looking.
+- One-sided compare (`--compare A B --tail above|below`, A minus B): p = half the two-sided p in the stated
+  direction, with the matching one-sided bound, difference ∓ t₍₁₋α, df₎·SE (the lower end of the two-sided
+  1−2α interval). Refused with `--pairwise` (no direction per pair) and together with `--target` (one
+  `--tail` would set both directions); run those separately.
 - p-values from the regularized incomplete beta function (continued fraction); checked against numerical
   integration of the t density in the fixtures.
 - Several comparisons: Holm (1979) or Bonferroni (`--adjust`), over the comparisons as one family and the

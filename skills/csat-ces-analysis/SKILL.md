@@ -58,7 +58,7 @@ a 7-point question looks like a 5-point one.
 | Data | A CSV with one row per answer (any delimiter, UTF-8 or UTF-16, Qualtrics 3-row header detected), or `--counts` per scale point, lowest first. Never invent rows from a percentage. |
 | Metric | `csat`. `ces` for the 7-point "made it easy" agree or ease item (higher = easier); `ces5` for the original 1-5 "how much effort" item (lower = better). |
 | Rating column | Detected by name (`csat`, `satisfaction`, `effort`, `rating`, `score` ...); `--score-col` if several match. |
-| Scale | `--scale MIN-MAX` from the questionnaire; numeric CSAT stops without it. Text labels ("Very satisfied", "Strongly agree", "Good, I'm satisfied") set it through a printed built-in map, and stop when they fit more than one scale; `--labels` sets it from its lowest and highest points. CES is 1-7 and CES 1.0 is 1-5 unless `--scale` says otherwise. |
+| Scale | `--scale MIN-MAX` from the questionnaire; numeric CSAT stops without it. Text labels ("Very satisfied", "Strongly agree", "Good, I'm satisfied") set it through a printed built-in map, and stop when they fit more than one scale; `--labels` sets it from its lowest and highest points. Labelled numbers ("1 - Very dissatisfied" ... "5 - Very satisfied") set it from the lowest and highest labelled codes when both labels read as end points (very, extremely, strongly, completely, not at all) and no plain number falls outside them; the scale line says so, and otherwise the script stops. If the questionnaire had more points than anyone chose, pass `--scale`. CES is 1-7 and CES 1.0 is 1-5 unless `--scale` says otherwise. |
 | Satisfied band | Top-2 box (4-5 on 1-5, 6-7 on 1-7, 9-10 on 0-10); top-1 on 2-4 point scales; CES top 3 of 7 (5-7); CES 1.0 low effort 1-2. Points outside both boxes are "neutral" only when they are the single midpoint, otherwise "middle". Override with `--positive` / `--negative`. |
 | Segment, period, comment, customer id columns | None. |
 | Target | None: no "is it good" verdict. `--target` (share, 85 or 0.85) or `--target-mean` must come from the user with its source. |
@@ -103,9 +103,11 @@ a 7-point question looks like a 5-point one.
    `--adjust`, segment comparisons and period comparisons are adjusted as two separate families; the output
    names the family and its size, and every other p-value (Welch, target) is raw. A result that is not
    significant is never "no difference": say what the interval allows (on a small base it is wide).
-7. **Independence.** The tests assume one answer per independent customer. If `--id-col` shows repeat answers
-   (several tickets from one customer) or the same customers in two periods, say the p-values are
-   approximate; for a large share of repeats, keep one answer per customer (ask which) and rerun. The same
+7. **Independence.** The tests assume one answer per independent customer. `--id-col` checks repeats of
+   whatever that column holds, and the output names the column: ticket or case ids are unique per ticket, so
+   they cannot catch a customer who answered on several tickets (the script notes this when the column name
+   looks like a ticket id). Use a customer id for this check. If it shows repeat answers or the same
+   customers in two periods, say the p-values are approximate; for a large share of repeats, keep one answer per customer (ask which) and rerun. The same
    holds for a panel surveyed in both periods: ask whether the waves are the same people.
 8. **"Is our CSAT good?"** Ask for the target or benchmark, its source and how it was collected, then run
    `--target X` (one-tailed `--tail above` or `below` only if that direction was the question before
@@ -118,9 +120,10 @@ a 7-point question looks like a 5-point one.
    satisfaction there); did the survey change (wording, scale, trigger, channel, response rate). Then the
    comments.
 10. **Comments.** The script splits them (`--comments-out`, `.csv` or `.json`) and counts commenters per
-    group, with distinct customers when `--id-col` is given. Code them with `open-ended-coding`; if it is not
-    installed, write a short codebook with a definition per code, apply it to every comment and keep the coded
-    file. Report a theme as "k of m dissatisfied comments (from N dissatisfied answers, C customers)".
+    group, with the distinct values of `--id-col` when given (customers only if it holds customer ids). Code
+    them with `open-ended-coding`; if it is not installed, write a short codebook with a definition per code,
+    apply it to every comment and keep the coded file. Report a theme as "k of m dissatisfied comments (from N
+    dissatisfied answers, C customers)", giving C only from a customer id column.
 11. **If another tool shows a different number,** match the convention first (see "Tool conventions" in
     [`references/sources.md`](references/sources.md)): Zendesk counts 1-3 as bad on a 5-point scale, but its
     percentage good equals the top-2-box share here; a dashboard mean is not a share; a 60-day rolling

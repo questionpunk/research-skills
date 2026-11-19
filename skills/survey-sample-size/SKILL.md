@@ -99,8 +99,8 @@ as a simple-random-sample benchmark, not the precision of the actual sample.
    python3 $S compare --p1 0.50 --p2 0.60 --ratio 2 --comparisons 3 --json   # unequal groups, three comparisons
    python3 $S compare --d 0.3 --json                          # two means, d = difference / SD
    python3 $S gap --p1 0.42 --p2 0.37 --n 600 --json          # A vs B in the same sample
-   python3 $S nps --promoters 0.4 --detractors 0.2 --margin 0.05 --json   # ±5 NPS points
-   python3 $S nps --diff 0.10 --json                          # n per group to detect a 10-point NPS change
+   python3 $S nps --promoters 0.4 --detractors 0.2 --margin 0.05 --table --json   # ±5 NPS points; ±3/5/7/10 rows
+   python3 $S nps --diff 0.10 --table --json                  # n per group for a 10-point change; 5-20 point rows
    python3 $S subgroups --share smb=0.5 mid=0.35 ent=0.15 --margin 0.10 --json   # quota table
    python3 $S invites --completes 667 --response-rate 0.12 --incidence 0.6 --completion-rate 0.85 --removal-rate 0.1 --json
    python3 $S maxdiff --items 20 --per-set 4 --sets 15 --subgroups 2 --json

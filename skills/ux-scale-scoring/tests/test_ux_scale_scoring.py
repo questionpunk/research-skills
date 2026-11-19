@@ -84,7 +84,8 @@ class TwoDesignsTest(unittest.TestCase):
     def setUpClass(cls):
         cls.exp = expected("two_designs")
         cls.args = [FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design"]
-        cls.out = run_json(*cls.args, "--compare", "A", "B", "--target", "68", "--tail", "above")
+        cls.out = run_json(*cls.args, "--compare", "A", "B", "--target", "68")
+        cls.target = run_json(*cls.args, "--target", "68", "--tail", "above")
         cls.paired = run_json(*cls.args, "--compare", "A", "B", "--paired", "--id-col", "participant")
 
     def test_group_means_intervals_and_grades(self):
@@ -120,8 +121,8 @@ class TwoDesignsTest(unittest.TestCase):
             self.assertAlmostEqual(g, w, delta=1e-4)
 
     def test_target_one_tailed(self):
-        got = self.out["target"][0]
-        self.assertEqual(got["label"], "Overall")
+        got = self.target["target"][0]
+        self.assertEqual(got["label"], "All participants (pooled across the design groups)")
         self.assertAlmostEqual(got["t"], self.exp["overall_vs_68_above"]["t"], delta=1e-6)
         self.assertAlmostEqual(got["p_value"], self.exp["overall_vs_68_above"]["p_value"], delta=1e-6)
         self.assertFalse(got["significant"])
@@ -343,7 +344,7 @@ class ReviewRegressionTest(unittest.TestCase):
                        "--compare", "A", "B", "--id-col", "participant", "--paired", "--target", "60",
                        "--adjust", "holm")
         self.assertNotIn("ci", out["overall"])
-        overall = next(t for t in out["target"] if t["label"] == "Overall")
+        overall = next(t for t in out["target"] if t["label"].startswith("All rows (pooled"))
         self.assertFalse(overall["tested"])
         a = next(t for t in out["target"] if t["label"] == "A")
         self.assertEqual(a["family_size"], 2)
@@ -417,6 +418,90 @@ class ReviewRegressionTest(unittest.TestCase):
             umux = run_json(write(tmp, "m.csv", "capabilities,ease,Please explain\n7,7,x\n"), "--instrument",
                             "umux-lite")
             self.assertEqual(umux["input"]["items"], ["capabilities", "ease"])
+
+
+class QaPolishRegressionTest(unittest.TestCase):
+    """Usability fixes from the 2026-11-19 end-to-end QA."""
+
+    def test_labelled_numbers_set_the_scale_when_both_ends_are_labelled(self):
+        answers = ["1 - Strongly disagree", "3 - Neutral", "5 - Strongly agree", "4"]
+        scale, source, labels, _ = M.resolve_scale_and_labels(answers, None, None, None, (), {})
+        self.assertEqual(scale, (1, 5))
+        self.assertIn("from the labelled answers", source)
+        self.assertIsNone(labels)
+        for missing_end in (["2 - Disagree", "5 - Strongly agree"], ["1 - Strongly disagree", "4 - Agree"],
+                            ["2 - Not very easy", "4 - Very easy"], ["1 - Strongly disagree", "5 - Strongly agree", "7"]):
+            with self.assertRaises(M.InputError):
+                M.resolve_scale_and_labels(missing_end, None, None, None, (), {})
+
+    def test_pooled_line_across_independent_groups_is_not_graded(self):
+        out = run_json(FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design",
+                       "--compare", "A", "B")
+        overall = out["overall"]
+        self.assertEqual(overall["label"], "All participants (pooled across the design groups)")
+        self.assertTrue(overall["pooled_across_groups"])
+        for key in ("grade", "grade_range", "percentile", "adjective"):
+            self.assertNotIn(key, overall)
+        self.assertIn("ci", overall)
+        self.assertIn("grade", by_label(out["groups"])["A"])
+        text = run(FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design").stdout
+        self.assertNotIn("Overall:", text)
+        self.assertNotIn("grade C (D to B)", text)
+
+    def test_grade_and_adjective_disagreement_is_explained(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # 62.0 and 63.0: grade D and C- sit next to the closest adjective "Good".
+            rows = sus_csv([[4, 2, 4, 2, 4, 3, 3, 3, 3, 3], [4, 2, 4, 2, 4, 3, 3, 3, 3, 3], [4, 2, 4, 2, 3, 3, 3, 3, 3, 3]])
+            out = run_json(write(tmp, "d.csv", rows), "--instrument", "sus")
+            self.assertEqual((out["overall"]["grade"], out["overall"]["adjective"]), ("D", "Good"))
+            self.assertTrue(out["overall"]["grade_adjective_differ"])
+            self.assertTrue(any("different published schemes" in n for n in out["notes"]))
+            agree = run_json(FIXTURES / "brooke_1996.input.csv", "--instrument", "sus")
+            self.assertFalse(agree["overall"]["grade_adjective_differ"])
+            self.assertFalse(any("different published schemes" in n for n in agree["notes"]))
+        self.assertEqual(M.GRADE_ADJECTIVES["D"] & {"Good"}, set())
+
+    def test_impute_midpoint_reports_complete_cases_per_group_and_comparison(self):
+        header = "g," + ",".join(f"sus_{i}" for i in range(1, 11))
+        body = ["a,5,1,5,1,5,1,5,1,5,1", "a,4,2,4,2,4,2,4,2,4,2", "a,4,1,4,2,5,2,4,1,4,2", "a,4,2,4,,4,2,4,2,4,2",
+                "b,3,3,3,3,3,3,3,3,3,3", "b,3,2,3,3,4,3,3,3,3,2", "b,2,3,3,3,3,3,3,4,3,3", "b,3,3,3,3,,3,3,3,3,3"]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "i.csv", header + "\n" + "\n".join(body) + "\n")
+            out = run_json(path, "--instrument", "sus", "--group-col", "g", "--compare", "a", "b", "--impute-midpoint")
+            groups = by_label(out["groups"])
+            self.assertEqual(groups["a"]["complete_case"]["n"], 3)
+            self.assertAlmostEqual(groups["a"]["complete_case"]["mean"], (100 + 75 + 82.5) / 3, delta=1e-9)
+            cc = out["comparisons"][0]["complete_case"]
+            self.assertTrue(cc["tested"])
+            self.assertEqual((cc["n_a"], cc["n_b"]), (3, 3))
+            self.assertIn("Complete cases only: ", run(path, "--instrument", "sus", "--group-col", "g", "--compare",
+                                                      "a", "b", "--impute-midpoint").stdout)
+
+    def test_one_participant_is_not_told_to_report_an_interval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = run_json(write(tmp, "one.csv", sus_csv([[4, 2, 4, 2, 4, 2, 4, 2, 4, 2]])), "--instrument", "sus")
+            self.assertNotIn("ci", out["overall"])
+            self.assertFalse(any("Report the interval" in w for w in out["warnings"]))
+            self.assertTrue(any(w.startswith("One participant: Overall") for w in out["warnings"]))
+
+    def test_one_sided_compare(self):
+        args = [FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design", "--compare", "A", "B"]
+        two = run_json(*args)["comparisons"][0]
+        above = run_json(*args, "--tail", "above")["comparisons"][0]
+        below = run_json(*args, "--tail", "below")["comparisons"][0]
+        self.assertEqual(above["tail"], "above")
+        self.assertAlmostEqual(above["p_value"], two["p_value"] / 2, delta=1e-12)
+        self.assertAlmostEqual(below["p_value"], 1 - two["p_value"] / 2, delta=1e-12)
+        self.assertEqual((above["verdict"], below["verdict"]), ("significant", "not significant"))
+        self.assertIsNone(above["ci"][1])
+        # One-sided 95% bound = two-sided 90% interval's lower end.
+        ninety = run_json(*args, "--confidence", "0.90")["comparisons"][0]
+        self.assertAlmostEqual(above["ci"][0], ninety["ci"][0], delta=1e-6)
+        self.assertEqual(run(*args, "--tail", "above", "--target", "68").returncode, 2)
+        pairwise = run(FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design",
+                       "--pairwise", "--tail", "above")
+        self.assertEqual(pairwise.returncode, 2)
+        self.assertIn("--compare A B", pairwise.stderr)
 
 
 if __name__ == "__main__":

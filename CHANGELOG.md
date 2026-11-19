@@ -13,7 +13,7 @@ Ten new skills:
   `kano-analysis`, `ux-scale-scoring`
 
 All 22 skills were reviewed independently by three models, each finding was reproduced against the code, and
-every confirmed fix has a regression test. 1,183 script tests pass on Python 3.9 and 3.12. Changes to the
+every confirmed fix has a regression test. 1,197 script tests pass on Python 3.9 and 3.12. Changes to the
 first twelve (each now 0.2.0):
 
 - Wrong answers that used to exit 0 now stop or are fixed: labelled scores (`10 - Extremely likely`), semicolon

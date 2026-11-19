@@ -8,7 +8,7 @@ Copilot and other agents that read `SKILL.md`.
 Every skill works on your own files with no account. Where a study needs fielding, the last step shows how
 to run it with QuestionPunk's MCP server; that step is optional.
 
-> **Status: 0.2.0, early release.** 22 skills. The scripts are tested (1,183 tests, Python 3.9 to 3.12) and
+> **Status: 0.2.0, early release.** 22 skills. The scripts are tested (1,197 tests, Python 3.9 to 3.12) and
 > their numbers were re-derived independently, including published worked examples. [Open an
 > issue](../../issues) when something looks wrong.
 

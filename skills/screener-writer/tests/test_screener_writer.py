@@ -416,5 +416,38 @@ class InputTest(unittest.TestCase):
         self.assertEqual(proc.stdout.count("\n"), len(M.RULES))
 
 
+class QaPolishRegressionTest(unittest.TestCase):
+    """Usability fixes from the 2026-11-19 end-to-end QA."""
+
+    HEADER = "# Screener: T\nstudy: interview\n\n## Criteria\n- C1: x\n\n## Quotas\ntotal: 8\n\n## Questions\n"
+    BODY = ("### Q1 [multi] (C1) randomize\nWhich have you used? Select all that apply.\n- Alpha -> continue\n"
+            "- Beta -> qualify\n- Gamma -> continue\n- None of these -> terminate\n")
+
+    def test_total_without_quota_groups_is_reported(self):
+        doc = M.parse_markdown(self.HEADER + self.BODY)
+        _, quotas = M.lint(doc)
+        self.assertEqual(len(quotas), 1)
+        self.assertEqual((quotas[0]["total"], quotas[0]["question"]), (8, None))
+        self.assertTrue(quotas[0]["feasible"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "s.md"
+            path.write_text(self.HEADER + self.BODY, encoding="utf-8")
+            out = json.loads(run(path, "--json").stdout)
+            self.assertEqual(out["quotas"][0]["total"], 8)
+            self.assertIn("Total 8 participants; no quota groups", run(path).stdout)
+
+    def test_multi_select_continue_options_say_they_screen_out_alone(self):
+        row = M.routing_table(M.parse_markdown(self.HEADER + self.BODY))[0]
+        self.assertEqual(row["routes"]["continue"], ["Alpha", "Gamma"])
+        self.assertIn("picked alone they screen out", row["note"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "s.md"
+            path.write_text(self.HEADER + self.BODY, encoding="utf-8")
+            text = run(path).stdout
+        self.assertIn("continue if a qualify option is also picked: Alpha, Gamma", text)
+        plain = M.routing_table(M.parse_markdown(self.HEADER + self.BODY.replace("Beta -> qualify", "Beta -> continue")))[0]
+        self.assertNotIn("note", plain)
+
+
 if __name__ == "__main__":
     unittest.main()

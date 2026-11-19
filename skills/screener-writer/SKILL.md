@@ -95,7 +95,10 @@ and report each finding with its fix; then continue from step 4.
    consent question, for example). Rerun until there are no errors. Exit 2 means the file could not be
    parsed: the message names the line.
 5. **Read the routing table** the script prints and walk people through it by hand: one who should qualify,
-   and for each criterion one who fails only that criterion. Each must end where intended; SC22 already names
+   and for each criterion one who fails only that criterion. On a multi-select with qualify options, the
+   table lists the `continue` options as "continue if a qualify option is also picked": someone who picks
+   only those screens out. The quota lines show each group's sums, or the total alone when there are no
+   quota groups (JSON: one `quotas` entry with `question: null`). Each must end where intended; SC22 already names
    any route that qualifies without passing a criterion's question.
 6. **Deliver** the screener in the shape below.
 

@@ -430,5 +430,21 @@ class ReviewRegressionTest(unittest.TestCase):
         self.assertIn("n_a", scale)
 
 
+class QaPolishRegressionTest(unittest.TestCase):
+    """Usability fixes from the 2026-11-19 end-to-end QA."""
+
+    def test_labelled_numbers_with_both_end_labels_set_the_scale(self):
+        rows = "q1,q2\n1 - Strongly disagree,2 - Disagree\n5 - Strongly agree,4 - Agree\n3 - Neutral,3\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "l.csv", rows)
+            out = run_json(path, "--items", "q1,q2")
+            self.assertEqual((out["scale"]["min"], out["scale"]["max"]), (1, 5))
+            self.assertIn("from the labelled answers", out["scale"]["source"])
+            self.assertIn("from the labelled answers", run(path, "--items", "q1,q2").stdout)
+            short = run(write(tmp, "s.csv", "q1\n2 - Disagree\n5 - Strongly agree\n"), "--items", "q1")
+            self.assertEqual(short.returncode, 2)
+            self.assertIn("does not read as an end point", short.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

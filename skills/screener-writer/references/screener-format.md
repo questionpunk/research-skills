@@ -108,6 +108,8 @@ are ignored; curly quotes are fine). The linter checks that cells name real opti
 qualify, that no option is in two cells, that every non-terminating option has a cell, and that the minimums
 add to at most the total and the maximums of the cells that can fill to at least it. Each quota group is
 checked on its own: with two groups (crossed quotas), check by hand that the combinations you need can occur.
+A `total:` with no quota lines is reported as the recruiting target (in JSON, one `quotas` entry with
+`"question": null`).
 
 ## JSON layout
 

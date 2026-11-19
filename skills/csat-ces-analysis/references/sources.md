@@ -29,6 +29,13 @@ Pitfalls · References
   answers; when text labels fit maps of different lengths (the five labels of a 5-point satisfaction scale
   also appear on the 7-point one) or numbers come with no scale, the script stops and asks. `--counts`
   gives the number of points directly (5 counts = 5 points), so only the numbering is assumed and printed.
+- **Labelled numbers carry the questionnaire's end labels** (this skill's rule, shared by `csat-ces-analysis`,
+  `likert-analysis` and `ux-scale-scoring`). Answers such as "1 - Very dissatisfied" ... "5 - Very satisfied"
+  set the scale from the lowest and highest labelled codes only when both labels read as end points (very,
+  extremely, strongly, completely, totally, entirely, absolutely, highly, at all; never "not very ...") and no
+  plain number falls outside them; the scale line names the two labels. An end label on a code nobody chose
+  cannot be seen, so a 7-point scale whose "7 - Extremely satisfied" went unused would read as 1-6 if "6 - Very
+  satisfied" were chosen: pass `--scale` when the questionnaire had more points.
 - CSAT is not the ACSI. The American Customer Satisfaction Index is a 0-100 score estimated from three
   10-point questions in a latent-variable model with its own weights (Fornell et al. 1996, not re-checked;
   theacsi.com methodology page returned 403). A top-2-box CSAT is not comparable to an ACSI score.

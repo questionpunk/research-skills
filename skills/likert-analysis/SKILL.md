@@ -53,7 +53,7 @@ an end point the scale looks shorter), and the group tests are only for differen
 |---|---|
 | Data | CSV, one row per respondent, one column per item (any delimiter, UTF-8 or UTF-16, Qualtrics header detected). |
 | Items | Required: `--items q1,q2,...` or `--items-prefix engage_`. |
-| Scale | `--scale MIN-MAX` from the questionnaire; numeric answers stop without it. Text labels set it through a printed built-in map and stop when they fit more than one scale; `--labels` sets it from its lowest and highest points. |
+| Scale | `--scale MIN-MAX` from the questionnaire; numeric answers stop without it. Text labels set it through a printed built-in map and stop when they fit more than one scale; `--labels` sets it from its lowest and highest points. Labelled numbers ("1 - Strongly disagree" ... "5 - Strongly agree") set it from the lowest and highest labelled codes when both labels read as end points (very, extremely, strongly, completely, not at all) and no plain number falls outside them; the scale line says so, and otherwise the script stops. If the questionnaire had more points than anyone chose, pass `--scale`. |
 | Text answers | Read with a printed label map (agree 4/5/7-point, satisfied 5/7-point, frequency, importance); `--labels "Low=1,Mid=2,High=3"` for others. |
 | Bipolar or unipolar | Agree and satisfied labels are bipolar (middle = neutral); frequency and importance are unipolar (middle is not neutral). For numbers, pass `--unipolar` when the scale runs from none to a lot. |
 | Box width | Top-2 / bottom-2 on 4+ point scales; `--box 3` for top-3 on a 7-point scale. |
@@ -85,7 +85,8 @@ an end point the scale looks shorter), and the group tests are only for differen
 
 3. **If it exits with code 2, fix the cause.** It stops when more than 5% of non-blank answers cannot be read
    on the scale, overall or in any one item (unknown labels, wrong scale, a text column among the items),
-   when numeric answers come with no `--scale`, when text labels fit more than one scale, on duplicate
+   when numeric answers come with no `--scale` (labelled numbers without end-point labels at both ends
+   count as numeric), when text labels fit more than one scale, on duplicate
    columns and on ragged rows. Ask for the scale or fix the label map; use `--allow-unreadable` only for
    genuinely unusable answers, and report how many.
 4. **Check the convention lines:** items, scale and its source, bipolar or unipolar, label map, box points,

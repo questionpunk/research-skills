@@ -766,6 +766,10 @@ def check_quotas(doc, qs, index, add, reachable, moves):
                 "Add them to a cell, or terminate them.")
         summary.append({"name": g["name"], "question": qid, "total": total, "sum_min": mins, "sum_max": maxs,
                         "feasible": not broken and total is not None and total > 0 and mins <= total <= maxs})
+    if not quotas["groups"] and total is not None:
+        # A total with no quota groups is still the recruiting target: report it rather than an empty list.
+        summary.append({"name": "Total (no quota groups)", "question": None, "total": total, "sum_min": None,
+                        "sum_max": None, "feasible": total > 0})
     return summary
 
 
@@ -776,8 +780,13 @@ def routing_table(doc):
         for o in q["options"]:
             key = o["action"] if o["action"] != "goto" else f"goto {o['goto']}"
             acts.setdefault(key or "(none)", []).append(o["text"])
-        rows.append({"id": q["id"], "type": q["type"], "criteria": q["criteria"], "articulation": q["articulation"],
-                     "routes": acts})
+        row = {"id": q["id"], "type": q["type"], "criteria": q["criteria"], "articulation": q["articulation"],
+               "routes": acts}
+        if q["type"] == "multi" and "qualify" in acts and "continue" in acts:
+            # route_moves: on a multi-select with qualify options, at least one must be picked to pass.
+            row["note"] = ("continue options pass only together with a qualify option (" + ", ".join(acts["qualify"]) +
+                           "); picked alone they screen out")
+        rows.append(row)
     return rows
 
 
@@ -795,12 +804,19 @@ def render(doc, findings, quotas):
     out.append("")
     out.append("Routing:")
     for r in routing_table(doc):
-        routes = "; ".join(f"{k}: {', '.join(v)}" for k, v in r["routes"].items()) or "open answer, continue"
+        names = {"continue": "continue if a qualify option is also picked"} if r.get("note") else {}
+        routes = "; ".join(f"{names.get(k, k)}: {', '.join(v)}" for k, v in r["routes"].items()) or "open answer, continue"
         tag = " [articulation]" if r["articulation"] else ""
         out.append(f"  {r['id']} ({r['type']}{', ' + ', '.join(r['criteria']) if r['criteria'] else ''}){tag}: {routes}")
+        if r.get("note"):
+            out.append(f"      note: {r['note']}")
     if quotas:
         out.append("Quotas:")
         for qd in quotas:
+            if qd["question"] is None:
+                out.append(f"  Total {qd['total']} participants; no quota groups" +
+                           ("" if qd["feasible"] else " (the total must be positive)"))
+                continue
             verdict = ("cell sums fit the total" if qd["feasible"]
                        else "cannot fill (see the SC17 findings)")
             out.append(f"  {qd['name']} ({qd['question']}): minimums {qd['sum_min']}, maximums of cells that can "

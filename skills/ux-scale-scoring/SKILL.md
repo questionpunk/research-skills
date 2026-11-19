@@ -64,7 +64,8 @@ check the export's column order against them.
 | Scale | Fixed by the instrument: SUS 1-5 (nothing else is the SUS); UMUX-Lite and SEQ 1-7 (`--scale 1-5` for a 5-point UMUX-Lite); TLX 0-100 (`--scale 1-21` for the paper form). Text labels ("Strongly agree") are read with the printed map of that scale only. |
 | Design or task column, participant id | None. With both and the same people rating each design, use `--paired`. |
 | Target | None. For "above average" on SUS, 68 with `--tail above`. |
-| Skipped SUS items | Participant excluded and counted. `--impute-midpoint` scores one skipped item as 3 (`--max-imputed` to allow more, with the user's agreement) and prints the complete-case mean beside it. |
+| Direction of a comparison | Two-sided. A one-sided question fixed before the data ("is the new design better?") is `--compare NEW OLD --tail above` (A minus B); not with `--pairwise`, and run a one-sided `--target` separately. |
+| Skipped SUS items | Participant excluded and counted. `--impute-midpoint` scores one skipped item as 3 (`--max-imputed` to allow more, with the user's agreement) and prints the complete-case result beside it: overall, per group and for each comparison. |
 | Confidence, small base | 95%; 12 participants (`--min-base`, this skill's reporting convention). |
 
 ## Steps
@@ -82,6 +83,8 @@ check the export's column order against them.
    python3 <skill-dir>/scripts/ux_scale_scoring.py sus.csv --instrument sus --group-col design --compare old new \
      --paired --id-col participant
    python3 <skill-dir>/scripts/ux_scale_scoring.py sus.csv --instrument sus --target 68 --tail above
+   python3 <skill-dir>/scripts/ux_scale_scoring.py sus.csv --instrument sus --group-col design --compare new old \
+     --tail above
    python3 <skill-dir>/scripts/ux_scale_scoring.py umux.csv --instrument umux-lite --items capabilities,ease
    python3 <skill-dir>/scripts/ux_scale_scoring.py seq.csv --instrument seq --group-col task --pairwise --adjust holm
    python3 <skill-dir>/scripts/ux_scale_scoring.py tlx.csv --instrument tlx --scale 1-21 --group-col condition \
@@ -106,11 +109,15 @@ check the export's column order against them.
    score leads, read on the SUS grades as its author now recommends; the regression SUS-equivalent
    (0.65 x + 22.9, 7-point only) is secondary and historical, and it squeezes every score into 22.9-87.9.
    Its interval is the transformed interval of the mean, with no prediction error. Percentiles are
-   interpolated between grade boundaries and adjectives are the closest Bangor mean: say so.
+   interpolated between grade boundaries and adjectives are the closest Bangor mean: say so. When the script
+   notes that the grade and adjective disagree (62.0 is a D but closest to "Good"), report both with their
+   sources or the grade alone. With one participant there is no interval: report the score alone.
 6. **Comparisons.** Same participants rated both designs → `--paired` (paired t); different people → the
-   default Welch t. Rows without a participant id are never paired; the output counts them. In a paired
-   study the overall line pools both designs, so it has no interval or target test: report each design and
-   the paired difference. Report the difference, its interval, p and the verdict, significant or not
+   default Welch t. Rows without a participant id are never paired; the output counts them. With
+   `--group-col` the pooled line ("All participants (pooled across the design groups)") mixes the designs, so
+   it gets no grade, percentile or adjective; in a paired study it has no interval or target test either.
+   Report each design and the difference. A one-sided compare (`--tail above`) prints a one-sided bound
+   instead of an interval. Report the difference, its interval, p and the verdict, significant or not
    significant; below the small base read the interval, and never write "no difference". With more than two
    designs or tasks use `--pairwise --adjust holm`; `--adjust` also covers the target tests, as their own
    family.

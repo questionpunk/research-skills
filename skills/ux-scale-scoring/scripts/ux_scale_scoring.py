@@ -49,6 +49,10 @@ ADJECTIVES = [
     ("Worst Imaginable", 12.5), ("Awful", 20.3), ("Poor", 35.7), ("OK", 50.9), ("Good", 71.4),
     ("Excellent", 85.5), ("Best Imaginable", 90.9),
 ]
+# The curved grade and the closest adjective come from different published schemes. When the adjective falls
+# outside these (this skill's reading of the two tables side by side), the output says the two disagree.
+GRADE_ADJECTIVES = {"A": {"Excellent", "Best Imaginable"}, "B": {"Good", "Excellent"}, "C": {"OK", "Good"},
+                    "D": {"Poor", "OK"}, "F": {"Worst Imaginable", "Awful", "Poor"}}
 UMUX_LITE_SLOPE, UMUX_LITE_INTERCEPT = 0.65, 22.9  # Lewis, Utesch and Maher (2013), n = 791; 7-point only
 SUS_BENCHMARK_MEAN = 68  # average SUS, 50th percentile (Sauro and Lewis 2016; MeasuringU)
 DEFAULT_MIN_BASE = 12  # this skill's reporting convention, not a power rule; see references/sources.md
@@ -335,6 +339,42 @@ def text_answers(raw_values):
     return counts
 
 
+# A label that names an end of a rating scale: "Very satisfied", "Strongly agree", "Not at all likely",
+# "Completely". "Not very ..." and the like are inner points of a 4-point scale, so they never count.
+END_LABEL_RE = re.compile(r"\b(?:very|extremely|strongly|completely|totally|entirely|absolutely|highly|at all)\b",
+                          re.I)
+INNER_LABEL_RE = re.compile(
+    r"\bnot\s+(?:very|extremely|strongly|completely|totally|entirely|absolutely|highly)\b", re.I)
+
+
+def labelled_scale(raw_values):
+    """Read the scale from labelled-number answers ("1 - Very dissatisfied" ... "5 - Very satisfied").
+    Returns None when no answer is a labelled number; else (scale, source, None) when the lowest and the highest
+    labelled codes both carry only end-point labels, or (None, None, reason) when they do not."""
+    seen = {}
+    for raw in raw_values:
+        text = (raw or "").strip()
+        pair = labelled_number(text)
+        if pair and as_number(text) is None:
+            seen.setdefault(pair[0], set()).add(pair[1])
+    if not seen:
+        return None
+    low, high = min(seen), max(seen)
+
+    def shown(point):
+        return f"{point} = " + " / ".join(repr(label) for label in sorted(seen[point]))
+
+    if low == high:
+        return None, None, f"every labelled answer is {shown(low)}"
+    inner = [p for p in (low, high)
+             if not all(END_LABEL_RE.search(lab) and not INNER_LABEL_RE.search(lab) for lab in seen[p])]
+    if inner:
+        return None, None, ("the labelled answers run from " + shown(low) + " to " + shown(high) + ", and " +
+                            " and ".join(shown(p) for p in inner) + " does not read as an end point (very, "
+                            "extremely, strongly, completely, not at all), so an end of the scale may be missing")
+    return (low, high), f"from the labelled answers: {shown(low)} and {shown(high)} read as the end points", None
+
+
 def resolve_scale_and_labels(raw_values, declared, fixed, user_labels, allowed, hints):
     """Decide the answer scale and the text-label map. The scale never comes from the answers that happen to
     appear: a question where nobody chose an end point looks like a shorter scale. In order:
@@ -342,7 +382,10 @@ def resolve_scale_and_labels(raw_values, declared, fixed, user_labels, allowed, 
       2. --labels: its lowest and highest points set the scale when 1 did not;
       3. a built-in preset (only those in `allowed`) that reads the text answers. With a known scale only presets
          of that scale count; with none, the preset must be the only fitting format, else stop and ask;
-      4. numeric answers with no scale from 1-3 stop with exit 2 and ask for --scale.
+      4. labelled-number answers ("1 - Very dissatisfied") with no scale from 1-3: the lowest and highest
+         labelled codes set the scale when both carry end-point labels (labelled_scale) and no plain number falls
+         outside them;
+      5. otherwise numeric answers with no scale stop with exit 2 and ask for --scale.
     `hints` maps a preset outside `allowed` to advice (for example, which --metric reads it).
     Returns (scale, scale_source, labels or None, label_source or None)."""
     scale, source = (declared, "given (--scale)") if declared else (fixed if fixed else (None, None))
@@ -393,8 +436,15 @@ def resolve_scale_and_labels(raw_values, declared, fixed, user_labels, allowed, 
     if scale is None:
         numbers = [v for v, reason in (read_point(r, None) for r in raw_values) if reason is None]
         seen = f"numbers from {min(numbers)} to {max(numbers)}" if numbers else "no readable numbers"
+        found = labelled_scale(raw_values)
+        why = ""
+        if found:
+            if found[0] and all(found[0][0] <= v <= found[0][1] for v in numbers):
+                return found[0], found[1], None, None
+            why = (f"; {found[2]}" if found[2] else
+                   f"; some plain numbers fall outside the labelled codes {found[0][0]}-{found[0][1]}")
         raise InputError(
-            f"the answers are {seen}, and the scale cannot be read from the answers: if nobody chose an end point "
+            f"the answers are {seen}{why}. The scale cannot be read from the answers: if nobody chose an end point "
             "the scale looks shorter than it was. Pass --scale MIN-MAX from the questionnaire (for example "
             "--scale 1-5), or --labels.")
     return scale, source, None, None
@@ -610,9 +660,22 @@ def summarize(label, scores, confidence, min_base, bounds, instrument, seven_poi
 def add_benchmarks(out, mean, ci):
     grade, percentile = cgs(mean)
     out.update({"grade": grade, "percentile": percentile, "adjective": adjective(mean)})
+    out["grade_adjective_differ"] = out["adjective"] not in GRADE_ADJECTIVES[grade[0]]
     if ci:
         out["grade_range"] = [cgs(ci[0])[0], cgs(ci[1])[0]]
         out["percentile_range"] = [cgs(ci[0])[1], cgs(ci[1])[1]]
+
+
+def apply_tail(out, tail, confidence):
+    """One-sided comparison of A minus B: "above" asks whether A is higher, "below" whether A is lower. The p
+    value is one-sided and the interval becomes the matching one-sided bound at the same confidence."""
+    out["tail"] = tail
+    if tail == "two" or not out.get("tested"):
+        return
+    upper = out["p_value"] / 2 if out["t"] > 0 else 1 - out["p_value"] / 2
+    out["p_value"] = upper if tail == "above" else 1 - upper
+    half = t_critical(2 * confidence - 1, out["df"]) * out["se"]
+    out["ci"] = [out["difference"] - half, None] if tail == "above" else [None, out["difference"] + half]
 
 
 def set_verdict(result, alpha, small):
@@ -749,6 +812,12 @@ def analyse(args):
         raise InputError(f"--max-imputed must be 1 or more; got {args.max_imputed}")
     if args.tail == "one":
         raise InputError("--tail one is ambiguous: say --tail above or --tail below (for TLX, lower is better)")
+    if args.tail in ("above", "below") and args.compare and args.target is not None:
+        raise InputError("--tail sets the direction of both the target tests and --compare; run them separately so "
+                         "each one-sided question is stated on its own (or drop --tail for a two-sided compare)")
+    if args.tail in ("above", "below") and args.pairwise:
+        raise InputError("--tail above/below needs a direction for each pair, which --pairwise does not set: use "
+                         "--compare A B (A minus B) for the pair the hypothesis names")
     instrument = args.instrument
     for flag, allowed in (("drop_flagged", ("sus",)), ("reverse_performance", ("tlx",)), ("seq_reversed", ("seq",))):
         if getattr(args, flag) and instrument not in allowed:
@@ -887,6 +956,14 @@ def analyse(args):
         overall.get("sus_equivalent_benchmarks", {}).pop("percentile_range", None)
         overall["pooled_paired"] = True
         overall["note"] = "pooled over designs, each participant once per design: no interval or test"
+    if args.group_col:
+        # A grade describes one product's mean; the pooled line mixes the designs, so it is described, not graded.
+        overall["label"] = (f"All rows (pooled across the {args.group_col} groups)" if args.paired else
+                            f"All participants (pooled across the {args.group_col} groups)")
+        overall["pooled_across_groups"] = True
+        for key in ("grade", "grade_range", "percentile", "percentile_range", "adjective", "grade_adjective_differ",
+                    "sus_equivalent_benchmarks"):
+            overall.pop(key, None)
     result = {
         "tool": "ux-scale-scoring", "version": VERSION, "instrument": instrument,
         "instrument_name": INSTRUMENTS[instrument]["name"],
@@ -933,33 +1010,53 @@ def analyse(args):
             pairs = [(a, b) for i, a in enumerate(real) for b in real[i + 1:]]
             if len(real) < len(names):
                 notes.append("Rows with a blank group are shown as '(blank)' and left out of --pairwise.")
-        for a, b in pairs:
+        tail = args.tail or "two"
+
+        def run_pair(a, b, keep, warn):
+            """One comparison on the records `keep` accepts; `warn` adds the data warnings (first run only)."""
+            ga, gb = ([r for r in groups[name] if keep(r)] for name in (a, b))
             if args.paired:
                 by_id, blanks = [], []
-                for name in (a, b):
-                    ids = [r["id"] for r in groups[name] if r["id"]]
+                for name, members in ((a, ga), (b, gb)):
+                    ids = [r["id"] for r in members if r["id"]]
                     dupes = sorted({i for i in ids if ids.count(i) > 1})
                     if dupes:
                         raise InputError(f"group {name!r} has more than one row for id(s) {', '.join(dupes[:5])}; "
                                          "a paired test needs one score per participant per group")
-                    by_id.append({r["id"]: r["score"] for r in groups[name] if r["id"]})
-                    blanks.append(sum(1 for r in groups[name] if not r["id"]))
-                if any(blanks):
+                    by_id.append({r["id"]: r["score"] for r in members if r["id"]})
+                    blanks.append(sum(1 for r in members if not r["id"]))
+                if any(blanks) and warn:
                     warnings.append(f"{sum(blanks)} row(s) in {a} or {b} have no participant id; they cannot be "
                                     "paired and are left out of the paired test.")
-                comparisons.append(paired(a, b, by_id[0], by_id[1], args.confidence, args.min_base, tuple(blanks)))
+                out = paired(a, b, by_id[0], by_id[1], args.confidence, args.min_base, tuple(blanks))
             else:
-                if args.id_col:
-                    shared = {r["id"] for r in groups[a]} & {r["id"] for r in groups[b]}
+                if args.id_col and warn:
+                    shared = {r["id"] for r in ga} & {r["id"] for r in gb}
                     if shared:
                         warnings.append(f"{len(shared)} participant(s) appear in both {a} and {b}; the independent "
                                         "test assumes different people. Use --paired for a within-subjects study.")
-                comparisons.append(welch(a, b, [r["score"] for r in groups[a]], [r["score"] for r in groups[b]],
-                                         args.confidence, args.min_base))
+                out = welch(a, b, [r["score"] for r in ga], [r["score"] for r in gb], args.confidence, args.min_base)
+            apply_tail(out, tail, args.confidence)
+            if out.get("tested"):
+                set_verdict(out, 1 - args.confidence, out["small_base"])
+            return out
+
+        for a, b in pairs:
+            comparisons.append(run_pair(a, b, lambda r: True, True))
         if args.paired:
-            notes.append("The overall line pools every row, so each participant counts once per group; it has no "
+            notes.append("The pooled line counts each participant once per group; it has no "
                          "interval or target test. Report the groups and the paired difference.")
         holm(comparisons, args.adjust, 1 - args.confidence, args.min_base)
+        if imputed:
+            # The same tests on participants who answered every item, as the sensitivity check beside the imputed
+            # result (its own adjustment family).
+            complete_cases = [run_pair(a, b, lambda r: not r["imputed"], False) for a, b in pairs]
+            holm(complete_cases, args.adjust, 1 - args.confidence, args.min_base)
+            for c, cc in zip(comparisons, complete_cases):
+                c["complete_case"] = cc
+            for g in result["groups"]:
+                complete = [r["score"] for r in groups[g["label"]] if not r["imputed"]]
+                g["complete_case"] = {"n": len(complete), "mean": mean_sd(complete)[0] if complete else None}
         tested = [c for c in comparisons if c.get("tested")]
         if len(tested) > 1 and args.adjust == "none":
             warnings.append(f"{len(tested)} tests were run without a multiple-comparison adjustment; pass --adjust holm.")
@@ -976,10 +1073,22 @@ def analyse(args):
             warnings.append(f"{sum(1 for t in targets if t.get('tested'))} target tests were run without a "
                             "multiple-comparison adjustment; pass --adjust holm, or report the number of tests.")
         result["target"] = targets
-    small = [g["label"] for g in [overall] + result.get("groups", []) if g["n"] and g["small_base"]]
+    every = [overall] + result.get("groups", [])
+    single = [g["label"] for g in every if g["n"] == 1]
+    small = [g["label"] for g in every if g["n"] > 1 and g["small_base"]]
     if small:
         warnings.append(f"Small base (under {args.min_base} participants): {', '.join(small)}. Report the interval "
                         "and call the result directional; a result that is not significant there says little.")
+    if single:
+        warnings.append(f"One participant: {', '.join(single)}. Report the score alone: one rating has no interval and "
+                        "no test, and says nothing about users in general.")
+    differ = [g for g in every if g.get("grade_adjective_differ")]
+    if differ:
+        notes.append("Grade and adjective disagree for " + ", ".join(
+            f"{g['label']} (grade {g['grade']}, adjective {g['adjective']!r})" for g in differ) +
+            ": they come from different published schemes (curved grades, Sauro and Lewis 2016; adjective means, "
+            "Bangor et al. 2009) and part ways near their boundaries. Report both with their sources, or the grade "
+            "alone.")
     if args.scores_out:
         if same_file(args.scores_out, args.input):
             raise InputError("--scores-out points at the input file; choose another path")
@@ -1032,6 +1141,20 @@ def group_line(g, instrument):
     return text
 
 
+def comparison_text(c):
+    if not c.get("tested"):
+        return c.get("note", "not tested")
+    verdict = c["verdict"]
+    if not c["significant"] and c.get("small_base"):
+        verdict += " (small base: a real difference may have been missed)"
+    p_text = f"p {fmt_p(c['p_value'])}" + (f", {c['adjustment']}-adjusted p {fmt_p(c['p_adjusted'])} over "
+                                             f"{c['family_size']} tests" if "p_adjusted" in c else "")
+    low, high = c["ci"]
+    interval = (f"lower bound {low:+.2f}" if high is None else f"upper bound {high:+.2f}" if low is None
+                else f"{low:+.2f} to {high:+.2f}")
+    return (f"{c['difference']:+.2f} ({interval}), t = {c['t']:.3f}, df = {c['df']:.1f}, {p_text}: {verdict}")
+
+
 def render(result):
     inst = result["instrument"]
     inp = result["input"]
@@ -1053,21 +1176,21 @@ def render(result):
         lines.append(f"  Complete cases only (no imputed items): n = {cc['n']}" +
                      (f", mean {cc['mean']:.1f}" if cc["mean"] is not None else ""))
     if result.get("groups"):
-        lines += ["", "By group:"] + ["  " + group_line(g, inst) for g in result["groups"]]
+        lines += ["", "By group:"]
+        for g in result["groups"]:
+            lines.append("  " + group_line(g, inst))
+            cc = g.get("complete_case")
+            if cc:
+                lines.append(f"    Complete cases only: n = {cc['n']}" +
+                             (f", mean {cc['mean']:.1f}" if cc["mean"] is not None else ""))
     if result.get("comparisons"):
         lines += ["", "Comparisons (A minus B):"]
         for c in result["comparisons"]:
-            head = f"  {c['a']} vs {c['b']} ({c['test']}" + (f", {c['pairs']} pairs" if c["kind"] == "paired" else "") + "): "
-            verdict = c.get("verdict", "")
-            if c.get("tested") and not c["significant"] and c.get("small_base"):
-                verdict += " (small base: a real difference may have been missed)"
-            if not c.get("tested"):
-                lines.append(head + c.get("note", "not tested"))
-                continue
-            p_text = f"p {fmt_p(c['p_value'])}" + (f", {c['adjustment']}-adjusted p {fmt_p(c['p_adjusted'])} over "
-                                                     f"{c['family_size']} tests" if "p_adjusted" in c else "")
-            lines.append(head + f"{c['difference']:+.2f} ({c['ci'][0]:+.2f} to {c['ci'][1]:+.2f}), t = {c['t']:.3f}, "
-                         f"df = {c['df']:.1f}, {p_text}: {verdict}")
+            head = f"  {c['a']} vs {c['b']} ({c['test']}" + (f", {c['pairs']} pairs" if c["kind"] == "paired" else "") + \
+                (f", one-tailed: is {c['a']} {c['tail']} {c['b']}?" if c.get("tail", "two") != "two" else "") + "): "
+            lines.append(head + comparison_text(c))
+            if c.get("complete_case"):
+                lines.append("    Complete cases only: " + comparison_text(c["complete_case"]))
     for t in result.get("target", []):
         if t.get("tested"):
             tail = "two-tailed" if t["tail"] == "two" else f"one-tailed, {t['tail']}"
@@ -1118,8 +1241,8 @@ def build_parser():
     parser.add_argument("--adjust", choices=["none", "holm", "bonferroni"], default="none",
                         help="multiple-comparison adjustment (default none, warns when several tests run)")
     parser.add_argument("--target", type=float, help="test each mean against this score (e.g. 68 for SUS)")
-    parser.add_argument("--tail", choices=["two", "above", "below", "one"], help="target test direction: two "
-                        "(default), above or below")
+    parser.add_argument("--tail", choices=["two", "above", "below", "one"], help="direction of the target tests or "
+                        "of --compare (A minus B): two (default), above or below; decide it before seeing the data")
     parser.add_argument("--impute-midpoint", action="store_true",
                         help="SUS only: score a skipped item as 3 (Brooke's centre-point instruction), for participants "
                         "who skipped at most --max-imputed items; default excludes them")
