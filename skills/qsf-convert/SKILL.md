@@ -1,9 +1,9 @@
 ---
 name: qsf-convert
-description: "Convert a survey written in Markdown (or pasted from a doc or form) into a Qualtrics import file: a .qsf with blocks, question types, skip and display logic, or Advanced Format TXT when there is no logic. Also turn an exported .qsf into editable Markdown or a codebook with a list of what could not be carried, and check a .qsf for broken references. Use for \"make this a Qualtrics survey\", \"import my survey into Qualtrics\", \"read this qsf\", \"check this qsf\", \"Qualtrics data dictionary\" or \"move my survey between tools\"."
+description: "Converts a survey written in Markdown (or pasted from a doc or form) into a Qualtrics import file: a .qsf with blocks, question types, skip and display logic, or Advanced Format TXT when there is no logic. Also turns an exported .qsf into editable Markdown or a codebook with a list of what could not be carried, and checks a .qsf for broken references. Use for \"make this a Qualtrics survey\", \"import my survey into Qualtrics\", \"read this qsf\", \"check this qsf\", \"Qualtrics data dictionary\" or \"move my survey between tools\"."
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -38,10 +38,10 @@ Do not use it, and hand over instead, when the user wants to:
 
 - Decide what to ask or write the questions: `survey-from-decision`.
 - Review question wording for bias: `survey-bias-check`.
-- Analyse responses or a data export (CSV, not `.qsf`): `survey-data-cleaning`, `nps-analysis`,
-  `survey-crosstabs`.
-- Check a translation: `survey-translation-qa`.
-- Change a survey that is live in Qualtrics. This skill never connects to Qualtrics; it only makes files.
+- Analyse responses or a data export (CSV, not `.qsf`): `survey-data-cleaning`, `nps-analysis`.
+- Check a translation, or change a survey that is live in Qualtrics: outside this skill. It never connects
+  to Qualtrics; it only makes files. (Qualtrics also imports Word documents and has a survey-definitions
+  REST API; both are alternatives this skill does not use.)
 
 A skill named above may not be installed. If it is missing, say in one line that the request is outside
 this skill, and answer it from general knowledge only if the user still wants that.
@@ -71,8 +71,8 @@ Ask at most one question, and only if the first item is missing.
 | Side by side | No | Read as one matrix question per column |
 | Blocks, page breaks, required and request response | Yes | Yes |
 | Recode values, matrix row export tags, write-in and exclusive options | Yes | Yes |
-| Skip logic on a selected or not selected option | Yes | Yes |
-| Display logic on selected or not selected options, all "and" or all "or" | Yes | Yes |
+| Skip logic on a selected or not selected option (multiple choice or NPS score) | Yes | Yes |
+| Display logic on selected or not selected options of an earlier question, all "and" or all "or" | Yes | Yes |
 | Randomize all options or rows; embedded data declared at the start | Yes | Yes |
 | Branches, block randomizers, quotas, loop and merge, end-of-survey elements, other logic, content validation, scoring, JavaScript, translations, timing, file upload, profile matrix, MaxDiff | No | Reported with the question id, never dropped silently |
 
@@ -83,7 +83,9 @@ one. TXT holds less than `.qsf` (no logic, validation, sliders or NPS): see the 
 ## Steps
 
 The conversion lives in [`scripts/qsf_convert.py`](scripts/qsf_convert.py) (Python 3.9+, standard library
-only, no network). Run it; do not write `.qsf` JSON or read one by hand in the conversation.
+only, no network). Run it; do not write `.qsf` JSON or read one by hand in the conversation. Run it by its
+path inside this skill's directory (shown here as `<skill-dir>`), from any working directory; `-` in
+place of an input file reads standard input.
 
 ### A. Written survey to a Qualtrics import file
 
@@ -96,24 +98,32 @@ only, no network). Run it; do not write `.qsf` JSON or read one by hand in the c
      list `[dropdown]`, several items on one shared scale `[matrix]` (one question, not several), 0 to 10
      recommend `[nps]`, "rank" `[rank]`, "allocate 100 points" `[sum]`, open answers `[text]`,
      `[text-long]`, `[essay]` or `[form]`, instructions `[info]`.
-   - "Other (please specify)" gets `{text}`; "None of the above" in a `[multi]` gets `{exclusive}`; a
-     stated code ("99 = Don't know") gets `{code:99}` on every option of that question.
+   - "Other (please specify)" gets `{text}`; "None of the above" in a `[multi]` gets `{exclusive}`.
+   - Stated codes ("1 = Yes, 2 = No, 99 = Don't know") become `{code:n}`, and then every option of that
+     question needs its own code: `- Yes {code:1}`, `- No {code:2}`, `- Don't know {code:99}`. If the
+     source states codes for only some options, ask, or list the others as unresolved; never invent one.
+   - Option text that really ends in `{text}` or a similar mark is written `\{text}`.
    - "If No, skip to Q7" becomes `> skip:` when Q7 is later in the same block; otherwise use `> show if:`
-     on the questions that depend on the answer, or `end of block`.
+     on the questions that depend on the answer, or `end of block`. A display rule may test a single,
+     multi, dropdown or NPS question that comes earlier (an NPS score is `nps is "6"`; join scores with
+     `or`). Put a page break (`---`) between a rule and the question it tests: the script warns when they
+     share a page, and refuses a rule on a later question.
    - Anything the format cannot hold (see "What the format does not hold" in the reference) goes in a
      `<!-- comment -->` at that place and in your report, for the user to set up in Qualtrics.
 2. **Build.**
    ```bash
-   python3 scripts/qsf_convert.py to-qualtrics survey.md -o survey.qsf
+   python3 <skill-dir>/scripts/qsf_convert.py to-qualtrics survey.md -o survey.qsf
    ```
    The script picks the format and prints which and why: TXT when the survey has nothing TXT cannot
-   hold, `.qsf` otherwise (the output file gets the matching extension). Force one with `--format qsf` or
-   `--format txt`. On an error the script names the line; fix the Markdown, never the output file.
+   hold, `.qsf` otherwise (the output file gets the matching extension, and an existing file under that
+   switched name is only replaced with `--force`). Force a format with `--format qsf` or `--format txt`.
+   It never writes over its input. On an error the script names the line; fix the Markdown, never the
+   output file.
 3. **Check and read back** (for a `.qsf`). The build already checks its own output; these confirm the
    file on disk and show what Qualtrics would be given:
    ```bash
-   python3 scripts/qsf_convert.py validate --strict survey.qsf
-   python3 scripts/qsf_convert.py to-md survey.qsf
+   python3 <skill-dir>/scripts/qsf_convert.py validate --strict survey.qsf
+   python3 <skill-dir>/scripts/qsf_convert.py to-md survey.qsf
    ```
    Compare the read-back (or the TXT file, which is plain to read) with the user's source, question by
    question: nothing missing, options in order, rules pointing at the intended options.
@@ -123,35 +133,41 @@ only, no network). Run it; do not write `.qsf` JSON or read one by hand in the c
 
 1. **Convert.**
    ```bash
-   python3 scripts/qsf_convert.py to-md export.qsf -o survey.md
+   python3 <skill-dir>/scripts/qsf_convert.py to-md export.qsf -o survey.md
    ```
    Add `--keep-html` to keep formatting tags, `--json` for a machine-readable report.
 2. **Read the conversion report.** It has three fixed parts (converted, converted with changes, not
-   converted) and a survey-level list: branches, randomizers, quotas, notes, survey options. Unsupported
-   items are also left as comments in the Markdown at the place they occurred.
+   converted) and a survey-level list: branches, randomizers, quotas, notes, scoring, and each survey
+   option that differs from what a rebuild writes, by name and value. Unsupported items are also left as
+   comments in the Markdown at the place they occurred.
 3. **Report** the Markdown and the full report. If the user plans to rebuild the survey from this
    Markdown, say plainly that everything in the report will be gone from the rebuilt survey and that
-   question ids are renumbered, so piped text needs checking.
+   question ids are renumbered, so piped text needs checking. Put any line on "survey access and data
+   settings" (an invitation-only or password setting, an expiry, partial-data handling) first: those
+   must be set again in Qualtrics before the rebuilt survey is fielded.
 
 ### C. `.qsf` to a codebook
 
 ```bash
-python3 scripts/qsf_convert.py codebook export.qsf -o codebook.csv      # or --format md
+python3 <skill-dir>/scripts/qsf_convert.py codebook export.qsf -o codebook.csv      # or --format md
 ```
 
-One row per variable: export tag, question id, block, type, label, values with their codes. Pass on the
-script's note that suffixed variable names follow the usual Qualtrics naming and should be checked
-against a real data export.
+One row per variable: export tag, question id, block, type, label, values with their codes. A
+multiple-answer or text-box matrix and a side-by-side question get one row per cell, an NPS question
+also gets its `_NPS_GROUP` variable, and embedded-data fields are listed; response metadata columns
+(start and end time, duration, progress) are not. Pass on the script's note that suffixed variable names
+follow the usual Qualtrics naming and should be checked against a real data export.
 
 ### D. Check a `.qsf`
 
 ```bash
-python3 scripts/qsf_convert.py validate file.qsf
+python3 <skill-dir>/scripts/qsf_convert.py validate file.qsf
 ```
 
 It checks structure: required elements; question ids matching between blocks, flow and questions; order
-lists; logic that points at a question or choice that does not exist; a missing `Conjuction` key; repeated
-question or flow ids; the question-count field. It exits 1 on errors. It cannot say whether Qualtrics will
+lists (keys repeated, missing or unknown); logic that points at a question that does not exist, or at a
+choice that does not exist (an error); display logic that tests a later question; a missing `Conjuction`
+key; repeated question or flow ids; the question-count field. It exits 1 on errors. It cannot say whether Qualtrics will
 accept the file; say so. Use `--strict` only for files this skill built: real exports legitimately produce
 warnings.
 
@@ -161,7 +177,9 @@ warnings.
 2. Rebuild from a Markdown file cut down to the first block, then add blocks back to find the question.
 3. Remove `[nps]`, `[rank]` and `[sum]` questions first; their shapes rest on one real export each.
 4. Build with `--format txt`: the questions, blocks and page breaks import through the documented format,
-   and the script lists the logic and settings to add by hand.
+   and the script lists the logic and settings to add by hand. TXT has no tag for `[slider]`, `[nps]`,
+   `[text-long]` or `[matrix-text]`, so with one of those the build stops: replace them in a copy of the
+   Markdown (a `[slider]` by a `[single]` scale, `[text-long]` by `[essay]`) and list each replacement.
 5. Say that the format may have changed and offer to compare the file with a fresh export from the user's
    own account, element by element.
 
@@ -220,12 +238,11 @@ Answer each with yes before replying.
 - Does every rule quote the exact option text, and does no display rule mix `and` with `or`?
 - Did I state which format was written and why, and for TXT that the import adds to the open survey?
 - Did I give the conversion report in its three parts, and list everything that was not carried
-  (branches, randomizers, validation, piped text), instead of dropping it?
+  (branches, randomizers, validation, piped text, scoring), instead of dropping it, with any access or
+  data setting first and marked to be set again before fielding?
 - Did I tell the user to import into a new test survey first and to preview it?
 - Did I avoid claiming that the file "works in Qualtrics" or "imports cleanly"?
 
-## Field it with QuestionPunk (optional)
+## Field it (optional)
 
-The result above is complete on its own. QuestionPunk imports .qsf, PDF and Word questionnaires in the app, where AI follow-ups can be added to open questions.
-
-Hosted MCP tools this step may use: `survey_create`, `question_create_bulk`, `survey_get`. Ask before creating, changing or publishing anything.
+To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in), or import the `.qsf` in the app. Tools: `survey_create` and `question_create_bulk` (build the survey from the Markdown), `survey_get` (read it back against the source). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.

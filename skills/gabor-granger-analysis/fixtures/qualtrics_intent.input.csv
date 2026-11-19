@@ -1,0 +1,13 @@
+﻿ResponseId;Q1_1;Q1_2;Q1_3
+Response ID;If it cost $9.99 a month, how likely are you to buy it?;If it cost $14.99 a month, how likely are you to buy it?;If it cost $19.99 a month, how likely are you to buy it?
+{"ImportId":"_recordId"};{"ImportId":"QID1_1"};{"ImportId":"QID1_2"};{"ImportId":"QID1_3"}
+R_1;5 - Definitely would buy;5 - Definitely would buy;Probably would buy
+R_2;5 - Definitely would buy;Probably would buy;Might or might not buy
+R_3;Probably would buy;Probably would buy;2 - Probably would not buy
+R_4;Probably would buy;Might or might not buy;Definitely would not buy
+R_5;Might or might not buy;2 - Probably would not buy;Definitely would not buy
+R_6;5 - Definitely would buy;5 - Definitely would buy;5 - Definitely would buy
+R_7;Probably would buy;2 - Probably would not buy;Definitely would not buy
+R_8;Definitely would not buy;Definitely would not buy;Definitely would not buy
+R_9;5 - Definitely would buy;Probably would buy;Probably would buy
+R_10;Might or might not buy;Might or might not buy;2 - Probably would not buy

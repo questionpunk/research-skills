@@ -287,7 +287,8 @@ With `--rare-below 4 --broad-above 40 --other-above 5`: rare = `UX` only, broad 
 
 ## 12. Saturation log
 
-`saturation.csv`, 9 rows, with `--base 4 --run 2` (the smallest base and run in Guest et al. 2020):
+`saturation.csv`, 9 rows, with `--base 4 --run 2 --step 2` (the smallest base and run in Guest et al.
+2020, non-overlapping runs):
 
 | Batch | Rows | Codes in the rows | New | Codes so far | New ÷ base codes |
 |---|---|---|---|---|---|
@@ -298,12 +299,27 @@ With `--rare-below 4 --broad-above 40 --other-above 5`: rare = `UX` only, broad 
 Row 9 does not fill a run and is not evaluated. At the 5% threshold the rule is met in run 2, after 8
 answers; at a 25% threshold in run 1.
 
+**Default, runs moving one row at a time** (`--base 4 --run 2`, Guest et al.'s procedure). First
+appearances: A, B row 1; C row 2; D row 4; E row 5; F row 9. A code is new in a run when its first
+appearance is inside the run:
+
+| Run | Rows | New | New ÷ base codes |
+|---|---|---|---|
+| 1 | 5–6 | E | 1/4 = 25.0% |
+| 2 | 6–7 | none | 0/4 = 0.0%: met |
+| 3 | 7–8 | none | 0.0% |
+| 4 | 8–9 | F | 25.0% |
+
+Met in run 2, after 7 rows; saturation at row 5 (+2), Guest et al.'s notation. A file with rows that
+carry no code stops with exit 2.
+
 ## 13. Stratified sample and top-up
 
 Proportional allocation by largest remainder, by hand: 17 eligible answers, free 8 and paid 9, n = 6.
 6·8/17 = 2.82 and 6·9/17 = 3.18: whole parts 2 and 3, the one remaining place goes to the larger
 remainder (free), so **3 and 3**. Second case: strata of 10, 30, 60 and n = 10 give 1, 3, 6 exactly.
 
-The top-up is checked on properties: after `--top-up-min 2` every code is carried by at least 2 sampled
-rows, or by all rows that carry it if there are fewer (`OTHER` has one); the output still holds only id
-and answer.
+The top-up is checked on properties: after `--top-up-min 2` every code is carried by at least 2 rows of
+the random sample plus the audit file, or by all rows that carry it if there are fewer (`OTHER` has one);
+the random sample in `--out` is exactly the 4 rows drawn, the audit rows are only in `--top-up-out`, and
+both hold only id and answer.

@@ -8,22 +8,22 @@ table top to bottom and stop at the first row that matches. Sources for each rul
 
 | The shell's cell needs | Type (use this name in the question table) | Options | Analysis line |
 |---|---|---|---|
-| Who qualifies, or who gets a block | `single choice` (screener or filter) | Concrete behaviours; the qualifying answer not obvious | Base definition; report how many were screened out |
+| Who qualifies, or who gets a block | `single choice` (filter), `multiple select` (a screener that hides the qualifying behaviour among others) or `open number` (a count over a period) | Concrete behaviours; the qualifying answer not obvious | Base definition; report how many were screened out |
 | % who did a thing in a period | `open number` | "open number (times)" over a named recent period | % with 1 or more; median; distribution in bands set after seeing the data |
 | How much or how often | `open number` | "open number (unit)"; one unit, one period | Median and quartiles; mean only without extreme values |
 | % holding one of several exclusive positions | `single choice` | Complete, mutually exclusive list; "None of these" when possible | % per option with interval; largest gap against the threshold |
-| % choosing between the options of the decision, described as outcomes | `forced choice` | Two (or three) statements of equal length and tone, plus "No preference" | % per statement; difference between the two |
+| % choosing between the options of the decision, described as outcomes | `forced choice` | Two (or three) statements of equal length and tone, plus "No preference" | % per statement; difference between the top two |
 | Which of several things apply | `multiple select` | Complete list, "None of these" exclusive and last | % selecting each (they do not add to 100) |
 | Strength of a one-directional feeling (importance, difficulty, interest, frequency in words) | `rating, 5-point unipolar` | Not at all / Slightly / Moderately / Very / Extremely + construct | % top two; full distribution |
-| Position between two opposites (satisfied–dissatisfied, easier–harder, better–worse) | `rating, 7-point bipolar` | Three labelled points each side and a labelled midpoint | % top two, % bottom two; full distribution |
-| The same rating for several items | `grid` of unipolar or bipolar ratings | Same scale on every row; 5 rows at most | One row per item; rank items by % top two |
+| Position between two opposites (satisfied–dissatisfied, easier–harder, better–worse) | `rating, 7-point bipolar` | Three labelled points each side and a labelled midpoint | % on each side (top three, or top two for strong views only), the cut fixed before fielding; full distribution |
+| The same rating for several items | `grid` of unipolar or bipolar ratings | Same scale on every row; 5 rows at most. On a phone a 7-point grid does not fit across: have the tool show each row as its own question | One row per item; rank items by the same cut as the single rating |
 | The top item out of a short list (6 or fewer) | `single choice` ("which one matters most") | The list, order randomised | % first choice |
 | Priority across more than 6 items | Not in this survey | Use `maxdiff-design` | — |
 | The reason behind a closed answer | `open text` | "open text", optional, right after the closed question | Coded into themes with `open-ended-coding`; % per theme among those asked |
 | A category you cannot list yet | `open text` | "open text" | Code first; closed list in the next wave |
 | A segment column | `single choice` | Bands that match how the business already segments | Column of the shells; check each column's n |
 | A tracked measure (recommendation 0–10, an existing satisfaction item) | Keep the existing type | Unchanged wording and scale | As tracked before, so waves compare (`nps-analysis` for 0–10 recommendation) |
-| A price or willingness to pay | Not a single question | Use `pricing-research-plan` | — |
+| A price or willingness to pay | Not a single question | The four Van Westendorp questions (`van-westendorp-analysis`), or another price method | — |
 
 ## 2. Types to avoid, and what to use instead
 

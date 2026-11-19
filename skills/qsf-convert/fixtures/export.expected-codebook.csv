@@ -9,15 +9,19 @@ commute mins,QID4,Intro,TE/SL,How many minutes is your commute?,(open text),
 agree_reliable,QID5,Ratings,Matrix/Likert/SingleAnswer,How much do you agree? - My commute is reliable,1=Disagree; 2=Neutral; 3=Agree,
 agree_cheap,QID5,Ratings,Matrix/Likert/SingleAnswer,How much do you agree? - My commute is cheap,1=Disagree; 2=Neutral; 3=Agree,
 nps,QID6,Ratings,MC/NPS,How likely are you to recommend your commute?,0=0; 1=1; 2=2; 3=3; 4=4; 5=5; 6=6; 7=7; 8=8; 9=9; 10=10,
+nps_NPS_GROUP,QID6,Ratings,MC/NPS,How likely are you to recommend your commute? - NPS group,1=Detractor (0 to 6); 2=Passive (7 or 8); 3=Promoter (9 or 10),added to the data export for an NPS question
 overall_1,QID7,Ratings,Slider/HSLIDER,Rate your commute overall. - Overall,(number),
-sbs#1,QID8,Ratings,SBS/SBSMatrix,Compare the two routes - Speed,1=Slow; 2=Fast,side by side: one column per row (2 rows)
-sbs#2,QID8,Ratings,SBS/SBSMatrix,Compare the two routes - Comfort,1=Poor; 2=Good,side by side: one column per row (2 rows)
+sbs#1_1,QID8,Ratings,SBS/SBSMatrix,Compare the two routes - Speed - Route A,1=Slow; 2=Fast,side by side: one variable per column and row
+sbs#1_2,QID8,Ratings,SBS/SBSMatrix,Compare the two routes - Speed - Route B,1=Slow; 2=Fast,side by side: one variable per column and row
+sbs#2_1,QID8,Ratings,SBS/SBSMatrix,Compare the two routes - Comfort - Route A,1=Poor; 2=Good,side by side: one variable per column and row
+sbs#2_2,QID8,Ratings,SBS/SBSMatrix,Compare the two routes - Comfort - Route B,1=Poor; 2=Good,side by side: one variable per column and row
 timer,QID10,Ratings,Timing/PageTimer,Timing,,variables of this question type are not listed
 Q2_other,QID11,Follow-up,TE/ESTB,Anything else?,(open text),
 commute,QID12,Follow-up,MC/DL,Which city?,1=Lisbon; 2=Porto,
-hours_1,QID13,Follow-up,Matrix/TE/Short,How many hours per week? - Working,1=Hours,"text boxes: one column per row and column, named <variable>_<column>"
-hours_2,QID13,Follow-up,Matrix/TE/Short,How many hours per week? - Commuting,1=Hours,"text boxes: one column per row and column, named <variable>_<column>"
+hours_1_1,QID13,Follow-up,Matrix/TE/Short,How many hours per week? - Working - Hours,(open text),
+hours_2_1,QID13,Follow-up,Matrix/TE/Short,How many hours per week? - Commuting - Hours,(open text),
 contact_1,QID14,Follow-up,TE/FORM,How can we reach you? - Name,(open text),
 contact_2,QID14,Follow-up,TE/FORM,How can we reach you? - Phone,(open text),
 split_1,QID15,Follow-up,CS/VRTL/TX,Split 100 points between the modes. - Car,(number),
 split_2,QID15,Follow-up,CS/VRTL/TX,Split 100 points between the modes. - Bike,(number),
+source,,(survey flow),EmbeddedData,source,(set from the link or contact),embedded data

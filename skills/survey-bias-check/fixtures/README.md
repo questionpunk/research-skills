@@ -7,7 +7,7 @@ rule definitions in `../references/rules.md` before the script was run against t
 |---|---|---|
 | `flawed.input.md` | `flawed.expected.json` | SB001 to SB014 and SB016 each fire: 27 findings and 1 note |
 | `clean.input.md` | `clean.expected.json` | Sits next to each of those rules without breaking it: 0 findings |
-| `gaps.input.md` | `gaps.expected.json` | SB017 to SB027 each fire: 17 findings and 1 note |
+| `gaps.input.md` | `gaps.expected.json` | SB017 to SB028 each fire: 18 findings and 1 note |
 | `gaps_clean.input.md` | `gaps_clean.expected.json` | Negative cases for SB017 to SB027: 0 findings |
 | `unnumbered.input.txt` | `unnumbered.expected.json` | No question numbers: 3 questions, 1 finding |
 | `mini.input.json` | `mini.expected.json` | JSON input form: 8 findings, no line numbers |
@@ -94,17 +94,19 @@ The later rules leave it clean too: Q1 says "overall" (SB018); Q2 and Q3 name a 
 | 9 (39) | SB008, SB026 | 24 words (count below). Four load signals: "If", "not counting", an 8-word parenthetical, 4 commas. "last week" is a period. |
 | 10 (41) | SB014 grid, SB025 grid_rows, SB027 (note) | Agree/disagree with 11 rows (limit 10); 4 points, no midpoint. The 11 statements are plain. |
 | 11-13 | none | Short open questions. |
+| 14 (64) | SB028 | "Yes" appears twice (added with SB028; Yes / No is still read as a yes/no question). |
 | survey | SB025 open_count | Open questions: 1, 11, 12, 13 = 4 (limit 3). Q7 and Q9 are `[number]`. |
 
-Totals: 2+1+3+1+1+1+1+1+1+2+2+1 = 17 (high: Q3; medium: intro leading, Q2 SB018, Q4, Q6, Q10 SB014 = 5;
-low: 11) and 1 note.
+Totals: 2+1+3+1+1+1+1+1+1+2+2+1+1 = 18 (high: Q3, Q14; medium: intro leading, Q2 SB018, Q4, Q6, Q10 SB014
+= 5; low: 11) and 1 note.
 
 Q9 word count: If(1) you(2) train(3) outdoors,(4) how(5) many(6) hours(7) did(8) you(9) train(10) last(11)
 week,(12) not(13) counting(14) warm-ups,(15) cool-downs,(16) stretching(17) (or(18) similar(19) light(20)
 activity(21) before(22) a(23) session)?(24).
 
-Length: open Q1, Q11, Q12, Q13 = 4 x 3 = 12; single-choice Q2, Q3, Q4, Q5, Q6, Q8 = 6; number Q7, Q9 =
-2 x 2 = 4; grid Q10 = 11 rows. Total 33 points; 33 / 8 = 4.125 minutes = 247.5 seconds.
+Length: open Q1, Q11, Q12, Q13 = 4 x 3 = 12; single-choice Q2, Q3, Q4, Q5, Q6, Q8, Q14 = 7; number Q7, Q9
+= 2 x 2 = 4; grid Q10 = 11 rows; introduction, 2 sentences, rounded up to 1 point. Total 35 points; 35 / 8
+= 4.375 minutes = 262.5 seconds (printed as 4.38; reported as about 4.5 minutes).
 
 ## gaps_clean.input.md, why nothing fires
 
@@ -123,15 +125,16 @@ Length: open Q1, Q11, Q12, Q13 = 4 x 3 = 12; single-choice Q2, Q3, Q4, Q5, Q6, Q
 | 10 | SB025 | One open question, at the end |
 
 Length: single-choice and scale Q1, Q2, Q3, Q4, Q7, Q8 = 6; Q5 select-all, 5 options / 2 = 2.5; Q6 number =
-2; Q9 grid = 3 rows; Q10 open = 3. Total 16.5 points; 16.5 / 8 = 2.0625 minutes = 123.75 seconds (printed
-as 2.06 and 123.8).
+2; Q9 grid = 3 rows; Q10 open = 3; introduction 1 point (up to three sentences). Total 17.5 points; 17.5 / 8
+= 2.1875 minutes = 131.25 seconds (printed as 2.19 and 131.2; reported as about 2.5 minutes).
 
 ## unnumbered.input.txt
 
 No line starts with a number, so each non-option line ending in "?" is a question: lines 3, 9 and 12 become
 Q1, Q2, Q3. Line 1 does not end in "?" and comes first, so it is the introduction; it gives a time ("about 1
 minute"). Q2 has "always" (SB003). Q1 says "overall" and names both sides. The script adds one warning that
-it numbered the questions itself. Length: 1 + 1 + 3 = 5 points; 5 / 8 = 0.625 minutes = 37.5 seconds.
+it numbered the questions itself. Length: introduction 1 + 1 + 1 + 3 = 6 points; 6 / 8 = 0.75 minutes = 45
+seconds.
 
 ## mini.input.json
 
@@ -152,8 +155,11 @@ checks of SB025 are skipped and a warning says that only wording rules could run
 
 ## ranges.cases.json, worked by hand
 
-Each range becomes [low, high] in whole steps (step 1, or 0.1 when the options use one decimal). Sort by low;
-for neighbours A then B: overlap if B.low <= A.high; gap if B.low > A.high + step.
+Each range becomes [low, high] in whole steps (step 1, or 0.1 when the options use one decimal, or 0.01 when
+the stem asks for cents). Sort by low and compare each range B with A, the range with the furthest high seen
+so far: overlap if B.low <= A.high; gap if B.low > A.high + step. For a continuous measure (hours, minutes,
+weights, distances, or a "how long" question in days to years), ranges that meet at whole numbers leave the
+values in between uncovered: continuous_gap (medium).
 
 | Case | Intervals | Result |
 |---|---|---|

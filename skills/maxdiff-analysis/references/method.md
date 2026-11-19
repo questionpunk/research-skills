@@ -31,7 +31,7 @@ All of these use the multinomial logit (Luce) form. They differ in how the worst
 |---|---|---|
 | Marginal sequential | `exp(u_b) / sum_{j in S} exp(u_j)` times `exp(-u_w) / sum_{k in S, k != b} exp(-u_k)` | `--model sequential` (default) |
 | Marginal | `exp(u_b) / sum_{j in S} exp(u_j)` times `exp(-u_w) / sum_{k in S} exp(-u_k)` | `--model marginal` |
-| Maxdiff (pair) | `exp(u_b - u_w) / sum_{r != s in S} exp(u_r - u_s)` | not implemented |
+| Maxdiff (pair) | `exp(u_b - u_w) / sum_{r != s in S} exp(u_r - u_s)` | not implemented: R `support.BWS` results from this, its default model, cannot be reproduced here |
 | Best only | `exp(u_b) / sum_{j in S} exp(u_j)`; the worst answer is not modelled | `--model best-only` |
 
 - **Sequential** is the default because it is a proper probability model of the answer: the respondent
@@ -40,7 +40,14 @@ All of these use the multinomial logit (Luce) form. They differ in how the worst
 - **Marginal** lets the worst choice range over all shown items, including the one already marked best.
   This is the coding Sawtooth describes: each set becomes two separate, independent choice sets, with the
   design multiplied by -1 for the worst one. Use it when you want numbers on that footing. Its two
-  factors do not sum to 1 over valid answers.
+  factors do not sum to 1 over valid answers, so its likelihood is a composite (pseudo) likelihood: the
+  worst choice partly repeats the information in the best one (with two items per set, entirely). The
+  point estimates are usable, but the model SE and the likelihood-ratio test overstate the evidence, so
+  the script withholds both for this model and keeps the respondent bootstrap (Varin, Reid and Firth
+  2011 [S14] on inference from composite likelihoods).
+- **The three models can order close items differently, even in a balanced design.** Four triples of
+  A to D, each shown twice, can give B above C under the sequential model and C above B under the
+  marginal one, with gaps over 0.05 in both. Name the model with the order.
 - **Maxdiff** assumes the respondent compares all `m (m - 1)` ordered pairs and picks the pair with the
   largest difference. It is the model the method is named after.
 
@@ -128,9 +135,16 @@ argument gives uniqueness, because a strongly connected graph is connected and `
 definite. This is the condition known for the Bradley-Terry and Plackett-Luce models (Ford 1957;
 Hunter 2004), applied to best and worst choices.
 
-Typical causes: an item that is worst every time it is shown, an item that is best every time, a very
-small group, or two blocks of items that were never shown together. The script checks the graph before
-fitting and names the offending groups. Counting scores remain valid.
+Typical causes: an item that is worst every time it is shown, an item that is best every time, or a very
+small group. The script checks the graph before fitting and names the offending groups. Counting scores
+remain valid.
+
+**Disconnected designs are a different case, checked first.** If the items split into blocks that were
+never shown in a set together (directly or through a chain of other items), the data hold no comparison
+between blocks. Each block may have a perfectly finite estimate of its own; what is missing is the offset
+between blocks, so neither the logit nor one overall ranking exists. The script reports the blocks as
+"groups never shown together" (exit 3 for the logit; with `--no-logit` a warning and `item_groups` in
+the JSON). Counting scores then rank items only within a block.
 
 ## 6. Shares
 

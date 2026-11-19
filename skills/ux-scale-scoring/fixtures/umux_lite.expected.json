@@ -1,0 +1,5 @@
+{
+  "_source": "Synthetic; formula from Lewis, Utesch and Maher (2013): UMUX-Lite = ((item1 - 1) + (item2 - 1)) x 100/12; SUS-equivalent = 0.65 x UMUX-Lite + 22.9. Worked in fixtures/README.md section 3.",
+  "scores": [100.0, 83.333333, 75.0, 91.666667, 58.333333, 91.666667, 66.666667, 83.333333],
+  "mean": 81.25, "sd": 13.908716, "ci": [69.62202, 92.87798], "sus_equivalent": 75.7125
+}

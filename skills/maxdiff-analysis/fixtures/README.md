@@ -62,15 +62,12 @@ set 2 (A B D), best D / worst B, is `3,2`. Every such file must give the tally a
 
 `ent` minus `smb`: A 2/3 - 1/2 = 1/6; B -1 - 1/2 = -3/2; C 0 - (-1/6) = 1/6; D 1/3 - (-5/6) = 7/6.
 
-Bootstrap range for B: `ent` has one respondent, so every replicate is r3 and its B score is always -1.
-A replicate of `smb` is (r1, r1), (r1, r2) or (r2, r2); B's score is then (1 + 1)/6 = 1/3,
-(1 + 2)/6 = 1/2 or (2 + 2)/6 = 2/3. The difference can only be -4/3, -3/2 or -5/3, so with 200
-replicates the 95% interval is [-5/3, -4/3] and excludes 0. For A the `smb` score is 1, 1/2 or 0, so the
-difference 2/3 - that ranges from -1/3 to 2/3 and includes 0.
+Intervals: `ent` has one respondent, so every resample would be r3 and every interval a single point
+that excludes 0. The script gives a group of fewer than 2 respondents no bootstrap, so `ent` has no
+intervals and the `ent` minus `smb` differences have none either (the test checks both, and the warning).
 
-Neighbours in `ent` (ranked A 2/3, D 1/3, C 0, B -1): differences 1/3, 1/3, 1; no resampling variation,
-so each interval is a single point and the order holds in 100% of replicates. Overall, A minus B is
-5/9 - 0.
+Neighbours in `ent` (ranked A 2/3, D 1/3, C 0, B -1): differences 1/3, 1/3, 1, without intervals.
+Overall, A minus B is 5/9 - 0.
 
 With `--bootstrap 200` and the default seed, 14 of the 200 replicates of the whole file (7%) have no
 finite logit estimate (a replicate made of r3 three times, for example, has B always worst). That is
@@ -112,7 +109,9 @@ Counting: A (15 - 5)/20 = +0.5, B -0.5.
 
 Marginal model (`--model marginal`): "B is worst out of {A, B}" has probability
 `exp(-u_B) / (exp(-u_A) + exp(-u_B)) = p`, the same as "A is best". The likelihood is the binomial
-one squared: same estimate `log 3`, variance halved, SE `sqrt(0.266667 / 2) = 0.365148`.
+one squared: same estimate `log 3`. Taken at face value it would halve the variance, but the worst
+answer carries no information the best answer did not, so that halving is spurious: the script reports
+the marginal model's likelihood as composite and gives no model SE or chi-square for it.
 
 ## logit_sequential: 105 sets showing A, B, C, in exactly the model's proportions
 

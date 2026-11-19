@@ -14,7 +14,7 @@ How would you feel if you could no longer use [product]?
 - Very disappointed
 - Somewhat disappointed
 - Not disappointed (it isn't really that useful)
-- N/A – I no longer use [product]
+- N/A - I no longer use [product]
 
 **Q2 (open text)** What type of people do you think would most benefit from [product]?
 
@@ -95,7 +95,7 @@ One row per respondent, CSV with a header row, UTF-8.
 | Column | Needed | Content |
 |---|---|---|
 | disappointment answer | yes | The Q1 label as exported. Common variants are recognized; numeric codes need `--map`. |
-| segment / persona | no | One value per respondent, from your records or assigned from Q2 and your CRM. |
+| segment / persona | no | One value per respondent, from your records (plan, role, CRM). Not from Q2: that answer describes other people. |
 | main benefit (coded) | no | One short code per respondent, produced by coding Q3 (for example `speed`). |
 | benefit match | no | `yes` / `no`: does this respondent's main benefit match the core benefit. Alternative to the coded column. |
 | wave / period | no | One value per respondent (for example `2026-Q1`), to compare two waves. |
@@ -103,12 +103,13 @@ One row per respondent, CSV with a header row, UTF-8.
 | open answers | no | Q2 to Q4 as text. The script ignores them; the agent codes them. |
 
 Recognized labels: "Very disappointed" / "Very"; "Somewhat disappointed" / "Somewhat"; anything starting
-with "Not disappointed"; "N/A", "Not applicable" or anything containing "no longer use". Case, extra
-spaces, and dash or apostrophe style do not matter. Anything else stops the script, in one of two ways:
+with "Not disappointed" (unless it also says "no longer use"); "N/A", "Not applicable" or a label starting
+with "no longer use". Case, extra spaces, and dash or apostrophe style do not matter. Anything else stops
+the script, in one of two ways:
 
 - **Unknown labels** (typos, codes 1 to 4): map each with `--map "LABEL=very|somewhat|not|na"`.
-- **Non-standard wording** ("Mildly disappointed", "Extremely disappointed", a rating scale with 5 or more
-  points): the survey used another scale, so the result is not comparable with the 40% benchmark. Mapping
+- **Non-standard wording** ("Mildly disappointed", "Extremely disappointed", a rating scale: 5 or more
+  numeric codes, or any code above 4, also when exported as `3.0`): the survey used another scale, so the result is not comparable with the 40% benchmark. Mapping
   the labels with `--map` still gives a score and interval, without a benchmark verdict; use it as your own
   baseline.
 
@@ -133,7 +134,8 @@ names the earlier period first; the script does not guess the order.
 
 Other options: `--answer-col` (when the header does not contain "disappoint", "no longer use" or "pmf"),
 `--core-benefit`, `--benchmark` (default 40), `--confidence` (default 95), `--min-base` (default 30),
-`--delimiter`.
+`--delimiter` (one character, or `comma`, `semicolon`, `tab`, `pipe`; an Excel `sep=;` first line is read
+and skipped).
 
 ## Comparing two waves
 
@@ -146,8 +148,10 @@ the whole interval on one side of 0.
 
 With `--account-col` the script prints how many accounts stand behind the respondents and a second score
 with one vote per account: an account counts as very disappointed when more than half of its current-user
-respondents said so (a tie does not count). This vote rule is this skill's convention. Report both scores;
-if they differ a lot, a few large accounts are driving the respondent-level number.
+respondents said so (a tie does not count). This vote rule is this skill's convention. Report both scores,
+but do not read the gap as large accounts driving the respondent number: the vote rule alone moves the
+account share (an account of two with one very and one somewhat counts as not very), so the account share
+is a different measure, not the respondent share recounted.
 
 ## Reading the segment step (the Superhuman engine)
 

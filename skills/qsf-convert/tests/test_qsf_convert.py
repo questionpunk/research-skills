@@ -419,7 +419,7 @@ class CommandLine(unittest.TestCase):
             back = run("to-md", str(out))
             self.assertEqual(back.returncode, 0, back.stderr)
             self.assertIn("### used [single] required", back.stdout)
-            self.assertIn("- survey options", back.stderr)
+            self.assertIn("survey level, not represented: none", back.stderr)  # its options are the ones to-qsf writes
             self.assertIn("conversion report: 12 converted, 0 converted with changes, 0 not converted (of 12 question(s))", back.stderr)
 
     def test_json_reports(self):
@@ -565,9 +565,9 @@ class SecondPassLints(unittest.TestCase):
         qsf["SurveyElements"][-2]["Payload"]["ChoiceOrder"] = ["1"]
         qsf["SurveyElements"][0]["Payload"][0]["BlockElements"][0]["SkipLogic"][0]["Locator"] = "q://QID1/SelectableChoice/7"
         errors, warnings = qc.validate_qsf(qsf)
-        self.assertEqual(errors, [])
-        self.assertIn("display logic on QID2 names choice 2 of QID1, which does not exist", warnings)
-        self.assertIn("skip logic on QID1 names choice 7 of QID1, which does not exist", warnings)
+        # a rule that points at a missing choice can never fire: an error since the 2026-11-19 review
+        self.assertIn("display logic on QID2 names choice 2 of QID1, which does not exist", errors)
+        self.assertIn("skip logic on QID1 names choice 7 of QID1, which does not exist", errors)
 
     def test_missing_conjuction_and_repeated_flow_ids(self):
         qsf = build(MINIMAL + '\n### q2 [text]\nWhy\n\n> show if: q1 is "A" or q1 is "B"\n\n## C\n\n### q3 [text]\nX\n')[0]
@@ -581,11 +581,258 @@ class SecondPassLints(unittest.TestCase):
     def test_codebook_command(self):
         done = run("codebook", str(FIXTURES / "export.input.qsf"))
         self.assertEqual(done.stdout, (FIXTURES / "export.expected-codebook.csv").read_text(encoding="utf-8"))
-        self.assertIn("codebook: 22 variable(s)", done.stderr)
+        self.assertIn("codebook: 26 variable(s)", done.stderr)
         report = json.loads(run("codebook", str(FIXTURES / "export.input.qsf"), "--json").stdout)
-        self.assertEqual((report["variables"], report["rows"][0]["variable"]), (22, "commute"))
+        self.assertEqual((report["variables"], report["rows"][0]["variable"]), (26, "commute"))
         self.assertIn("Check the names against a real data export", report["naming_note"])
         self.assertTrue(run("codebook", str(FIXTURES / "export.input.qsf"), "--format", "md").stdout.startswith("| variable |"))
+
+
+def run_in(stdin, *args, cwd=None):
+    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, input=stdin, cwd=cwd)
+
+
+def question_payload(qsf, tag):
+    return next(e["Payload"] for e in qsf["SurveyElements"] if e["Element"] == "SQ" and e["Payload"]["DataExportTag"] == tag)
+
+
+def element(qsf, code):
+    return next(e for e in qsf["SurveyElements"] if e["Element"] == code)
+
+
+class ReviewFixes(unittest.TestCase):
+    """Regressions for the 2026-11-19 review findings; each failed on the version reviewed."""
+
+    def test_access_restriction_and_scoring_are_named_in_the_report(self):
+        qsf = build(MINIMAL)[0]
+        element(qsf, "SO")["Payload"]["SurveyProtection"] = "ByInvitationOnly"
+        element(qsf, "SCO")["Payload"]["ScoringCategories"] = [{"ID": "SC_1", "Name": "Score", "Description": ""}]
+        reader = qc.Reader(copy.deepcopy(qsf))
+        reader.markdown()
+        level = " ".join(reader.report["survey_level"])
+        self.assertIn("SurveyProtection = 'ByInvitationOnly' (rebuilt: 'PublicSurvey')", level)
+        self.assertIn("before fielding", level)
+        self.assertIn("scoring is not represented (1 scoring category)", level)
+
+    def test_text_matrix_codebook_has_one_variable_per_box(self):
+        qsf = build("# T\n\n## B\n\n### m [matrix-text]\nEnter details\n\nRows:\n- Red\n- Blue\n\nColumns:\n- Time\n- Cost\n")[0]
+        rows = qc.codebook_rows(qsf)
+        self.assertEqual([r["variable"] for r in rows], ["m_1_1", "m_1_2", "m_2_1", "m_2_2"])
+        self.assertEqual({r["values"] for r in rows}, {"(open text)"})
+
+    def test_multi_answer_matrix_and_nps_group_in_the_codebook(self):
+        qsf = build("# T\n\n## B\n\n### m [matrix-multi]\nPick\n\nRows:\n- Red\n\nColumns:\n- Car\n- Bike\n\n"
+                    "### nps [nps]\nHow likely are you to recommend us?\n")[0]
+        names = [r["variable"] for r in qc.codebook_rows(qsf)]
+        self.assertEqual(names, ["m_1_1", "m_1_2", "nps", "nps_NPS_GROUP"])
+
+    def test_output_that_is_the_input_by_another_spelling_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = pathlib.Path(folder) / "survey.md"
+            source.write_text(MINIMAL, encoding="utf-8")
+            done = run_in(None, "to-qualtrics", "survey.md", "-o", "./survey.md", cwd=folder)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("is the input file", done.stderr)
+            self.assertEqual(source.read_text(encoding="utf-8"), MINIMAL)
+
+    def test_a_file_name_the_script_chose_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (pathlib.Path(folder) / "s.md").write_text(MINIMAL, encoding="utf-8")
+            keep = pathlib.Path(folder) / "s.txt"
+            keep.write_text("mine", encoding="utf-8")
+            done = run_in(None, "to-qualtrics", "s.md", "-o", "s.qsf", cwd=folder)  # auto picks TXT -> s.txt
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("--force", done.stderr)
+            self.assertEqual(keep.read_text(encoding="utf-8"), "mine")
+            self.assertEqual(run_in(None, "to-qualtrics", "s.md", "-o", "s.qsf", "--force", cwd=folder).returncode, 0)
+            self.assertTrue(keep.read_text(encoding="utf-8").startswith("[[AdvancedFormat]]"))
+
+    def test_repeated_choice_in_choice_order(self):
+        qsf = build(MINIMAL)[0]
+        question_payload(qsf, "q1")["ChoiceOrder"] = ["1", "1"]
+        errors, warnings = qc.validate_qsf(qsf)
+        self.assertIn("SQ QID1: ChoiceOrder lists Choices keys more than once: 1", warnings)
+        self.assertIn("SQ QID1: ChoiceOrder leaves out Choices keys, which the survey will not show: 2", warnings)
+        text, reader_warnings, _ = to_md(qsf)
+        self.assertEqual(text.count("- A"), 1)
+        self.assertTrue(any("missing from ChoiceOrder were left out: 2 ('B')" in w for w in reader_warnings))
+
+    def test_literal_mark_text_in_an_option_survives_the_round_trip(self):
+        qsf = build(MINIMAL)[0]
+        question_payload(qsf, "q1")["Choices"]["1"]["Display"] = "First {text}"
+        text, _, _ = to_md(qsf)
+        self.assertIn("- First \\{text}", text)
+        rebuilt = build(text)[0]
+        self.assertEqual(question_payload(rebuilt, "q1")["Choices"]["1"], {"Display": "First {text}"})
+
+    def test_display_rule_on_a_later_question_is_refused_and_flagged(self):
+        md = '# T\n\n## B\n\n### a [text]\nWhy?\n\n> show if: b is "Yes"\n\n### b [single]\nOk?\n\n- Yes\n- No\n'
+        with self.assertRaisesRegex(qc.ConvertError, "comes later"):
+            qc.parse_markdown(md)
+        qsf = build('# T\n\n## B\n\n### a [text]\nWhy?\n\n---\n\n### b [single]\nOk?\n\n- Yes\n- No\n')[0]
+        loc = "q://QID2/SelectableChoice/1"
+        question_payload(qsf, "a")["DisplayLogic"] = {"0": {"0": {
+            "LogicType": "Question", "QuestionID": "QID2", "QuestionIsInLoop": "no", "ChoiceLocator": loc,
+            "Operator": "Selected", "QuestionIDFromLocator": "QID2", "LeftOperand": loc, "Type": "Expression",
+            "Description": "If Ok? Yes Is Selected"}, "Type": "If"}, "Type": "BooleanExpression", "inPage": False}
+        errors, warnings = qc.validate_qsf(qsf)
+        self.assertTrue(any("QID1 (a, question 1) tests QID2 (b, question 2), which comes later" in w for w in warnings))
+        text, reader_warnings, _ = to_md(qsf)
+        self.assertNotIn("> show if", text)
+        self.assertTrue(any("comes after it" in w for w in reader_warnings))
+
+    def test_codes_compare_as_numbers_and_tags_ignore_case(self):
+        with self.assertRaisesRegex(qc.ConvertError, "each one different"):
+            qc.parse_markdown("# T\n\n## B\n\n### q [single]\nPick\n\n- A {code:01}\n- B {code:1}\n")
+        with self.assertRaisesRegex(qc.ConvertError, "upper and lower case"):
+            qc.parse_markdown("# T\n\n## B\n\n### Age [text]\nAge?\n\n### age [text]\nAge again?\n")
+
+    def test_nps_can_drive_display_logic_and_reads_back(self):
+        md = ('# T\n\n## B\n\n### nps [nps]\nHow likely are you to recommend us?\n\n---\n\n'
+              '### why [text]\nWhat is the main reason?\n\n> show if: nps is "0" or nps is "6"\n')
+        qsf, warnings = build(md)
+        logic = question_payload(qsf, "why")["DisplayLogic"]["0"]
+        self.assertEqual([logic[k]["LeftOperand"] for k in ("0", "1")], ["q://QID1/SelectableChoice/0", "q://QID1/SelectableChoice/6"])
+        self.assertTrue(any("no export with it was seen" in w for w in warnings))
+        self.assertEqual(qc.validate_qsf(qsf), ([], []))
+        self.assertIn('> show if: nps is "0" or nps is "6"', to_md(qsf)[0])
+        with self.assertRaisesRegex(qc.ConvertError, 'options "0" to "10"'):
+            qc.parse_markdown(md.replace('nps is "6"', 'nps is "11"'))
+
+    def test_display_rule_on_the_same_page_is_warned(self):
+        warnings = build('# T\n\n## B\n\n### a [single]\nOk?\n\n- Yes\n- No\n\n### b [text]\nWhy?\n\n> show if: a is "No"\n')[1]
+        self.assertTrue(any(w.startswith("b: its display rule tests a on the same page") for w in warnings))
+        warnings = build('# T\n\n## B\n\n### a [single]\nOk?\n\n- Yes\n- No\n\n---\n\n### b [text]\nWhy?\n\n> show if: a is "No"\n')[1]
+        self.assertFalse(any("same page" in w for w in warnings))
+
+    def test_txt_refuses_text_that_reads_as_a_tag(self):
+        survey = qc.parse_markdown("# T\n\n## B\n\n### q [single]\nPick\n\n- [[Block:Evil]]\n- B\n")
+        with self.assertRaisesRegex(qc.ConvertError, "starting with"):
+            qc.build_txt(survey)
+        self.assertTrue(any(l["fatal"] and "[[" in l["what"] for l in qc.txt_limits(survey)))
+
+    def test_logic_text_keeps_the_join_between_groups(self):
+        logic = {"0": {"0": {"Description": "If A Is Selected"}, "Type": "If"},
+                 "1": {"0": {"Description": "If B Is Selected"}, "Type": "Or"}, "Type": "BooleanExpression"}
+        self.assertEqual(qc.logic_text(logic), "If A Is Selected OR ( If B Is Selected )")
+
+    def test_standard_input(self):
+        done = run_in(MINIMAL, "to-qsf", "-")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(run_in(done.stdout, "validate", "--strict", "-").returncode, 0)
+
+
+
+MATRIX = "# T\n\n## B\n\n### m [matrix]\nRate\n\nRows:\n- R1\n- R2\n- R3\n\nColumns:\n- C1\n- C2\n- C3\n"
+
+
+class GeminiReviewFixes(unittest.TestCase):
+    """Regressions for the late 2026-11-19 review findings; each failed on the version reviewed."""
+
+    def reads_back(self, qsf):
+        markdown, warnings, _ = to_md(qsf)
+        qc.parse_markdown(markdown)  # raises if the Markdown written cannot be read back
+        return markdown, warnings
+
+    def test_reordered_matrix_rows_are_reported(self):
+        qsf = build(MATRIX)[0]
+        question_payload(qsf, "m")["ChoiceOrder"] = ["3", "1", "2"]
+        self.assertTrue(any("row ids are not 1..n" in w for w in to_md(qsf)[1]))
+
+    def test_stale_matrix_recode_key_keeps_the_column_codes(self):
+        qsf = build(MATRIX)[0]
+        payload = question_payload(qsf, "m")
+        payload["Answers"] = {"1": {"Display": "C1"}, "2": {"Display": "C2"}, "5": {"Display": "C5"}}
+        payload["AnswerOrder"] = ["1", "2", "5"]
+        payload["RecodeValues"] = {"1": "1", "2": "2", "5": "5", "6": "6"}  # 6: a deleted column
+        markdown = to_md(qsf)[0]
+        self.assertIn("- C5 {code:5}", markdown)
+        self.assertIn("- C1 {code:1}", markdown)
+
+    def test_text_matrix_column_ids_that_are_not_1_to_n_are_reported(self):
+        qsf = build("# T\n\n## B\n\n### m [matrix-text]\nRate\n\nRows:\n- R1\n- R2\n\nColumns:\n- C1\n- C2\n")[0]
+        payload = question_payload(qsf, "m")
+        payload["Answers"] = {"1": {"Display": "C1"}, "4": {"Display": "C2"}}
+        payload["AnswerOrder"] = ["1", "4"]
+        self.assertTrue(any("column ids are not 1..n" in w for w in to_md(qsf)[1]))
+
+    def test_choice_ids_are_judged_in_the_order_shown(self):
+        source = "# T\n\n## B\n\n### s [rank]\nX\n\n- A\n- B\n"
+        qsf = build(source)[0]
+        question_payload(qsf, "s")["ChoiceOrder"] = ["2", "1"]
+        self.assertTrue(any("choice codes are not 1..n" in w for w in to_md(qsf)[1]))
+        qsf = build(source)[0]
+        payload = question_payload(qsf, "s")
+        payload["Choices"] = {"2": payload["Choices"]["2"], "1": payload["Choices"]["1"]}  # key order only
+        self.assertFalse(any("choice codes are not 1..n" in w for w in to_md(qsf)[1]))
+
+    def test_tags_with_attributes_stay_balanced(self):
+        self.assertEqual(qc.html_to_md('<div style="text-align:center">Hi</div>', keep_html=True)[0],
+                         '<div style="text-align:center">Hi</div>')
+        self.assertEqual(qc.html_to_md('<b style="color:red">Hi</b> there')[0], "<b>Hi</b> there")
+        self.assertEqual(qc.html_to_md('A<br class="x"/>B')[0], "A\nB")
+        text, dropped = qc.html_to_md("<style>p {color: red}</style>Rate <script>x()</script>us")
+        self.assertEqual(text, "Rate us")
+        self.assertEqual(dropped, ["script", "style"])
+
+    def test_a_less_than_that_opens_no_tag_is_escaped(self):
+        self.assertEqual(qc.md_to_html("<None>"), "&lt;None>")
+        self.assertEqual(qc.md_to_html("<High school"), "&lt;High school")
+        self.assertEqual(qc.md_to_html("R&D; Operations"), "R&amp;D; Operations")
+        self.assertEqual(qc.md_to_html("<b>x</b> &copy; <o:p></o:p>"), "<b>x</b> &copy; <o:p></o:p>")
+        # Numeric and upper-case references to "<" stay escaped when they would form a tag.
+        self.assertEqual(qc.html_to_md("&#60;b&#62;bold &LT;i&GT;")[0], "&lt;b>bold &lt;i>")
+        for option in ("<None>", "x<y", "<b>bold</b>"):
+            self.assertEqual(qc.html_to_md(qc.md_to_html(option))[0], option)
+
+    def test_missing_output_folder_is_bad_input(self):
+        with tempfile.TemporaryDirectory() as folder:
+            done = run_in(MINIMAL, "to-qsf", "-", "-o", str(pathlib.Path(folder) / "missing" / "out.qsf"))
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("cannot write", done.stderr)
+
+    def test_exports_whose_markdown_did_not_read_back(self):
+        qsf = build("# T\n\n## B\n\n### n [nps]\nHow likely\n")[0]
+        question_payload(qsf, "n")["ColumnLabels"] = [{"Display": "Not likely"}, {"Display": ""}]
+        self.assertTrue(any("one of the two is blank" in w for w in self.reads_back(qsf)[1]))
+        qsf = build("# T\n\n## B\n\n### s [slider]\nX\n\n- A\n")[0]
+        question_payload(qsf, "s")["Configuration"]["CSSliderMax"] = True
+        self.reads_back(qsf)
+        for field in ({"Field": "src", "Value": "a\rb"}, {"Field": "src", "Value": "a\u2028b"}, {"Value": "1"},
+                      {"Field": "foo ", "Value": "1"}):
+            qsf = build(MINIMAL)[0]
+            flow = element(qsf, "FL")["Payload"]["Flow"]
+            flow.insert(0, {"Type": "EmbeddedData", "FlowID": "FL_9",
+                            "EmbeddedData": [dict({"Type": "Custom", "VariableType": "String"}, **field)]})
+            markdown, warnings = self.reads_back(qsf)
+            self.assertNotIn("> embedded", markdown)
+            self.assertTrue(any("embedded data not represented" in w for w in warnings))
+        qsf = build(MINIMAL)[0]
+        element(qsf, "BL")["Payload"][0]["Description"] = "   "
+        self.assertIn("## BL_", self.reads_back(qsf)[0])
+        qsf = build(MINIMAL)[0]
+        qsf["SurveyEntry"]["SurveyName"] = "Survey <!-- draft"
+        element(qsf, "BL")["Payload"][0]["Description"] = "Block <!-- 1"
+        question_payload(qsf, "q1")["QuestionText"] = "Pick <!-- unclosed"
+        markdown = self.reads_back(qsf)[0]
+        self.assertTrue(markdown.startswith("# Survey <! -- draft"))
+
+    def test_survey_with_no_block_in_the_flow_is_bad_input(self):
+        qsf = build(MINIMAL)[0]
+        element(qsf, "FL")["Payload"]["Flow"] = []
+        done = run_in(json.dumps(qsf), "to-md", "-")
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("no block", done.stderr)
+
+    def test_markdown_that_does_not_read_back_is_an_internal_error(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "s.qsf"
+            path.write_text(json.dumps(build(MINIMAL)[0]), encoding="utf-8")
+            counts = {"blocks": 1, "questions": 1, "unsupported_questions": 0, "page_breaks": 0}
+            broken = ("# T\n\n## \n", counts)  # what a whitespace-only block name used to give
+            with mock.patch.object(qc.Reader, "markdown", return_value=broken), mock.patch("sys.stderr"):
+                self.assertEqual(qc.main(["to-md", str(path)]), 2)
 
 
 if __name__ == "__main__":

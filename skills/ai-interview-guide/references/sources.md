@@ -1,7 +1,16 @@
 # AI interview guide: method sources
 
-Checked on 2026-11-12. "Verified" means the claim was read in the primary source or its abstract on that
-date.
+Checked on 2026-11-12, with additions on 2026-11-19 (marked). "Verified" means the claim was read in the
+primary source or its abstract on that date.
+
+## Contents
+
+- What the evidence on AI-moderated interviews says
+- Vendor documentation
+- Interview method
+- Conventions this skill sets
+- Where practitioners disagree
+- Pitfalls
 
 ## What the evidence on AI-moderated interviews says
 
@@ -9,7 +18,10 @@ date.
 
 Working paper, first circulated 2024 (CEPR DP 19705), version read: 16 July 2025.
 <https://conference.nber.org/conf_papers/f221279.pdf> (abstract: <https://ideas.repec.org/p/cpr/ceprdp/19705.html>).
-Verified in the full text:
+Published as "Conversations at Scale: Robust AI-Led Interviews", *Review of Economic Studies*, online 27
+October 2026, <https://doi.org/10.1093/restud/rdag114> (title, journal and date confirmed on Crossref on
+2026-11-19; the journal text was not read). The figures below are from the 16 July 2025 working-paper
+version and may differ in the article. Verified in the full text:
 
 - **The moderator prompt (as printed in the paper).** One LLM agent, one prompt, made of an interview
   outline plus six general instructions drawn from Small and Calarco, *Qualitative Literacy* (2022): (1) guide the interview in a
@@ -90,7 +102,8 @@ arXiv:2410.01824 (2024); LaTeCH-CLfL 2025. <https://arxiv.org/abs/2410.01824>. V
 
 ### What this adds up to
 
-Three working papers, two from economics, one tiny. They agree that an AI moderator with a short,
+Three papers, two from economics (one now a journal article, figures above from its working-paper
+version), one tiny. They agree that an AI moderator with a short,
 principled prompt produces usable transcripts and longer answers than a text box, and that follow-up
 probing is where the value comes from. They also agree on the weak spots: more than one question per
 turn, missed or repetitive follow-ups, evaluative praise, and no match for the best human interviewers.
@@ -124,8 +137,9 @@ settings exist; they do not show that a setting improves an interview.
   same answer across questions and signs of confusion; a "context for AI" field holds terminology and
   participant phrasing.
 
-Vendor conventions that this skill does **not** adopt as thresholds: Marvin's follow-up counts per level,
-Outset's "about 20 to 30 minutes" and its 70/30 mix of qualitative and quantitative questions. None comes
+Vendor conventions that this skill does **not** rely on as evidence: Marvin's follow-up counts per level,
+Outset's "about 20 to 30 minutes" (the skill's 20-minute default and 30-minute ceiling rest on Geiecke and
+Jaravel and Wuttke et al. instead) and its 70/30 mix of qualitative and quantitative questions. None comes
 with data.
 
 ## Interview method
@@ -159,7 +173,11 @@ with data.
   saturation and mixed populations needed more. Guest, Bunce and Johnson, "How Many Interviews Are
   Enough?", *Field Methods* 18(1), 2006, 59–82, <https://doi.org/10.1177/1525822X05279903> (abstract
   verified): in 60 interviews, saturation occurred within the first 12 and the basic elements of metathemes
-  appeared as early as 6.
+  appeared as early as 6. Hennink, Kaiser and Marconi, "Code Saturation Versus Meaning Saturation: How Many
+  Interviews Are Enough?", *Qualitative Health Research* 27(4), 2017, 591–608,
+  <https://doi.org/10.1177/1049732316665344> (added 2026-11-19; known from the abstract): code saturation
+  at 9 interviews, meaning saturation, a full understanding of the issues, at 16 to 24. The field review
+  asks whether later interviews still add codes or depth, not only new codes.
 
 ## Conventions this skill sets (not findings)
 
@@ -184,8 +202,15 @@ checks them.
 - **"Try to cut two more questions."** A practitioner heuristic for trimming a finished guide. No source
   for it could be verified; the number is arbitrary and the point is to make a second cutting pass.
 - **First field check after 10 completed interviews.** A convention; scale it to the sample.
-- **Four test personas** (terse, rambling, off-topic and instructing, distressed). A convention of this
-  skill for the self-run; they cover the failure modes listed under "Pitfalls".
+- **Five test personas** (terse, rambling, off-topic and instructing, distressed, declines one question). A
+  convention of this skill for the self-run; they cover the failure modes listed under "Pitfalls" and the
+  consent screen's promise that a question can be skipped.
+- **Ending by turn count and a time line from the application.** The model asks the last question by the
+  last turn of the budget; the application supplies the time left, because a model cannot measure time.
+  A convention. The Geiecke and Jaravel repository goes further: the model returns only an end code and
+  the front end shows the closing (described above).
+- **Explicit agreement to recording for voice or video.** Some jurisdictions require every party's
+  consent to a recording. Stated as a precaution, not legal advice.
 - **Segments of about 12 participants.** A planning figure taken from the saturation studies above (12 in
   Guest et al., inside Hennink and Kaiser's 9 to 17). It applies to one homogeneous segment.
 
@@ -224,3 +249,6 @@ checks them.
 - No statement that the interviewer is an AI, or that a model provider processes the answers.
 - No record of which must-ask questions each interview covered.
 - Sensitive disclosures (health, money trouble, distress) with no instruction for the moderator.
+- A consent screen that promises a skip the moderator prompt does not honour.
+- The last question asked twice, or the closing sent in the same message as the last question.
+- Grading coverage from transcripts a tool returned cut short.

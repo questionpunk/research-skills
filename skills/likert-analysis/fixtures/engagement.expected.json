@@ -1,0 +1,17 @@
+{
+  "_source": "Synthetic (seeded generator, see fixtures/README.md section 3). Counts by hand; Wilson limits by bisection; alpha by Hoyt's two-way ANOVA; Mann-Whitney U by counting pairs and its tie-corrected variance from the midranks, not the script's formulas.",
+  "items": {
+    "eng_1": {"n": 39, "distribution": {"1": 1, "2": 4, "3": 17, "4": 15, "5": 2}, "top_box": 17, "top_box_ci": [29.3048, 59.0243], "mean": 3.3333333, "median": 3},
+    "eng_2": {"n": 40, "distribution": {"1": 1, "2": 6, "3": 18, "4": 9, "5": 6}, "top_box": 15, "mean": 3.325},
+    "eng_3": {"n": 40, "distribution": {"1": 5, "2": 15, "3": 11, "4": 4, "5": 5}, "top_box": 9, "mean": 2.725},
+    "eng_4": {"n": 39, "distribution": {"1": 5, "2": 6, "3": 11, "4": 16, "5": 1}, "top_box": 17, "mean": 3.0512821}
+  },
+  "excluded": {"blank": 1, "non_answer": 1},
+  "alpha_raw": -0.9853925, "alpha_with_eng_3_reversed": 0.8821404, "n_complete": 38,
+  "north_vs_south_as_answered": {
+    "eng_1": {"u": 277.5, "z": 2.6365499, "p_value": 0.0083754},
+    "eng_2": {"u": 276.0, "z": 2.1632644, "p_value": 0.0305209},
+    "eng_3": {"u": 105.0, "z": -2.6619651, "p_value": 0.0077686},
+    "eng_4": {"u": 286.5, "z": 2.8380133, "p_value": 0.0045395}
+  }
+}

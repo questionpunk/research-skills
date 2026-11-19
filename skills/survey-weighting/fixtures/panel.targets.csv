@@ -1,0 +1,9 @@
+variable,category,target
+gender,Female,51
+gender,Male,49
+age_group,18-34,30
+age_group,35-54,33
+age_group,55+,37
+region,North,35
+region,South,40
+region,West,25

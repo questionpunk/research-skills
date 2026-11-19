@@ -20,10 +20,17 @@ def run(*args):
     return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True)
 
 
+# The fixtures code purchase intent 5 = highest; the script needs that said (it never guesses the direction).
+INTENT = ("--intent-scale", "5,4,3,2,1")
+
+
 def analyse(case, *extra):
     expected = json.loads((FIXTURES / f"{case}.expected.json").read_text())
-    args = extra if extra else expected.get("args", [])
-    proc = run(FIXTURES / expected.get("input", f"{case}.input.csv"), "--json", *args)
+    args = list(extra if extra else expected.get("args", []))
+    path = FIXTURES / expected.get("input", f"{case}.input.csv")
+    if "intent" in path.read_text().splitlines()[0].lower() and "--no-nms" not in args and "--intent-scale" not in args:
+        args += INTENT
+    proc = run(path, "--json", *args)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr)
     return json.loads(proc.stdout), expected
@@ -364,7 +371,7 @@ class EdgeCases(unittest.TestCase):
 
     def test_intent_off_scale_is_an_error(self):
         text = "too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive\n1,2,3,4,7,1\n"
-        self.fails(text, contains="not on the purchase-intent scale")
+        self.fails(text, *INTENT, contains="not on the purchase-intent scale")
 
     def test_single_intent_column_is_an_error_unless_no_nms(self):
         text = "too_cheap,cheap,expensive,too_expensive,intent_cheap\n1,2,3,4,5\n"
@@ -380,7 +387,7 @@ class EdgeCases(unittest.TestCase):
     def test_missing_and_reversed_intent_are_reported(self):
         text = ("too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive\n"
                 "1,2,3,4,2,5\n1,2,3,4,,3\n")
-        result = json.loads(run(self.write(text), "--json").stdout)
+        result = json.loads(run(self.write(text), "--json", *INTENT).stdout)
         self.assertEqual(result["nms"]["n"], 1)
         joined = " ".join(result["warnings"])
         self.assertIn("1 analysed respondent(s) left out", joined)
@@ -388,13 +395,13 @@ class EdgeCases(unittest.TestCase):
 
     def test_tied_cheap_and_expensive_price_uses_the_mean_intent(self):
         text = "too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive\n1,2,2,4,5,3\n"
-        result = json.loads(run(self.write(text), "--json").stdout)
+        result = json.loads(run(self.write(text), "--json", *INTENT).stdout)
         at_two = [row for row in result["nms"]["curve"] if row["price"] == 2.0][0]
         self.assertAlmostEqual(at_two["trial"], 0.5, places=9)
 
     def test_chart_is_well_formed_svg(self):
         out = pathlib.Path(self.tmp.name) / "chart.svg"
-        proc = run(FIXTURES / "nms.input.csv", "--chart", out)
+        proc = run(FIXTURES / "nms.input.csv", "--chart", out, *INTENT)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         doc = xml.dom.minidom.parse(str(out))
         self.assertEqual(doc.documentElement.tagName, "svg")
@@ -410,6 +417,177 @@ class EdgeCases(unittest.TestCase):
         proc = run(pathlib.Path(self.tmp.name) / "nope.csv")
         self.assertEqual(proc.returncode, 2)
         self.assertIn("cannot read", proc.stderr)
+
+
+class ReviewRegressions(unittest.TestCase):
+    """Defects found in the 2026-11 review; each test failed before its fix."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def write(self, text, name="in.csv", binary=False):
+        path = pathlib.Path(self.tmp.name) / name
+        if binary:
+            path.write_bytes(text)
+        else:
+            path.write_text(text, encoding="utf-8")
+        return path
+
+    def result(self, text, *args):
+        proc = run(self.write(text), "--json", *args)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_revenue_is_not_interpolated_across_a_jump(self):
+        # expensive = too expensive = 10: the purchase probability is 0.7 at 10 and 0 just above it.
+        text = ("too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive\n"
+                "1,2,10,10,5,5\n1,2,10,40,,\n")
+        nms = self.result(text, *INTENT)["nms"]
+        self.assertEqual(nms["revenue_max"]["price"], 10.0)
+        self.assertAlmostEqual(nms["revenue_max"]["revenue_index"], 7.0)
+        self.assertIsNone(nms["revenue_max_approached"])
+
+    def test_peak_just_below_a_tied_price_is_reported_as_such(self):
+        text = ("too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive\n"
+                "10,20,20,40,5,1\n10,15,30,40,3,3\n")
+        result = self.result(text, *INTENT)
+        near = result["nms"]["revenue_max_approached"]
+        self.assertEqual((near["price"], near["side"]), (20.0, "below"))
+        self.assertAlmostEqual(near["trial"], 0.5)
+        row = [r for r in result["nms"]["curve"] if r["price"] == 20.0][0]
+        self.assertAlmostEqual(row["trial_just_below"], 0.5)
+        self.assertTrue(any("just below 20.00" in w for w in result["warnings"]))
+
+    def test_zero_weight_respondent_does_not_move_the_points(self):
+        alone = self.result("too_cheap,cheap,expensive,too_expensive,w\n1,2,3,4,1\n", "--weight", "w")
+        both = self.result("too_cheap,cheap,expensive,too_expensive,w\n1,2,3,4,1\n1.25,1.4,3.5,3.8,0\n",
+                           "--weight", "w")
+        for key in ("pmc", "opp", "ipp", "pme"):
+            self.assertEqual(both["price_points"][key]["price"], alone["price_points"][key]["price"], key)
+        self.assertEqual(both["respondents"]["zero_weight"], 1)
+        self.assertEqual(both["respondents"]["estimated"], 1)
+
+    def test_compat_r_reports_one_share_per_price(self):
+        proc = run(FIXTURES / "basic.input.csv", "--compat", "r", "--at", "2", "--json")
+        result = json.loads(proc.stdout)
+        on_grid = [row for row in result["curves"] if row["price"] == 2.0][0]
+        for key in ("too_cheap", "cheap", "expensive", "too_expensive"):
+            self.assertAlmostEqual(result["at"][0][key], on_grid[key], msg=key)
+
+    def test_bootstrap_judges_the_paired_width(self):
+        result = self.result("too_cheap,cheap,expensive,too_expensive\n1,2,3,4\n101,102,103,104\n",
+                             "--bootstrap", "200")
+        width = result["bootstrap"]["range_width"]
+        self.assertGreater(width["low"], 0)
+        self.assertFalse(any(w.startswith("Bootstrap") for w in result["warnings"]))
+
+    def test_surplus_fields_are_rejected_but_trailing_empty_ones_are_not(self):
+        proc = run(self.write("too_cheap,cheap,expensive,too_expensive\n1,2,3,4,000\n"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("line 2 has 5 fields", proc.stderr)
+        self.result("too_cheap,cheap,expensive,too_expensive\n1,2,3,4,\n2,3,4,5\n")
+
+    def test_intent_scale_direction_must_be_stated(self):
+        text = "too_cheap,cheap,expensive,too_expensive,intent_cheap,intent_expensive\n1,2,3,4,5,1\n"
+        proc = run(self.write(text))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--intent-scale", proc.stderr)
+        self.assertEqual(self.result(text, "--intent-scale", "1,2,3,4,5")["nms"]["weights"]["1"], 0.7)
+
+    def test_multipliers_and_units_are_not_currency(self):
+        for cell in ("0.5k", "10 mo", "abc6"):
+            with self.subTest(cell):
+                proc = run(self.write(f"too_cheap,cheap,expensive,too_expensive\n{cell},20,30,40\n"))
+                self.assertEqual(proc.returncode, 2)
+                self.assertIn("not a currency", proc.stderr)
+        result = self.result("too_cheap,cheap,expensive,too_expensive\nUSD 10,20 usd,€30,40\n")
+        self.assertEqual(result["currency_markers"], sorted({"USD", "€"}))
+
+    def test_delimiter_is_read_outside_quotes(self):
+        # Four commas inside one quoted name, three real semicolons.
+        text = '"Q1 price, in USD, if any, at all, too cheap";"cheap";"expensive";"too expensive"\n1;2;3;4\n2;3;4;5\n'
+        self.assertEqual(self.result(text)["respondents"]["analysed"], 2)
+
+    def test_qualtrics_header_rows_are_skipped(self):
+        text = ('too_cheap,cheap,expensive,too_expensive\nToo cheap?,Cheap?,Expensive?,Too expensive?\n'
+                '"{""ImportId"":""QID1""}","{""ImportId"":""QID2""}","{""ImportId"":""QID3""}","{""ImportId"":""QID4""}"\n'
+                '1,2,3,4\n')
+        result = self.result(text)
+        self.assertEqual(result["respondents"]["analysed"], 1)
+        self.assertIn("Qualtrics", result["warnings"][0])
+
+
+
+class GeminiReviewRegressions(unittest.TestCase):
+    """Defects from the late 2026-11-19 review; each test failed before its fix."""
+
+    HEAD = "id,too_cheap,cheap,expensive,too_expensive"
+    setUp = ReviewRegressions.setUp
+    write = ReviewRegressions.write
+    result = ReviewRegressions.result
+
+    def test_at_share_of_neither_matches_the_pinned_curves(self):
+        # --compat r pins too expensive to 0 at and below its lowest price (20), so nobody rejects 20 as too
+        # expensive and nobody as too cheap: everyone is in "neither".
+        result = self.result(self.HEAD + "\nR1,5,10,15,20\nR2,6,12,18,25\n", "--compat", "r", "--at", "20", "--min-n", "1")
+        at = result["at"][0]
+        self.assertEqual((at["too_cheap"], at["too_expensive"]), (0.0, 0.0))
+        self.assertEqual(at["neither_too_cheap_nor_too_expensive"], 1.0)
+
+    def test_kept_inconsistent_respondents_stay_out_of_the_nms_curves(self):
+        text = (self.HEAD + ",pi_cheap,pi_expensive\nR1,5,10,20,15,5,3\nR2,4,8,12,16,4,2\nR3,3,9,13,18,5,2\n")
+        result = self.result(text, "--keep-inconsistent", *INTENT, "--min-n", "1")
+        self.assertEqual(result["nms"]["n"], 2)
+        self.assertTrue(any("Newton-Miller-Smith" in w and "out of order" in w for w in result["warnings"]))
+
+    def test_quoted_line_breaks_in_header_rows(self):
+        qualtrics = ('"too_cheap","cheap","expensive","too_expensive"\n"At what price would Item X\nbe too cheap?",'
+                     '"Good value?","Expensive?","Too expensive?"\n"{""ImportId"":""Q1""}","{""ImportId"":""Q2""}",'
+                     '"{""ImportId"":""Q3""}","{""ImportId"":""Q4""}"\n5,10,15,20\n6,11,16,21\n')
+        self.assertEqual(self.result(qualtrics, "--min-n", "1")["respondents"]["analysed"], 2)
+        semicolon = '"price\ntoo_cheap";cheap;expensive;too_expensive\n5;10;15;20\n6;11;16;21\n'
+        self.assertEqual(self.result(semicolon, "--min-n", "1")["respondents"]["analysed"], 2)
+        unquoted = self.HEAD + ",note\nR1,5,10,15,20,good\u2028price\nR2,6,11,16,21,x\n"
+        self.assertEqual(self.result(unquoted, "--min-n", "1")["respondents"]["analysed"], 2)
+
+    def test_skill_question_wording_is_detected(self):
+        header = ('"At what price would Item X be so inexpensive that you would doubt its quality?",'
+                  '"At what price would you consider Item X a good value?",'
+                  '"At what price is Item X beginning to get expensive, but you would still consider buying it?",'
+                  '"At what price would Item X be so expensive you would never consider it?"')
+        columns = self.result(header + "\n5,10,15,20\n6,11,16,21\n", "--min-n", "1")["columns"]
+        self.assertIn("doubt its quality", columns["too_cheap"])
+        self.assertIn("good value", columns["cheap"])
+        self.assertIn("never consider", columns["too_expensive"])
+        self.assertIn("beginning", columns["expensive"])
+
+    def test_camel_case_intent_columns(self):
+        text = self.HEAD + ",piCheap,piExpensive\n1,5,10,15,20,5,3\n2,6,11,16,21,4,2\n"
+        result = self.result(text, *INTENT, "--min-n", "1")
+        self.assertEqual((result["columns"]["intent_cheap"], result["columns"]["intent_expensive"]), ("piCheap", "piExpensive"))
+
+    def test_one_column_cannot_fill_two_roles(self):
+        text = self.HEAD + ",pi_cheap,pi_expensive\n1,5,10,15,20,5,3\n2,6,11,16,21,4,2\n"
+        proc = run(self.write(text), "--intent-cheap", "pi_cheap", "--intent-expensive", "pi_cheap", *INTENT)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("different columns", proc.stderr)
+
+    def test_three_question_warning_names_the_unused_columns(self):
+        result = self.result("id,q1_price,cheap,expensive,too_expensive\n1,5,10,15,20\n2,6,11,16,21\n", "--min-n", "1")
+        self.assertTrue(any("Three-question" in w and "q1_price" in w and "--too-cheap" in w for w in result["warnings"]))
+        # "too low" and "too high" are read as the too-cheap and too-expensive questions.
+        result = self.result("id,too_low,cheap,expensive,too_high\n1,5,10,15,20\n2,6,11,16,21\n", "--min-n", "1")
+        self.assertEqual((result["columns"]["too_cheap"], result["columns"]["too_expensive"]), ("too_low", "too_high"))
+
+    def test_modified_variant_reports_the_limit_below_the_lowest_price(self):
+        # Below the lowest price the modified variant holds the cheap-price probability (0.7); at 10, where
+        # cheap = expensive, the mean of 0.7 and 0.1 applies. The higher limit from below must be reported.
+        text = self.HEAD + ",pi_cheap,pi_expensive\nR1,10,10,10,20,5,2\n"
+        nms = self.result(text, *INTENT, "--nms-variant", "modified", "--min-n", "1")["nms"]
+        self.assertEqual(nms["trial_max_approached"]["side"], "below")
+        self.assertAlmostEqual(nms["trial_max_approached"]["trial"], 0.7)
+        self.assertAlmostEqual(nms["revenue_max_approached"]["revenue_index"], 7.0)
 
 
 if __name__ == "__main__":

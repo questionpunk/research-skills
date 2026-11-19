@@ -1,0 +1,20 @@
+{
+ "_source": "SurveyMonkey worked example (references/sources.md, source 14): 200 respondents, buyers at each price; revenue index = price x share.",
+ "counts": "10:190,15:164,20:118,25:74,30:36",
+ "base": 200,
+ "take_rates": [
+  0.95,
+  0.82,
+  0.59,
+  0.37,
+  0.18
+ ],
+ "revenue_index": [
+  9.5,
+  12.3,
+  11.8,
+  9.25,
+  5.4
+ ],
+ "optimum": 15
+}

@@ -30,8 +30,9 @@ the list under "Sources". The second pass of the same day added [S9]–[S12].
 - **Non-standard wordings.** Pendo's PMF survey offers three options, "Very disappointed", "Mildly
   disappointed", "Not disappointed" [S12]. The benchmark was built on Ellis's options, so the script reports
   a label from another disappointment scale ("Mildly", "Extremely" and so on) as non-standard wording, not
-  comparable with the benchmark, and does the same for a numeric column with 5 or more distinct values (a
-  rating scale; Ellis's question has 4 options). Both detection rules are the skill's.
+  comparable with the benchmark, and does the same for a numeric column with 5 or more distinct values or
+  any code above 4, whole numbers also as exported with ".0" (a rating scale; Ellis's question has 4
+  options, so codes 0-4 cover any coding of them). Both detection rules are the skill's.
 - The skill's default is Ellis's four options. The N/A option shows when the sample reached people who have
   already left, which the three-option version hides.
 
@@ -89,7 +90,10 @@ the list under "Sources". The second pass of the same day added [S9]–[S12].
   change how it is read and make the score incomparable with the benchmark [S8]. The template asks it as a
   plain single-choice question; conversational follow-up belongs to the open questions after it.
 - Response rate = people who answered the question / people invited (`--invited`). The script flags a rate
-  under 10%, the Real Startup Book's rule of thumb [S8].
+  under 10%, the Real Startup Book's rule of thumb [S8]. The flag does not say the score is too high:
+  across 59 studies, the response rate was a poor predictor of nonresponse bias in the estimates
+  [S10], so the rate alone gives neither the size nor the direction of the bias. The flag asks for a
+  comparison of respondents with invitees on activity or tenure instead.
 - Not suited to one-off products (Ellis's examples: a film, a single workshop) [S4].
 
 ## How many responses
@@ -102,6 +106,8 @@ the list under "Sources". The second pass of the same day added [S9]–[S12].
   12 of 30 gives 24.6% to 57.7%; 16 of 40 gives 26.3% to 55.4%; 60 of 150 gives 32.5% to 48.0%. At the
   suggested minimums a 40% result cannot be told apart from 30% or 50%. That follows from the arithmetic, and
   no PMF source states it.
+- For a verdict of "above", the whole interval must clear 40%: at 40 answers, 22 of 40 (55%) gives a lower
+  limit of 39.8% (cannot tell) and 23 of 40 (57.5%) gives 42.2% (above). Same arithmetic.
 - The same threshold is applied to each segment. A segment under the threshold is flagged "small base" and
   still shown with its interval.
 
@@ -154,8 +160,30 @@ the list under "Sources". The second pass of the same day added [S9]–[S12].
 - `--account-col` (B2B): the script reports the number of accounts and a second score with one vote per
   account. **Vote rule, the skill's own convention:** an account counts as very disappointed when more than
   half of its current-user respondents answered very disappointed; a tie does not count; an account whose
-  respondents all answered N/A is outside the base; a respondent with no account id is its own account. No
-  source defines an account-level PMF score.
+  respondents all answered N/A is outside the base; respondents with no account id are left out of the
+  account score and counted separately (they may belong to a known account). No source defines an
+  account-level PMF score, and Ellis's 40% was set for users, so the account share is printed without a
+  verdict unless the user supplies an account-level target (`--account-benchmark`).
+- `--period-col` with `--compare`: the headline score, segments, benefits and accounts are the later
+  wave's, so the result answers "where are we now". All waves pooled are shown as a labelled reference
+  only, since they mix waves and any rows outside the two compared. With `--id-col` a respondent id in both
+  waves stops the comparison: the Newcombe interval assumes independent samples.
+
+## Wording check before the benchmark (the skill's rule)
+
+- The 40% benchmark belongs to Ellis's question and four options [S1][S4]. The script sees the wording when
+  the labels are his (any case, dashes, apostrophes or trailing punctuation). Typed counts (`--counts`) and
+  labels mapped by hand (`--map`, for example numeric codes) hide it: a mapping such as
+  `Satisfied=very` would otherwise clear the benchmark. For those the verdict is "not compared" until the
+  user confirms the question and options were Ellis's and `--ellis-wording` is passed.
+- A rating scale (five or more distinct numeric codes, or any code above 4) or labels from another
+  disappointment scale are never compared, with or without `--ellis-wording`. A five-point scale on which
+  only codes 1 to 4 were chosen cannot be told from Ellis's codes by the script, which is why codes need the
+  confirmation.
+- The N/A option is matched as an option ("N/A ...", "Not applicable", "I no longer use ..."), not as any
+  text containing "no longer use": a second header row with the question text would otherwise count as an
+  N/A respondent. Such rows (equal to the header, ending in "?", or starting "How would you feel") are
+  skipped and counted.
 
 ## Prioritizing the next actions (Vohra) [S3]
 
@@ -170,7 +198,8 @@ the list under "Sources". The second pass of the same day added [S9]–[S12].
    Superhuman?"; "What is the main benefit you receive from Superhuman?"; "How can we improve Superhuman for
    you?".
 2. Segment. A persona was assigned to each respondent; the team kept the personas that appeared among the
-   very-disappointed group. The score was 22% across everyone and 33% within those personas. The answers to
+   very-disappointed group. The article does not say how personas were assigned (checked 2026-11-19); the
+   skill uses each respondent's own role or records, because the second question describes other people. The score was 22% across everyone and 33% within those personas. The answers to
    the second question describe the high-expectation customer (Julie Supan's term: "the most discerning
    person within your target demographic").
 3. Split "somewhat disappointed" by the third question. Superhuman's very-disappointed users named speed as
@@ -203,7 +232,8 @@ respondents) or `--benefit-match-col`. Coding the open answers is the agent's wo
 - **Survivorship and self-selection.** The sampling rule takes people who are still active, and among those
   only the ones who reply. People who left never count against the score. The Real Startup Book's reading
   is that people who complete a survey skew positive, and that below a 10% response rate the score is
-  probably overstated [S8]. The 10% is that book's rule of thumb.
+  probably overstated [S8]. The 10% is that book's rule of thumb; the response rate by itself predicts
+  nonresponse bias poorly [S10], so the script reports the rate and asks for a check, not a direction.
 - **Stated feeling, not behaviour.** The survey records what people say they would feel. Retention and
   activation are the behavioural checks to read beside it (Jackson's point about stated versus actual
   behaviour [S8]). The skill does not compute them.
@@ -238,6 +268,9 @@ respondents) or `--benefit-match-col`. Coding the open answers is the agent's wo
 
 - [S9] Survey.io demo survey, "Customer Development Survey" (archived copy, 31 Dec 2011):
   https://web.archive.org/web/20111231115040/http://www.survey.io:80/survey/demo
+- [S10] R. M. Groves, E. Peytcheva (2008), "The Impact of Nonresponse Rates on Nonresponse Bias: A
+  Meta-Analysis", Public Opinion Quarterly 72(2), 167–189. https://doi.org/10.1093/poq/nfn011 (citation
+  confirmed through Crossref on 2026-11-19; the finding as commonly summarised, the full text not read).
 - [S10] NCSS Statistical Software documentation, chapter 514 "Two Proportions" ("C.I. for Difference: Wilson's
   Score as modified by Newcombe"): https://www.ncss.com/wp-content/themes/ncss/pdf/Procedures/NCSS/Two_Proportions.pdf
   Original: R. G. Newcombe (1998), "Interval estimation for the difference between independent proportions:

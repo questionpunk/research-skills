@@ -46,6 +46,19 @@ p_det = D/n. The script works in proportions (−1 to +1) and prints points (−
   Lewis and Sauro use), and clips the limits to −100 and +100.
 - Rocks also finds an iterative score interval performs well; it needs a numerical search and is slightly
   conservative below n = 20. Not implemented.
+- **Everyone in one end category.** When every answer is a promoter, a population of only promoters
+  (NPS +100) produces that sample with probability 1, so no confidence level can exclude +100; the
+  adjusted-Wald upper limit (+98.5 at n = 1) would. The script moves that limit to +100 (and the lower
+  limit to −100 when every answer is a detractor). This follows the exact binomial (Clopper–Pearson 1934)
+  interval for a proportion, whose upper limit is 1 when x = n. Convention of this skill for the NPS case.
+- **Fewer than 5 responses: no verdicts.** Rocks's coverage table (2016, Table 1) starts at n = 5, so the
+  intervals and tests have no evaluated behaviour below it. With fewer than 5 valid scores in a group the
+  script still prints the score and interval, marked as a rough indication, and withholds the benchmark
+  test and any two-group test involving that group. Coverage in Rocks's table is an average over the
+  observed distributions; Turk, Cinderich and McNeill (2026) simulate four population shapes and report
+  that adjusted Wald approached 95% coverage as n grew for every shape except an extreme one (summary read
+  from the authors' code repository; the paper itself was not readable, see Sources). Treat intervals for
+  scores near ±100 at small n as less reliable than the nominal level.
 
 ### Difference between two independent scores (Lewis and Sauro 2021b)
 
@@ -56,21 +69,47 @@ p_det = D/n. The script works in proportions (−1 to +1) and prints points (−
 - Published check: GoToMeeting (D 8, A 13, P 15, n = 36) vs WebEx (12, 12, 7, n = 31): adjusted difference
   0.33, SE 0.180, Z = 1.815, p = 0.07; 90% interval 0.03 to 0.62. The script reproduces it
   (`fixtures/measuringu_gtm_webex.*`).
-- The test assumes the two samples are independent. For the same respondents measured twice, and for
-  rolling windows that share respondents, it is not valid: the shared answers make the two scores
-  correlated. Pool overlapping windows or test only non-overlapping periods. With `--id-col` the script
-  finds ids present in both periods and withholds the test; without it, it cannot detect overlap and
-  prints a note.
-- Verdicts printed by the script: "significant"; "underpowered" when the test is not significant and at
-  least one side is under the small-base threshold; otherwise "not significant". The middle label is this
-  skill's wording for "a real difference could easily have been missed", not a power calculation.
+- The test assumes the two samples are independent, one answer per person. For the same respondents
+  measured twice, rolling windows that share respondents, people who appear in two segments, or people
+  who answered twice in one group, it is not valid: the shared answers make the two scores correlated, and
+  repeated answers make each group look larger than it is. Pool overlapping windows or test only
+  non-overlapping periods. With `--id-col` the script withholds every two-group test (segments and
+  periods) whose groups share an id or contain an id more than once, and counts blank ids; without it, it
+  cannot detect overlap and prints a note.
+- Verdicts printed by the script: "significant"; "inconclusive, small base" when the test is not
+  significant and at least one side is under the small-base threshold; otherwise "not significant". The
+  middle label is this skill's wording: the interval of the difference is wide, so read which differences
+  it allows. It is not a power calculation (no effect size or target power enters it), and it changes with
+  `--min-base` on the same data.
+- Adjustment guard (this skill's convention, not from Lewis and Sauro): the ¾/3/2/¾ pseudo-counts move a
+  small group's score much further than a large group's, so with very unequal groups (or a small sample
+  near ±100 against a benchmark) the adjusted difference can point the other way from the observed one.
+  When a test would come out significant while the observed difference is 0 or has the opposite sign to the
+  adjusted difference, the script reports "not tested" instead of a verdict: the result comes from the
+  pseudo-counts, not the data. Example: 5 promoters vs 1,000 promoters (observed difference 0) gives an
+  adjusted difference of −37.2 points and p = 0.105, "significant" at 80% without the guard. With
+  `--interval wald`, a group with variance 0 is treated as exact; the script keeps the Wald verdict (to
+  match other tools) and prints a note.
+- P-values are carried at full precision into the verdict and into the Bonferroni and Holm adjustments.
+  Only the text output rounds them, and it prints more decimals when four would show a value equal to α
+  (for example p = 0.05000007 at α = 0.05 is not significant).
 
 ### Score against a benchmark (Lewis and Sauro 2021d)
 
 - z = (NPS' − benchmark)/√(Var'/(n + 3)) on the adjusted values. One-tailed p = 1 − Φ(z) when the question
   is "are we above the benchmark" (their default, critical z 1.645 at α = 0.05); two-tailed
-  p = 2·(1 − Φ(|z|)) otherwise. The script's default is two-tailed; `--tail one` tests "above" only.
-  The one-sided lower bound is NPS' − z₁·SE with z₁ = 1.645 for 95%.
+  p = 2·(1 − Φ(|z|)) otherwise. The script's default is two-tailed; `--tail above` (also spelled `one`)
+  tests "above", `--tail below` tests "below" with p = Φ(z). The one-sided lower bound is NPS' − z₁·SE
+  with z₁ = 1.645 for 95% (upper bound NPS' + z₁·SE for "below").
+- The output shows the observed difference (observed NPS − benchmark) and, separately, the adjusted
+  difference (NPS' − benchmark) the z-test uses. For 61/30/16 against 30 they are +12.1 and +10.9.
+- **A benchmark of exactly +100 or −100** is tested exactly, not with z: under +100 every respondent is a
+  promoter, so a sample of only promoters has p = 1 and any other sample has p = 0 (and the same for −100
+  and detractors). "Above +100" and "below −100" are impossible, so their p is 1.
+- **The benchmark is treated as fixed.** Lewis and Sauro's test is for a fixed value such as a target. A
+  benchmark estimated from another sample (last year's survey, an industry study) has its own sampling
+  error, which this test ignores, so it overstates significance. When that sample's counts are known, use
+  the two-sample test above instead (both sets of counts in one counts CSV, `--compare`).
 - Published check: 61 promoters, 30 passives, 16 detractors (n = 107): NPS' = 0.41, Var' = 0.546,
   SE = 0.070; against 40%, 30% and 20%: Z = 0.129 (p = 0.449), 1.548 (p = 0.061), 2.967 (p = 0.002);
   one-sided 95% lower bound 0.29. The script reproduces all of it (`fixtures/benchmark_measuringu.*`).
@@ -140,7 +179,9 @@ p_det = D/n. The script works in proportions (−1 to +1) and prints points (−
   variance 0.59, the 95% margin is 1.96·√(0.59/n) = about 15 points at n = 100, 7.5 at n = 400 and 4.8 at
   n = 1,000 (arithmetic from the Wald formula above). The script flags small bases; it does not suppress
   them, because the interval already shows the uncertainty.
-- **Default confidence 95%** (z = 1.96): convention. Lewis and Sauro's examples use 90%.
+- **Default confidence 95%** (z = 1.96): convention. Lewis and Sauro's examples use 90%. `--confidence`
+  accepts 0.95 or 95.
+- **No verdicts under n = 5**: the smallest n in Rocks (2016, Table 1); see "Intervals".
 
 ## Scale checks
 
@@ -159,6 +200,22 @@ p_det = D/n. The script works in proportions (−1 to +1) and prints points (−
   Counts input cannot be checked; the output says so.
 - Whole numbers only. A value such as 7.5 is usually an average of several answers or another metric, so it
   is excluded and counted. `9.0` is read as 9.
+- Answers exported with their scale label (`10 - Extremely likely`, `0 = Not at all likely`, `9 (Very)`)
+  are read by their leading number and counted in the output.
+- Text that is neither a score nor a usual "no answer" value (`N/A`, `Don't know`, `Prefer not to say`,
+  `-` ...): if it is more than 5% of the non-blank answers, the script stops, because a whole answer
+  category (for example labels it could not read) is probably being dropped. `--allow-non-numeric` goes
+  on and counts them as excluded. The 5% is a convention of this skill, not a published rule.
+- Qualtrics adds a `<question>_NPS_GROUP` column holding the computed group as a small code. It is never
+  taken for the score, by detection or by `--score-col`.
+- **Period order** (convention of this skill). Trend tests compare consecutive periods and the mix shift
+  uses the first and last, so order matters. Labels in one of these forms are put in time order:
+  `YYYY-MM-DD`, `YYYY-MM`, `YYYY-Qn`, `Qn YYYY`, `YYYY`, or a shared prefix followed by a number
+  (`wave1` ... `wave10`, compared as numbers). Any other set of labels needs `--period-order`. Rows with a
+  blank period or an unreadable date stay in the overall score and segments and leave only the period
+  analysis; they are counted.
+- **CSV shape.** The script stops on duplicate column names (a dictionary would keep only the last) and on
+  rows with more or fewer cells than the header (values would land in the wrong column).
 
 ## Critiques and comparability
 
@@ -268,14 +325,24 @@ gives MeasuringU's limits and p-values.
     https://www.genroe.com/blog/how-to-calculate-margin-of-error-and-other-stats-for-nps/5994 (page read).
 20. Rocks, B. R package `NPS`, version 1.1 (2014). https://cran.r-project.org/src/contrib/Archive/NPS/
     (source read; archive listing and removal notice read).
+21. Clopper, C. J. and Pearson, E. S. (1934). The Use of Confidence or Fiducial Limits Illustrated in the
+    Case of the Binomial. *Biometrika* 26(4), 404–413. doi:10.1093/biomet/26.4.404 (citation confirmed;
+    the x = n upper limit of 1 as commonly stated).
+22. Turk, P., Cinderich, J. and McNeill, E. (2026). Coverage and Precision of Net Promoter Score Confidence
+    Intervals Across Sampling Distributions. *Stats* 9(2), 45. doi:10.3390/stats9020045. Not read: the
+    publisher's page refused automated access (HTTP 403) on 2026-11-19. Summary and methods compared (Wald,
+    bootstrap t, adjusted Wald; extreme, left-skewed, triangular and uniform populations) read from the
+    authors' repository, https://github.com/philturk/Net_Promoter_Score_Confidence_Intervals. Its extreme
+    populations are not yet in this skill's fixtures.
 
 ## Pitfalls
 
 - Computing the margin of error as if promoter and detractor shares were two independent percentages, or as
   the margin of a single percentage. Use the variance above.
 - Averaging segment or period scores instead of pooling the responses (weights each segment equally).
-- Running an independent-samples test on the same respondents measured twice, or on rolling windows that
-  share respondents.
+- Running an independent-samples test on the same respondents measured twice, on rolling windows that
+  share respondents, or on segments that contain the same people.
+- Testing a score against last year's or an industry score as if that number had no sampling error.
 - Reading a flat score as "nothing changed" when promoter and detractor shares both moved.
 - Explaining a change in the pooled score without checking whether the segment mix changed.
 - Answering "is this good" from an unsourced band table instead of a dated, sourced benchmark.

@@ -1,9 +1,9 @@
 ---
 name: nps-analysis
-description: "Compute Net Promoter Score (NPS) with its confidence interval (margin of error) from raw 0-10 scores or promoter, passive and detractor counts, test differences between segments, periods or against a target, and split comments by promoter, passive and detractor so the reasons can be coded and counted. Use for \"analyze our NPS\", \"calculate NPS from this export\", \"why did NPS drop\", \"is the NPS change significant\", \"NPS by segment\", \"what are detractors saying\" or eNPS results."
+description: "Computes Net Promoter Score (NPS) with its confidence interval (margin of error) from raw 0-10 scores or promoter, passive and detractor counts, tests differences between segments, periods or against a target, and splits comments by promoter, passive and detractor so the reasons can be coded and counted. Use for \"analyze our NPS\", \"calculate NPS from this export\", \"why did NPS drop\", \"is the NPS change significant\", \"NPS by segment\", \"what are detractors saying\" or eNPS results."
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -35,14 +35,14 @@ Do not use it for:
 
 - Planning how many responses to collect: `survey-sample-size`.
 - Coding open-ended answers in general, with no NPS question: `open-ended-coding`.
-- Writing or reviewing the questionnaire: `survey-from-decision`, `survey-bias-check`. Designing an
-  employee survey: `employee-pulse-survey` (this skill scores its eNPS results).
+- Writing or reviewing the questionnaire: `survey-from-decision`, `survey-bias-check`. This skill scores
+  eNPS results; it does not design the employee survey.
 - Removing speeders, duplicates and gibberish before analysis: `survey-data-cleaning`.
 - The Sean Ellis "very disappointed" question: `pmf-survey`.
 - CSAT, CES or star ratings. They are not NPS; do not relabel them.
 
-A skill named in this section may not be installed (some are still planned). If it is missing, say so, name
-the method the request needs, and do not stretch this skill to cover it.
+A skill named in this section may not be installed. If it is missing, say so, name the method the request
+needs, and do not stretch this skill to cover it.
 
 ## What to ask for
 
@@ -52,15 +52,15 @@ Start with what the user gave you. Ask one question only if the data is missing 
 | Input | Default if not given |
 |---|---|
 | Data | Required, in one of three forms: a CSV with one row per respondent; a CSV of counts (columns `promoters`, `passives` or `neutrals`, `detractors`, plus optional segment and period columns); or `--counts P,A,D` (or eleven counts for the scores 0 to 10). Never invent respondent rows from counts. |
-| Score column | Detected from the header (`nps`, `recommend`, `score`, `rating` ...); pass `--score-col` if the script reports several candidates. |
+| Score column | Detected from the header (`nps`, `recommend`, `score`, `rating` ...); pass `--score-col` if the script reports several candidates. Answers exported with their label (`10 - Extremely likely`) are read by their number. Qualtrics's `*_NPS_GROUP` column is the computed group, never the score. |
 | Scale | 0–10. The script stops on a likely 1–5 or 1–10 scale and warns when nobody chose 0; confirm with the user, then pass `--scale`. |
 | Segment column | None: overall score only. |
-| Period column | None: no trend. Labels sort as text (`2026-Q2`); for ISO dates add `--period-grain month`, `quarter` or `year`. |
-| Respondent id column | None. Pass `--id-col` when the same people can answer in more than one period. |
+| Period column | None: no trend. Labels such as `2026-Q2`, `Q2 2026`, `2026-05`, `2026` or `wave1`...`wave10` are put in time order; for ISO dates add `--period-grain month`, `quarter` or `year`; any other labels (`Jan`, `Feb`) need `--period-order Jan,Feb,Mar`. Rows with a blank or unreadable period stay in the overall score and leave only the period analysis. |
+| Respondent id column | None. Pass `--id-col` whenever the same people can appear twice: in two periods, two segments, or twice in one group. |
 | Comment column, coded theme column | None: no reasons section. |
-| Benchmark or target | None: no "is it good" verdict. It must come from the user, with its source and date. |
+| Benchmark or target | None: no "is it good" verdict. It must come from the user, with its source and date, and with whether it is a fixed target or an estimate from another survey. |
 | Invited count | None: no response rate. |
-| Confidence level | 95%. |
+| Confidence level | 95% (`--confidence 0.95` or `95`). |
 | Small-base threshold | 100 valid responses (`--min-base`). |
 | Which comparisons | The two groups the user named; otherwise all segment pairs with `--pairwise --adjust holm`, and consecutive periods. |
 
@@ -68,43 +68,57 @@ Start with what the user gave you. Ask one question only if the data is missing 
 
 1. **Look at the data.** Read the header and a few rows; identify the columns above. If duplicates or test
    rows are visible, say so.
-2. **Run the script.**
+2. **Run the script.** Run it by its path inside this skill's folder (the folder this SKILL.md is in), not
+   relative to the user's working directory: `python3 <skill-dir>/scripts/nps_analysis.py`. The examples
+   below write `scripts/...` for short. The CSV must be UTF-8 (a BOM is fine); a file whose header has
+   semicolons, tabs or pipes and no comma is read with that delimiter, or pass `--delimiter semicolon`.
 
    ```bash
    python3 scripts/nps_analysis.py responses.csv --json \
      --segment-col plan --period-col quarter --id-col user_id \
      --comment-col comment --comments-out nps_comments.csv \
      --pairwise --adjust holm
-   python3 scripts/nps_analysis.py --counts 61,30,16 --benchmark 30 --tail one
+   python3 scripts/nps_analysis.py --counts 61,30,16 --benchmark 30 --tail above
    ```
 
    For one planned comparison use `--compare A B` or `--compare-periods EARLIER LATER` and no adjustment.
    Write `--comments-out` to a working folder, not next to the user's data, unless asked.
 3. **If it stops (exit code 2), fix the cause; do not work around it.** A scale refusal means: find out
    what scale the question used. If it was 1–5 or 1–10, this is not a standard NPS; compute it only if the
-   user still wants it (`--scale 1-5` or `--scale 1-10`) and label it non-standard everywhere.
+   user still wants it (`--scale 1-5` or `--scale 1-10`) and label it non-standard everywhere. If more than
+   5% of the answers are text the script cannot read as scores, look at them before `--allow-non-numeric`.
+   Duplicate column names or rows with the wrong number of cells also stop it: fix the file.
 4. **Report exclusions and response.** The script counts blank, non-numeric, non-integer and out-of-range
-   scores and unreadable dates. With `--invited N` it prints the response rate. The interval covers
-   sampling error only; it says nothing about people who did not answer.
+   scores, and rows without a usable period. With `--invited N` it prints the response rate (rows in the
+   file) and the share of invitees who gave a valid score, separately. The interval covers sampling error
+   only; it says nothing about people who did not answer.
 5. **Read the interval before the score.** The interval is adjusted Wald (Rocks 2016); the score is the
    observed NPS. If the interval includes 0, do not call the score positive or negative. A "small base" is
-   directional: show it with its interval and the printed "n for ±10 points", never alone.
+   directional: show it with its interval and the printed "n for ±10 points", never alone. Under 5
+   responses the script gives no test verdicts at all (the interval was not evaluated that small).
 6. **Comparisons.** Report the difference in points, its interval, the p-value and the script's verdict:
-   significant, not significant, or underpowered (not significant on a small base: a real difference could
-   have been missed, so do not write "no difference"). If more than one test was run, report adjusted
-   p-values or state how many tests were run unadjusted.
-7. **Independence.** The tests assume different people in each group.
-   - Same respondents in two periods (a panel): pass `--id-col`. The script withholds the independent test;
-     add `--paired` with `--compare-periods` to get the mean change per respondent with its interval, and
-     say how many respondents were in only one period.
+   significant, not significant, or "inconclusive, small base" (not significant and a side is under the
+   small-base threshold: name the range of differences the interval allows, and do not write "no
+   difference"; no power calculation was made). If more than one test was run, report adjusted p-values or
+   state how many tests were run unadjusted.
+7. **Independence.** The tests assume different people in each group, one answer each.
+   - With `--id-col` the script withholds any test whose two groups share ids, or where an id answers twice
+     in one group, and says why.
+   - Same respondents in two periods (a panel): add `--paired` with `--compare-periods` to get the mean
+     change per respondent with its interval, and say how many respondents were in only one period.
    - Rolling or overlapping windows ("last 90 days", reported monthly) share respondents. Do not test
      neighbouring windows against each other: pool them or compare non-overlapping periods. Without an id
      column the script cannot detect overlap; ask how the periods were built.
 8. **"Is our NPS good?"** Do not answer from a table of "good" and "excellent" bands; none is sourced.
-   Ask for the benchmark the user cares about (a target, last year's score, an industry figure with its
-   source, date and method) and run `--benchmark X`. Use `--tail one` only if the question, fixed before
-   looking, is "are we above X"; otherwise two-tailed. State where the benchmark came from and that
-   benchmarks collected another way are not comparable.
+   Ask for the benchmark the user cares about and whether it is fixed or estimated.
+   - A fixed number (a management target): `--benchmark X`. Use `--tail above` (or `below`) only if the
+     question, fixed before looking, is one-sided; otherwise two-tailed. Report the observed difference;
+     the test itself uses the adjusted score, and the output shows both.
+   - An estimate from another survey (last year's score, an industry study): it has sampling error too.
+     If its counts are known, put both in a counts CSV (`source,promoters,passives,detractors`) and run
+     `--segment-col source --compare ours theirs`. If only the score is known, use `--benchmark` and say
+     the test ignores the benchmark's own error.
+   State where the benchmark came from and that benchmarks collected another way are not comparable.
 9. **Before explaining a change over time, check comparability.** Same wording and 0–10 scale with the same
    labels and colours; same channel (phone, email, in-app); same trigger and timing; same sampling; a
    similar response rate. If any changed, say the change in score cannot be separated from the change in
@@ -150,7 +164,7 @@ Method: observed NPS; adjusted-Wald interval (Rocks 2016); <z-test | Welch t-tes
 <adjustment or "no adjustment, k tests">.
 
 ### Against the benchmark
-<Benchmark, its source and date; difference; z; one- or two-tailed p; verdict.>
+<Benchmark, its source and date, fixed or estimated; observed difference; z; one- or two-tailed p; verdict.>
 
 ### By segment
 | Segment | n | Promoters % | Passives % | Detractors % | NPS | 95% interval | Note |
@@ -191,10 +205,11 @@ which. Offer the script's JSON if the user wants the numbers in another tool.
 - Was the scale confirmed as 0–10, or is the score labelled non-standard?
 - Are excluded rows counted and explained, and is non-response mentioned?
 - Is the overall score computed from pooled responses, not from an average of segment scores?
-- Is every "higher", "lower", "dropped" or "improved" backed by a test, and is "underpowered" never
-  reported as "no difference"?
+- Is every "higher", "lower", "dropped" or "improved" backed by a test, and is "inconclusive, small base"
+  never reported as "no difference"?
 - If several tests were run, are p-values adjusted or the number of tests stated?
-- Are the samples independent? Were shared respondents and overlapping windows ruled out or handled?
+- Are the samples independent? Were shared or repeated respondents and overlapping windows ruled out or
+  handled?
 - Are groups under the small-base threshold marked and not used for headlines?
 - For a trend: are promoter % and detractor % shown next to the score?
 - For a change over time: were wording, scale presentation, channel, sampling and response rate checked,
@@ -204,8 +219,8 @@ which. Offer the script's JSON if the user wants the numbers in another tool.
 - If the user's tool disagrees, is its method named?
 - Is the answer free of growth forecasts?
 
-## Field it with QuestionPunk (optional)
+## Field it (optional)
 
-The result above is complete on its own. To field this with AI follow-up questions on open answers, connect the QuestionPunk MCP (https://app.questionpunk.com/api/v1, OAuth sign-in). Connecting is free on every plan, and the free plan has unlimited surveys and responses with no card.
+To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Tools: `question_create` (add the NPS question: answer type `opinion_scale`, `itemDetails {nps: true, min_value: 0, max_value: 10}`), `responses_get_counts` (how many responses there are), `responses_read` (the answers, for this script), `report_get` (an existing report). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.
 
-Hosted MCP tools this step may use: `report_get`, `report_get_crosstab`, `responses_get_counts` and `responses_read` to read existing results; `question_create` to add the NPS question (answer type `opinion_scale`, `itemDetails {nps: true, min_value: 0, max_value: 10}`). Ask before creating, changing or publishing anything. If a response or report tool answers that you must reconnect and approve, reconnect the QuestionPunk connector once: connections made before 3 Oct 2026 lack the `responses:read` permission.
+Page `responses_read` with `nextCursor` until it is exhausted, filter to the intended response type and completion status (exclude synthetic/test responses), and reconcile the row count before computing.

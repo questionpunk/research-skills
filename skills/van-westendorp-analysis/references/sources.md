@@ -75,7 +75,10 @@ Properties worth knowing:
   meets not cheap before it meets expensive, and too expensive meets cheap before it meets not expensive.
 - IPP is the same under both: cheap = expensive exactly where not cheap = not expensive.
 - The names promise more than the method delivers. Sawtooth: "there isn't strong reasoning behind these
-  names"; OPP is the price with the fewest rejections on both sides, not a profit- or revenue-maximizing price.
+  names". OPP is where the too-cheap and too-expensive shares are equal. That is not the price fewest
+  respondents reject: with one group answering 1, 2, 3, 4 and another 10, 11, 12, 13, OPP is 7, where 0% find
+  the price acceptable on both counts, against 50% at 2. Nor is it a profit- or revenue-maximizing price.
+  The share rejecting a candidate price on either ground is counted respondent by respondent with `--at`.
 
 ## Finding a crossing
 
@@ -95,8 +98,10 @@ one crossing.
 - **`--no-interpolate`**: the crossing is the first grid price at which the rising curve is at or above the
   falling one; `--tie` then applies to the run of neighbouring grid prices at which both curves keep those
   values. This is the R package's older routine (`R/psm-utils.R`, the only one up to version 1.3.0).
-- **No crossing on the grid**: no value is reported and the script warns. With consistent respondents this
-  does not happen for OPP and IPP; it can happen when inconsistent respondents are kept.
+- **No crossing on the grid**: no value is reported and the script warns. It can happen when inconsistent
+  respondents are kept, and also with consistent ones when the curves only touch: if every respondent gives
+  the same price to all four questions, under `--boundary exclusive` no curve pair crosses, and under
+  `inclusive` PMC and PME do not.
 
 The script works with exact counts (integers, or fractions when respondents are weighted), so "d = 0" is
 exact, not a floating-point comparison.
@@ -112,8 +117,10 @@ exact, not a floating-point comparison.
   keeps it; the number of analysed respondents with a tie is reported, and `--strict` applies the R rule.
   **Our choice between two sourced options.**
 - Inconsistent respondents are excluded by default (R package default) and always counted, with their ids;
-  `--keep-inconsistent` keeps them and says so. No source gives a threshold for "too many" exclusions, so the
-  script reports the share and sets none.
+  `--keep-inconsistent` keeps them and says so; they still stay out of the Newton-Miller-Smith curves (**our
+  convention**: with prices out of order a respondent's purchase-probability line is not defined), with a
+  warning. No source gives a threshold for "too many" exclusions, so the script reports the share and sets
+  none.
 - Respondents with a missing price are left out and counted separately.
 
 ## Three-question variant, weights, segments, price limits
@@ -127,7 +134,10 @@ exact, not a floating-point comparison.
 - **Weights** (`--weight`): every curve value is the sum of the weights of the respondents it counts,
   divided by the total weight; the Newton-Miller-Smith trial is the weighted mean probability. This is the
   ordinary weighted share; the R package offers the same through a survey-design object
-  (`psm_analysis_weighted`). The small-sample warning uses the unweighted number of respondents.
+  (`psm_analysis_weighted`). The small-sample warning uses the unweighted number of respondents with a
+  positive weight. **Our convention:** a respondent with weight 0 is counted in the respondent block and left
+  out of everything else (curves, grid, price points, bootstrap, base). Otherwise their prices would add
+  grid points and move interpolated crossings although they carry no weight.
 - **Segments** (`--segment`): the same analysis on each value of a column, each with its own counts and
   warnings. Nothing is pooled or borrowed between segments.
 - **Price limits** (`--min-price`, `--max-price`): respondents with any price outside the limits are
@@ -135,9 +145,43 @@ exact, not a floating-point comparison.
   or less are kept and counted in a warning. **No sourced rule for outliers was found** (competing tools'
   "more than 3× the median" and percentile cut-offs are uncited), so the script prints the minimum, median
   and maximum of each question and leaves the limit to the analyst.
-- **Share at a candidate price** (`--at`): the four curve values at that price counted directly from the
-  answers (so it works between grid prices), plus the share of respondents for whom the price is neither
-  too cheap nor too expensive: 1 − too cheap(p) − too expensive(p) for consistent respondents.
+- **Share at a candidate price** (`--at`): the four curve values at that price from the same curve evaluator
+  as the grid (so `--compat r`'s pinned ends apply and the two never disagree at a grid price; it also works
+  between grid prices), plus the share of respondents who reject the price on neither question. That share
+  equals 1 − too cheap(p) − too expensive(p) only when no respondent counts on both curves at p (a respondent
+  whose too-cheap and too-expensive prices both equal p counts on both under `inclusive`). Under `--compat r`
+  the pinned ends apply to it as well: at or below the lowest too-cheap price nobody is in it, and at or
+  below the lowest too-expensive price nobody rejects the price as too expensive.
+
+## Reading the file (our conventions)
+
+- Delimiter: comma, semicolon or tab, whichever splits the header into the most fields (counted by the CSV
+  reader, so separators inside quoted names do not count).
+- A row with more fields than the header stops the run, unless the extra fields are empty. A thousands
+  separator equal to the delimiter (`1,000` in a comma file) would otherwise silently drop a price.
+- Qualtrics exports put two rows under the header (question text, `{"ImportId": ...}`); when one of the first
+  two rows contains `ImportId` they are skipped with a warning. `--skip-rows` sets the count by hand.
+- Next to a price the script accepts a currency symbol, an ISO 4217 code or a few short abbreviations (Rs,
+  kr, Fr, TL, NT, RMB). Anything else, such as `k`, `m` or `mo`, is a multiplier or a unit and stops the run.
+- The file is read as CSV records, so a quoted cell may hold a line break (Qualtrics question text) and the
+  Qualtrics rows are recognised by record, not by physical line.
+- Column names: camelCase is split (`piCheap` reads as `pi cheap`). Too cheap: "too cheap", "too
+  inexpensive", "so inexpensive", "so cheap", "doubt" (the Orme wording "...that you would doubt its
+  quality") or "too low". Too expensive: "too expensive", "so expensive", "never consider" or "too high".
+  Then cheap ("cheap", "bargain", "good value", "inexpensive") and expensive. One column cannot fill two
+  roles. With no too-cheap column the three-question variant runs, and its warning names the columns not
+  used, in case one of them is the too-cheap question under another name.
+- The purchase-intent scale direction is never assumed: when the extension runs, `--intent-scale` must be
+  given. A reversed 1 to 5 scale would otherwise turn the trial curve upside down without any error.
+
+## QuestionPunk answers
+
+A QuestionPunk `van_westendorp` question stores one JSON object per respondent, which `response_get_details`
+returns as `rawAnswer`: `{"too_cheap": "5", "cheap": "10", "expensive": "20", "too_expensive": "30",
+"pi_cheap": "4", "pi_expensive": "2"}` (the two `pi_` keys only when purchase intent was asked; prices
+without the currency, which is in `answerDetails`). The intent codes run 1 to 5 with 5 = "Definitely would
+buy", so pass `--intent-scale 5,4,3,2,1`. Write one CSV row per response with these six keys as the header.
+The `responses_read` cell renders the same answer as labelled lines ("Too cheap: 5", ...).
 
 ## Bootstrap intervals
 
@@ -147,8 +191,12 @@ exact, not a floating-point comparison.
   (position (m − 1) × q among m sorted values; Hyndman and Fan 1996, definition 7).
 - The script sets no default N; the examples use 1,000, a common choice for percentile intervals. Fewer
   resamples give rougher interval ends.
-- **Our convention:** when the PMC and PME intervals overlap, the script warns that the sample does not
-  separate the two ends of the range. No source gives a width threshold, so none is used.
+- **Range width** (**our convention**): the script also forms PME − PMC within each resample and reports
+  the percentile interval of that width with the number of resamples that had both ends. It warns only when
+  the width interval reaches zero or below. Comparing the two separate intervals would be wrong: the ends
+  move together across resamples, so their intervals can overlap while every resample has a positive width.
+- With `--weight`, each resample draws respondents with equal probability and keeps their weights. This is
+  not a design-based (replicate-weight) bootstrap; for a weighted sample read the intervals as approximate.
 - The intervals describe sampling variation only. They do not cover question wording, sample bias or the
   choice of conventions.
 
@@ -186,6 +234,9 @@ those prices.
   "leads to slightly lower recommended 'optimal price'". Script: `--nms-variant modified`.
 - Ties, **our convention**: a stated answer wins over an assumed zero at the same price (for example cheap =
   too cheap), and when cheap = expensive the probability at that price is the mean of the two answers.
+  Such a tie makes the respondent's probability jump at that price: the value there differs from the limit
+  just below or just above it. The script computes both one-sided limits at every grid price (`trial_just_below`,
+  `trial_just_above` in the curve when they differ from the value).
 
 **Curves and maxima** (Orme; R package):
 
@@ -193,9 +244,16 @@ those prices.
 - Revenue index at p = p × trial (per respondent; multiply by a market size for money).
 - Price with the highest trial: the grid price with the highest trial; the lowest such price on a tie (R's
   `which.max` does the same).
-- Price with the highest revenue: the trial curve is linear between grid prices, so revenue is a quadratic on
-  each segment and can peak inside it. For a segment with trial = a + b·p and b < 0 the peak is at
-  p = −a / (2b) when that lies inside the segment. The script reports this exact maximum and, when it is not
+- Price with the highest revenue: the trial curve is linear between grid prices (from the limit just above
+  the left price to the limit just below the right one, not between the two grid values, which a jump would
+  distort), so revenue is a quadratic on each segment and can peak inside it. For a segment with
+  trial = a + b·p and b < 0 the peak is at p = −a / (2b) when that lies inside the segment. If a one-sided
+  limit next to a tied price beats every value actually reached, the script reports it separately
+  (`revenue_max_approached`, `trial_max_approached`, with the side) and warns: the peak is approached just
+  below or above that price, not reached at it. The limit from below at the lowest grid price counts too: in
+  the modified variant (and without a too-cheap question) a price under every respondent's cheap price keeps
+  the cheap-price probability. The limit from above at the highest grid price does not: above it the curve is
+  flat at the too-expensive probability. The chart draws the same curve, jumps included. The script reports this exact maximum and, when it is not
   an observed price, also the highest among observed prices, which is what the R package reports
   (`which.max` on the grid). **The exact-segment step is our addition**; it follows from the linear
   interpolation and needs no extra assumption.
@@ -227,8 +285,8 @@ those prices.
 ## Sources
 
 1. Van Westendorp, P. H. (1976). "NSS-Price Sensitivity Meter (PSM): A new approach to study consumer
-   perception of price." Proceedings of the 29th ESOMAR Congress, 139–167. (Not available online; see "Not
-   verified".)
+   perception of price." Proceedings of the 29th ESOMAR Congress, 139–167. (Not available online; not read
+   for this skill: its definitions are taken as the R package documentation and Conjointly report them.)
 2. Newton, D., Miller, J., and Smith, P. (1993). "A market acceptance extension to traditional price
    sensitivity measurement." Proceedings of the American Marketing Association Advanced Research Techniques
    Forum. (Not available online.)

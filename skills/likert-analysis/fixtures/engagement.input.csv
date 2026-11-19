@@ -1,0 +1,41 @@
+respondent,team,eng_1,eng_2,eng_3,eng_4
+R01,north,Agree,Neither agree nor disagree,Neither agree nor disagree,Neither agree nor disagree
+R02,north,4,4,2,3
+R03,north,4,3,2,4
+R04,north,Neither agree nor disagree,Neither agree nor disagree,Disagree,Agree
+R05,north,4,4,2,4
+R06,north,,5,2,4
+R07,north,Neither agree nor disagree,Neither agree nor disagree,Neither agree nor disagree,Neither agree nor disagree
+R08,north,4,3,2,4
+R09,north,3,3,4,3
+R10,north,Agree,Strongly agree,Strongly disagree,Agree
+R11,north,4,3,1,4
+R12,north,5,5,1,4
+R13,north,Agree,Agree,Disagree,Neither agree nor disagree
+R14,north,4,2,4,3
+R15,north,5,4,2,5
+R16,north,Disagree,Neither agree nor disagree,Neither agree nor disagree,Neither agree nor disagree
+R17,north,4,5,2,4
+R18,north,3,5,1,4
+R19,north,Strongly disagree,Disagree,Strongly agree,Strongly disagree
+R20,north,4,5,1,4
+R21,south,4,3,2,2
+R22,south,Neither agree nor disagree,Disagree,Agree,Neither agree nor disagree
+R23,south,4,3,2,N/A
+R24,south,3,2,3,1
+R25,south,Disagree,Neither agree nor disagree,Agree,Disagree
+R26,south,3,3,3,3
+R27,south,3,4,2,4
+R28,south,Neither agree nor disagree,Neither agree nor disagree,Neither agree nor disagree,Neither agree nor disagree
+R29,south,3,3,5,1
+R30,south,3,3,3,3
+R31,south,Neither agree nor disagree,Agree,Neither agree nor disagree,Disagree
+R32,south,3,3,5,2
+R33,south,3,4,2,4
+R34,south,Neither agree nor disagree,Agree,Disagree,Agree
+R35,south,3,4,3,4
+R36,south,2,2,5,1
+R37,south,Agree,Neither agree nor disagree,Disagree,Agree
+R38,south,4,2,3,2
+R39,south,3,3,3,2
+R40,south,Disagree,Strongly disagree,Strongly agree,Strongly disagree

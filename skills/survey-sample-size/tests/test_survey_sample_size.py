@@ -300,5 +300,107 @@ class BadInputTest(unittest.TestCase):
         self.assertEqual(run().returncode, 2)
 
 
+class ReviewRegressionTest(unittest.TestCase):
+    """Defects found in the 2026-11 review; each test failed before its fix."""
+
+    def rejected(self, argv, message):
+        proc = run(*argv)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn(message, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_planned_n_is_the_inverse_of_the_reverse_margin(self):
+        report = result("proportion", "--margin", "0.05", "--population", "500", "--deff", "2", "--n", "304")
+        self.assertEqual(report["result"]["n_required"], 304)
+        self.assertTrue(report["result"]["sufficient"])
+        report = result("proportion", "--margin", "0.05", "--population", "500", "--deff", "2", "--n", "303")
+        self.assertFalse(report["result"]["sufficient"])
+        report = result("proportion", "--margin", "0.03", "--population", "300", "--deff", "1.5")
+        self.assertEqual(report["result"]["n_required"], 253)
+        report = result("mean", "--sd", "1", "--margin", "0.1", "--population", "500", "--deff", "2")
+        n = report["result"]["n_required"]
+        self.assertLessEqual(result("mean", "--sd", "1", "--n", str(n), "--population", "500", "--deff", "2")["result"]["margin_of_error"], 0.1)
+        self.assertGreater(result("mean", "--sd", "1", "--n", str(n - 1), "--population", "500", "--deff", "2")["result"]["margin_of_error"], 0.1)
+
+    def test_rare_outcome_is_planned_on_the_wilson_interval(self):
+        report = result("proportion", "--p", "0.001", "--margin", "0.05")
+        self.assertEqual(report["result"]["planning_method"], "wilson")
+        n = report["result"]["n_required"]
+        self.assertGreater(n, 50)
+        self.assertIn("Wilson", report["statement"])
+        at_n = result("proportion", "--p", "0.001", "--n", str(n))["result"]
+        self.assertLessEqual(at_n["interval_high"] - 0.001, 0.05 + 1e-4)
+        below = result("proportion", "--p", "0.001", "--n", str(n - 1))["result"]
+        self.assertGreater(below["interval_high"] - 0.001, 0.05 - 1e-4)
+
+    def test_a_census_has_no_sampling_error(self):
+        report = result("proportion", "--population", "20", "--n", "20", "--x", "3")
+        self.assertEqual(report["result"]["interval_method"], "census")
+        self.assertEqual(report["result"]["margin_of_error"], 0.0)
+        self.assertNotIn("interval_low", report["result"])
+
+    def test_two_sided_power_counts_both_tails(self):
+        report = result("compare", "--p1", "0.5", "--p2", "0.5001", "--n", "100")
+        self.assertAlmostEqual(report["result"]["power_at_n"], 0.05, places=3)
+        one_sided = result("compare", "--p1", "0.5", "--p2", "0.5001", "--n", "100", "--sides", "1")
+        self.assertAlmostEqual(one_sided["result"]["power_at_n"], 0.05, places=2)
+
+    def test_opt_in_sample_is_labelled_as_a_benchmark(self):
+        report = result("proportion", "--n", "400", "--opt-in")
+        self.assertTrue(report["statement"].startswith("Benchmark only"))
+        self.assertIn("no design-based margin", report["statement"])
+        self.assertNotIn("Benchmark", result("proportion", "--n", "400")["statement"])
+
+    def test_saturation_never_drops_an_interview(self):
+        self.rejected(["saturation", "--new-codes", "10,8,7,6,,0,0"], "interview 5 has no count")
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            bom = pathlib.Path(folder) / "bom.csv"
+            bom.write_bytes(b"\xef\xbb\xbf10\n8\n7\n6\n0\n0\n")
+            self.assertEqual(result("saturation", "--file", str(bom))["result"]["reported_as"], "4+2")
+            unnamed = pathlib.Path(folder) / "two.csv"
+            unnamed.write_text("id,count\n1,10\n2,8\n3,7\n4,6\n5,0\n6,0\n")
+            self.rejected(["saturation", "--file", str(unnamed)], "--column")
+            self.assertEqual(result("saturation", "--file", str(unnamed), "--column", "count")["result"]["reported_as"], "4+2")
+            semi = pathlib.Path(folder) / "semi.csv"
+            semi.write_text("id;new_codes\n1;10\n2;8\n3;7\n4;6\n5;0\n6;0\n")
+            self.assertEqual(result("saturation", "--file", str(semi))["result"]["reported_as"], "4+2")
+
+    def test_maxdiff_defaults_match_maxdiff_design(self):
+        report = result("maxdiff", "--items", "12")
+        self.assertEqual(report["result"]["items_per_set"], 4)
+        self.assertEqual(report["result"]["sets_used"], 9)
+        self.assertEqual(report["result"]["n_recommended"], 300)
+        self.assertEqual(result("maxdiff", "--items", "7")["result"]["items_per_set"], 3)
+        self.assertIn("exposures, not respondents", " ".join(result("maxdiff", "--items", "60", "--per-set", "5", "--sets", "12")["assumptions"]))
+
+    def test_non_finite_numbers_are_input_errors(self):
+        self.rejected(["proportion", "--margin", "0.05", "--weight-cv", "nan"], "--weight-cv must be a finite number")
+        self.rejected(["compare", "--p1", "0.5", "--p2", "inf"], "--p2 must be a finite number")
+
+    def test_nps_needs_its_own_variance(self):
+        report = result("nps", "--promoters", "0.4", "--detractors", "0.2", "--margin", "0.05")
+        self.assertEqual(report["result"]["n_required"], 861)
+        # Lewis and Sauro 2021c: d = 0.10, Var1 + Var2 = 2, 80% power: 1,568 after their -3 (z rounded).
+        self.assertEqual(result("nps", "--variance", "1", "--diff", "0.10")["result"]["n_per_group"], 1570)
+        margin = result("nps", "--promoters", "0.4", "--detractors", "0.2", "--n", "861")["result"]["margin_of_error"]
+        self.assertLessEqual(margin, 0.05)
+
+    def test_check_takes_a_population(self):
+        report = result("check", "--n", "323", "--population", "2000")
+        self.assertAlmostEqual(report["result"]["overall"]["margin_of_error"], 0.0499, places=4)
+
+    def test_subgroups_apply_the_design_effect(self):
+        plain = result("subgroups", "--share", "0.5", "0.5", "--margin", "0.1")
+        weighted = result("subgroups", "--share", "0.5", "0.5", "--margin", "0.1", "--deff", "2")
+        self.assertEqual(weighted["result"]["min_base"], 2 * 97 - 1)
+        self.assertGreater(weighted["result"]["n_total"], plain["result"]["n_total"])
+
+    def test_expected_cells_use_each_group_size(self):
+        # 364 in group 1 but 37 in group 2, where 10% expects under 4.
+        notes = result("compare", "--p1", "0.3", "--p2", "0.1", "--ratio", "0.1")["notes"]
+        self.assertTrue(any("Fewer than 5 expected" in n for n in notes))
+
+
 if __name__ == "__main__":
     unittest.main()

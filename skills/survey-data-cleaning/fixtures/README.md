@@ -74,10 +74,13 @@ No grid row in this file repeats a block or steps by one throughout, so there ar
 
 ### Duplicates (the first row of a group is kept unflagged)
 
-- R08: every column except `id` equals R07 (so also the same email and IP). Flagged; R07 gets a note.
-- R13: same IP as R02 (`192.0.2.2`), different answers. Flagged with "shared IP is not proof".
-- R16: email `Dana@Example.com ` equals R05's `dana@example.com` after trimming and lower-casing.
-- With `--dup-cols email`: R08 and R16 only.
+- R08: every column except `id` equals R07, so the same email and IP. Counted `duplicate` (same email as
+  R07); also the candidates `identical_answers` and `shared_ip`. R07 gets a note.
+- R13: same IP as R02 (`192.0.2.2`), different answers. Only the candidate `shared_ip`: a shared IP is
+  not proof, so R13's flag count is 0.
+- R16: email `Dana@Example.com ` equals R05's `dana@example.com` after trimming and lower-casing: counted
+  `duplicate`.
+- Counted duplicates: R08, R16, with the default key columns or with `--dup-cols email`.
 
 ### Attention checks (ac1 = "Strongly disagree", ac2 = "4"; flag at 2 failures)
 
@@ -87,7 +90,7 @@ No grid row in this file repeats a block or steps by one throughout, so there ar
 - R17: ac1 "strongly disagree " passes (case and spaces ignored); ac2 blank counts as a failure: 1, not flagged.
 - With `--attention-min-fails 1`: R04, R14, R17, R20.
 
-### Open answers (candidates to read)
+### Open answers (candidates to read; they count only when confirmed with `--confirm`)
 
 | Id | Answer | Reason |
 |---|---|---|
@@ -119,25 +122,26 @@ Question columns = 21 columns minus `id`, `duration_sec`, `email`, `ip` = **17**
 
 ### Expected flags
 
-| Id | Flags | Count |
-|---|---|---|
-| R01 | open_text_candidate | 1 |
-| R04 | speeder, attention_fail, open_text_candidate | 3 |
-| R05 | inconsistent | 1 |
-| R06 | straightliner | 1 |
-| R08 | duplicate | 1 |
-| R09 | straightliner | 1 |
-| R10 | open_text_candidate | 1 |
-| R11 | open_text_candidate | 1 |
-| R13 | duplicate | 1 |
-| R14 | inconsistent | 1 |
-| R15 | open_text_candidate | 1 |
-| R16 | duplicate | 1 |
-| R18 | high_missing | 1 |
-| R19 | open_text_candidate | 1 |
-| R20 | speeder, straightliner, attention_fail, open_text_candidate, inconsistent | 5 |
+| Id | Counted flags | Count | Candidates (not counted unless confirmed) |
+|---|---|---|---|
+| R01 | | 0 | open_text_candidate |
+| R04 | speeder, attention_fail | 2 | open_text_candidate |
+| R05 | inconsistent | 1 | |
+| R06 | straightliner | 1 | |
+| R08 | duplicate | 1 | identical_answers, shared_ip |
+| R09 | straightliner | 1 | |
+| R10 | | 0 | open_text_candidate |
+| R11 | | 0 | open_text_candidate |
+| R13 | | 0 | shared_ip |
+| R14 | inconsistent | 1 | |
+| R15 | | 0 | open_text_candidate |
+| R16 | duplicate | 1 | |
+| R18 | high_missing | 1 | |
+| R19 | | 0 | open_text_candidate |
+| R20 | speeder, straightliner, attention_fail, inconsistent | 4 | open_text_candidate |
 
-No flags: R02, R03, R07, R12, R17. Distribution: 0 flags: 5, 1 flag: 13, 3 flags: 1, 5 flags: 1.
+No flags and no candidates: R02, R03, R07, R12, R17. Distribution of counted flags: 0 flags: 11 (the five
+above plus R01, R10, R11, R13, R15, R19), 1 flag: 7, 2 flags: 1 (R04), 4 flags: 1 (R20).
 
 No open answers in this file are near-duplicates (the only repeated long answer is identical, R01 and R19).
 The platform fraud columns are absent, so those three checks report "not present" and their cells are blank.
@@ -145,7 +149,8 @@ The platform fraud columns are absent, so those three checks report "not present
 ### Drop rules
 
 - `--drop-if "count>=2"` removes R04 and R20: 2 of 20 = 10.0%; 18 kept.
-- `--drop-if "duplicate,speeder+attention_fail"` removes R04, R08, R13, R16, R20.
+- `--drop-if "duplicate,speeder+attention_fail"` removes R04, R08, R16, R20.
+- `--drop-if "count>=2,duplicate" --preview` reports R04, R08, R16, R20 and writes no clean or removed file.
 
 ## `clean.input.csv` (6 respondents, C01–C06)
 
@@ -223,26 +228,31 @@ Pattern candidates are report-only: Q02 and Q03 keep a flag count of 0.
 
 ### Summary (with `--speed-by path`)
 
-| Id | Counted flags | Report-only |
+| Id | Counted flags | Candidates and platform fields (not counted) |
 |---|---|---|
-| Q01 | open_text_candidate | |
+| Q01 | | open_text_candidate |
 | Q02 | | pattern_candidate |
 | Q03 | | pattern_candidate, platform_bot |
-| Q05 | open_text_candidate | platform_ballot_stuffing |
+| Q05 | | open_text_candidate, platform_ballot_stuffing |
 | Q06 | | platform_duplicate |
 | Q07 | straightliner | |
 | Q08 | speeder | |
 
-- Distribution: 0 flags: 5 (Q02, Q03, Q04, Q06, Q12); 1 flag: 4. Share with 1 or more: 4/9 = 0.4444.
+- Distribution: 0 flags: 7 (Q01, Q02, Q03, Q04, Q05, Q06, Q12); 1 flag: 2. Share with 1 or more: 2/9 =
+  0.2222.
 - Flags that occur together: pattern_candidate + platform_bot 1 (Q03); open_text_candidate +
   platform_ballot_stuffing 1 (Q05). Without `--speed-by`, speeder + straightliner 1 (Q07).
 - Warnings at the 0.12 comparison point: open_text_candidate and pattern_candidate, each 2/9 = 22.2%.
   Speeder, straightliner and each platform field are 1/9 = 11.1%, below it.
-- `--drop-if "count>=1,not_screened" --compare-cols region` removes Q01, Q05, Q07, Q08, Q09, Q10, Q11.
-  Region of the removed: north 5 (Q01, Q05, Q07, Q09, Q11), south 2 (Q08, Q10). Kept: north 1 (Q02),
+- `--drop-if "count>=1,not_screened" --compare-cols region` removes Q07, Q08, Q09, Q10, Q11.
+  Region of the removed: north 3 (Q07, Q09, Q11), south 2 (Q08, Q10). Kept: north 3 (Q01, Q02, Q05),
   south 4 (Q03, Q04, Q06, Q12). The clean file keeps the three header rows.
 
 ## Files written by the tests
 
 The tests also write small temporary files: a semicolon-delimited Windows-1252 file, a tab-delimited
 UTF-8 file with a byte-order mark, a two-row-header file with blank column names, and a 2-item grid.
+`ReviewFindingsTest` writes its own synthetic inputs (a Qualtrics `Status` 256 row, a shared IP with a
+"No" answer, a one-question yes/no survey, a blank duration column with page times, a `NaN` grid cell,
+blank attention checks, a semicolon file with decimal commas, a UTF-16 file and a Google Forms
+`Timestamp` column); each test states its expected values inline.

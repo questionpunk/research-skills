@@ -1,6 +1,9 @@
 # QSF convert: sources and evidence
 
-Checked on 2026-11-12. Qualtrics publishes no schema for the QSF format, so there is no primary
+Checked on 2026-11-12; corrections and the codebook and logic additions marked 2026-11-19.
+
+Contents: what Qualtrics says; file structure; Advanced Format TXT; question types; other shapes; codebook;
+measured on the 55 exports; sources; sample set; where practitioners disagree; pitfalls. Qualtrics publishes no schema for the QSF format, so there is no primary
 specification to cite. The facts below come from three kinds of evidence, in this order of weight:
 
 1. **Real exports.** 55 `.qsf` files written by Qualtrics and published in public GitHub repositories
@@ -45,7 +48,7 @@ Sources: [Import and export surveys](https://www.qualtrics.com/support/survey-pl
 | BlockElements entries are `{"Type": "Question", "QuestionID": "QIDn"}` or `{"Type": "Page Break"}` | Exports: 1,593 question entries, 323 page breaks. sumtxt/qsf `attach_question.R` |
 | `FL` (PrimaryAttribute "Survey Flow") appears once: `{"Type": "Root", "FlowID": "FL_1", "Flow": [...], "Properties": {"Count": n}}`. The first block is listed as `{"Type": "Block", "ID", "FlowID", "Autofill": []}`, later ones as `"Type": "Standard"` | Exports: 55 roots; node types Standard 349, Block 82, EmbeddedData 139, Group 79, BlockRandomizer 32, EndSurvey 35, Branch 31, WebService 18, Randomizer 1 |
 | `Properties.Count` is a high-water mark of flow ids, not a length | Exports (for example Count 28 with 13 blocks). The script writes the number of nodes including the root, which is the same thing in a new file |
-| `QC` (PrimaryAttribute "Survey Question Count"): the count is a **string in SecondaryAttribute**, Payload is null. It is **not** the number of `SQ` elements: equal in 24 exports, larger in 30, smaller in 1. It tracks the highest question number ever used | Exports. In a new file with QID1..QIDn both readings give n, which is what the script writes |
+| `QC` (PrimaryAttribute "Survey Question Count"): the count is a **string in SecondaryAttribute**, Payload is null. It is **not** the number of `SQ` elements: equal in 24 exports, larger in 30, smaller in 1. It equals the highest QID number in 40 of the 55 (see "Where practitioners disagree") | Exports. In a new file with QID1..QIDn both readings give n, which is what the script writes |
 | `SO` (Survey Options), `SCO` (Scoring), `STAT` (Survey Statistics), `RS` (response set; its PrimaryAttribute equals `SurveyEntry.SurveyActiveResponseSet` in 52 of 55) | Exports: SO, STAT, QC, RS in 55 of 55; SCO in 54. Values written by the script are the most common ones in the set and equal the sumtxt/qsf template |
 | `PROJ` with PrimaryAttribute "CORE", TertiaryAttribute "1.1.0", Payload `{"ProjectCategory": "CORE", "SchemaVersion": "1.1.0"}` | Exports: 46 of 55 in this form; 2 more carry an older `1.0.0` form and 7 have none |
 | `PL` (Preview Link, a UUID) | Exports: 37 of 55. Not written by the script: the sumtxt/qsf template, built for import, has none. |
@@ -105,6 +108,9 @@ From Qualtrics' "Import and export surveys" page, checked 2026-11-12. The script
 | `[slider]` | Slider / HSLIDER / none | 12 |
 | `[nps]` | MC / NPS / none | **1** |
 | `[rank]` | RO / DND / TX | **1** (the question sits in that survey's trash) |
+| `[form]` | TE / FORM / none | 13 |
+| `[matrix-text]` | Matrix / TE / Short | 3 (6 questions) |
+| `[sum]` | CS / VRTL / TX | **1** |
 
 - Slider Configuration copied from the most common export form (18 questions): CSSliderMin 0, CSSliderMax
   100, GridLines 10, SnapToGrid false, NumDecimals "0", ShowValue true, NotApplicable false, MobileFirst
@@ -115,9 +121,6 @@ From Qualtrics' "Import and export surveys" page, checked 2026-11-12. The script
   "0" to "10", there is no SubSelector, and `ColumnLabels` holds the two end labels with `IsLabelDefault`
   (defaults "Not at all likely", "Extremely likely"), NextChoiceId 11. The NPS scale itself (0 to 10) is
   Reichheld's; see the `nps-analysis` skill for scoring.
-| `[form]` | TE / FORM / none | 13 |
-| `[matrix-text]` | Matrix / TE / Short | 3 (6 questions) |
-| `[sum]` | CS / VRTL / TX | **1** |
 
 - Text form: `Choices` holds the fields; 25 of 37 fields in exports carry only `Display`, which is what the
   script writes. Field sizes and field validation are reported, not carried.
@@ -149,14 +152,34 @@ grouping of blocks), branches, end-of-survey elements, quotas, loop and merge, s
 
 `to-md` keeps choice coding wherever it can: when the export values of a question (recode value, or the
 choice id when there is none) are not 1, 2, 3 in display order, every option gets `{code:n}`.
+On a Likert matrix, `RecodeValues` keys that name no column (left over from a deleted column) are ignored.
+Row ids of a matrix, column ids of a text matrix and choice ids of the other types are judged in display
+order (`ChoiceOrder`, `AnswerOrder`); when they are not 1, 2, 3 the report warns that a rebuilt survey
+renumbers them.
+
+Text and HTML: a `<` passes through `to-qsf` as markup only when it opens an element named in the HTML
+Living Standard's element index (plus obsolete `font`, `center`, `strike`, `tt`, `big`, and namespaced or
+custom names such as Word's `<o:p>`) or a comment; any other `<` is written as `&lt;`. An `&` passes
+through only when it starts a numeric reference or a named reference in the standard's table of named
+character references (Python's `html.entities.html5`). `to-md` decodes references, except a `<` or `&`
+that would read as markup again. These are rules of this script, chosen so that text such as `<None>`
+reaches respondents as written.
 
 ## Codebook
 
 `codebook` lists one row per variable: the export tag, the question text, and `value=label` pairs using
 `RecodeValues` where present. Names with a suffix (`tag_1` for a multi-answer choice, a slider bar or a form
-field; `tag_1_TEXT` for a write-in box; `tag_1` for a matrix row without its own export tag) follow the
-usual Qualtrics data-export naming. The exports support this indirectly (row export tags such as
-`q1_recent_1` on a question tagged `q1_recent`), but no data file was compared.
+field; `tag_1_TEXT` for a write-in box; `tag_1` for a matrix row without its own export tag; `tag_1_2` for
+one cell of a multiple-answer or text-box matrix; `tag#1_2` for column 1, row 2 of a side-by-side question;
+`tag_NPS_GROUP` for the detractor, passive and promoter group of an NPS question) follow the usual Qualtrics
+data-export naming. The exports support this indirectly (row export tags such as `q1_recent_1` on a
+question tagged `q1_recent`), and Qualtrics' matrix-table page says a text-entry or multiple-answer matrix
+exports one column per box
+(https://www.qualtrics.com/support/survey-platform/survey-module/editing-questions/question-types-guide/standard-content/matrix-table/,
+not re-read on 2026-11-19); the NPS group column and its 1/2/3 coding are as Qualtrics' NPS question page
+describes them, also not re-read. No data file was compared: the script tells the user to check the names
+against a real export. Embedded-data fields declared in the flow are listed; response metadata columns
+(StartDate, EndDate, Progress, Duration, Finished, ResponseId and the like) are not.
 
 ## Measured on the 55 exports (1,595 questions)
 
@@ -170,7 +193,10 @@ Of the 401 not converted: 188 sit in a Trash block, 144 are page timers, 32 sit 
 profile matrices, and the rest are file upload, meta, graphics, captcha and MaxDiff. The most common
 reported changes are HTML formatting removed (305 questions), an empty or repeated export tag (190), piped
 text (186), question JavaScript (160) and a horizontal layout (119). The new `validate` checks (logic
-pointing at a missing choice, a joined condition without `Conjuction`) fire on none of the 55.
+pointing at a missing choice, a joined condition without `Conjuction`) fire on none of the 55. Since
+2026-11-19 a missing choice is an error rather than a warning; the order-list checks (a key listed twice
+or left out) and the check for display logic on a later question were added then and were not re-run on
+the 55, so `validate` may now warn on some real exports.
 
 ## Sources
 
@@ -186,6 +212,10 @@ pointing at a missing choice, a joined condition without `Conjuction`) fire on n
 - Qualtrics Community, "When generating a custom-built QSF, how can I ensure it meets formatting
   requirements?" (2019, unanswered; reports that the format changes without notice and that uploads then
   fail): https://community.qualtrics.com/custom-code-12/when-generating-a-custom-built-qsf-how-can-i-ensure-it-meets-formatting-requirements-6596
+- WHATWG, HTML Living Standard, "Index: Elements" and "Named character references":
+  https://html.spec.whatwg.org/multipage/indices.html#elements-3 and
+  https://html.spec.whatwg.org/multipage/named-characters.html (element list typed from the index; not
+  re-read on 2026-11-19)
 - GitHub code search for public exports: https://github.com/search?q=SurveyElements+extension%3Aqsf&type=code
 
 ## Sample set
@@ -197,6 +227,10 @@ UW-Madison-DSI/open_source_survey_results (MIT), willgreenland/surveyhelper (MIT
 tilltnet/egor (AGPL-3.0), leeper/conjoint-example and HEGSRR/OR-Replicability-in-Geography-Survey (no
 licence stated). Because many have no licence or a copyleft one, **no downloaded file is in this
 repository**. `fixtures/export.input.qsf` is written by hand to mirror their structure.
+
+No list of the 55 file paths and hashes is published with the skill: the files were not kept after the
+check, so the measurements below cannot be re-run from this repository. Re-running them needs a new search
+and will not find exactly the same files.
 
 How the script was checked against the set (not part of the test suite, since the files are not
 redistributed): `validate` reports no error on any of the 55; `to-md` runs on all 55; and for all 55,
@@ -211,6 +245,14 @@ names. That shows a second program reads the file as intended. It is not evidenc
 
 ## Where practitioners disagree
 
+- **NPS in logic.** No sampled export had skip or display logic on an NPS question. The script writes it
+  with the multiple-choice locator (`q://QIDn/SelectableChoice/6` for a score of 6), because NPS stores its
+  choices keyed by score, and says to check it after import.
+- **Display logic on the same page.** Qualtrics' display-logic page describes an "In page" option for a
+  rule that tests a question on the same page; without it the rule is evaluated when the page loads
+  (https://www.qualtrics.com/support/survey-platform/survey-module/question-options/display-logic/, not
+  re-read on 2026-11-19). The script writes rules without "In page" (the form in the exports), so it warns
+  and the user adds `---`. Unconfirmed: what Qualtrics does on import with such a rule.
 - **Is `PL` needed?** One published QSF-building skill says a build without it was refused; the sumtxt/qsf
   template has none and 18 of 55 exports lack it. Not settled.
 - **Do ids need exactly 15 characters?** The same skill reports a refusal with 16-character ids. Exports

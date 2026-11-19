@@ -43,6 +43,16 @@ It is the wrong tool for an interpretive study of long interviews.
   analysed), a **run** (the next units, in which new information is counted) and a **new-information
   threshold**: new themes in the run divided by the themes in the base, with ≤5% or 0% as the stopping
   levels. They validated it on individual interviews only, with bases of 4 to 6 and runs of 2 to 3.
+  The run moves forward one interview at a time: "successive runs overlap", each shifting "forward in time
+  by one event". In their worked example (base 1–4 with 37 themes) the runs are 5–6 (7 new, 19%), 6–7
+  (4 new, 11%) and 7–8 (1 new, 3%); a theme counts as new in the interview where it first appears, and the
+  denominator stays the base. `saturation` does the same by default (`--step 1`); `--step` equal to
+  `--run` gives non-overlapping runs, a departure to state if used.
+- Order: Guest et al. analyse interviews in the order they were conducted. For a survey export the file
+  order is usually by date, so the skill reads a seeded random order (`sample --shuffle`) to keep early
+  or late respondents from setting the base. This is the skill's choice, not part of their method.
+- Rows with no code are refused: the method counts themes in analysed units, and an unread answer is not
+  an analysed unit.
 - Disagreement: saturation is a contested idea. Braun and Clarke reject it for reflexive analysis; Guest
   and colleagues stress that their thresholds are benchmarks, not guarantees. For a survey the practical
   consequence is small: every answer gets coded anyway, so a theme missed in the sample shows up in
@@ -73,7 +83,7 @@ lower, upper = ( p + z²/2n ∓ z·sqrt( p(1−p)/n + z²/4n² ) ) / ( 1 + z²/n
 Checked against the handbook's worked example (p̂ = 0.13, N = 200, z = 1.645, lower limit 0.09577); the
 sibling skill `pmf-survey` uses the same check. The interval covers sampling error only and assumes a
 random sample of the population; it says nothing about coding error or about who chose to answer.
-Differences between segments are not tested here: that is the sibling skill `survey-crosstabs`.
+Differences between segments are not tested here; the intervals are per segment, not a test.
 
 ### Codebook health check
 
@@ -141,8 +151,8 @@ and in the worked example below.
   script prints it next to kappa and never instead of it.
 - The script flags "high agreement, low kappa" when percent agreement is 80% or more and kappa is under
   0.40. Both cut-offs are conventions (0.40 is the top of Landis and Koch's "fair").
-- **Gwet's AC1 is not implemented.** Its formula could not be read at a primary source during this
-  build, so it was left out rather than coded from memory.
+- **Gwet's AC1 is not implemented**: its formula has not been checked against a primary source, and
+  nothing here is coded from memory.
 
 ### Statistics that are not agreement measures
 
@@ -194,7 +204,7 @@ values c, k from different coders. With n_c the row totals and n = Σ n_c the nu
 α = [ (n − 1) · Σ_c o_cc − Σ_c n_c (n_c − 1) ] / [ n (n − 1) − Σ_c n_c (n_c − 1) ]
 
 For two coders and a binary code this reduces to α = 1 − (n − 1) · o_01 / (n_0 · n_1). Alpha handles any
-number of coders and missing values; the command line compares two coders, the function takes any number.
+number of coders and missing values; `agreement` takes 2 to 26 coder files.
 Alpha is undefined when all values are the same (the denominator is zero).
 
 Verified against Krippendorff's three worked examples in that paper (see `fixtures/README.md`):
@@ -235,16 +245,20 @@ only one that says anything about whether the model's reading matches a human's.
 | Default | Value | Why |
 |---|---|---|
 | Codebook-building sample | 100 answered rows, all if fewer | Tran et al.: 12% chance of a new theme per extra respondent after 100 |
-| Saturation log | base = first 50 sampled answers, runs of 25, stop at ≤5% new codes | Guest et al.'s method scaled from interviews to short answers; an adaptation, not validated |
+| Saturation log | base = first 50 sampled answers, runs of 25 moving one answer at a time, stop at ≤5% new codes | Guest et al.'s method scaled from interviews to short answers; an adaptation, not validated |
 | Pilot batch | 30 fresh answers coded by both coders, compared informally | O'Connor and Joffe advise a small informal double-coding before the formal test; 30 is this skill's number |
-| Top-up of rare codes in the double-coded sample | `--top-up-min 5` suggested | same 5 as the rare-code flag; convention |
+| Rare-code audit beside the double-coded sample | `--top-up-min 5 --top-up-out FILE` suggested | same 5 as the rare-code flag; convention. The rows are picked from the first coder's codes, so they shift the code shares that kappa's chance term is built from (Cohen 1960) and cannot find rows that coder missed: they go to a separate file, are read for disagreements, and are kept out of kappa and alpha |
+| Small studies | codebook sample `--n 100 --all-if-fewer`; double-coded sample `--fraction 0.2 --at-least 30`; no pilot when no unread answers are left | the written rules ("all if fewer", "at least 30") turned into options; convention |
+| File delimiter | comma, or `;`, tab or pipe when the header has no comma | Excel writes `;` where the decimal mark is a comma; detection convention, `--csv-delimiter` overrides |
 | Double-coded sample | 20% of answered rows, at least 30 | inside O'Connor and Joffe's "typical" 10–25%; 30 matches the small-base convention |
 | Revise a code | kappa under 0.60 or alpha under 0.667 | McHugh's "weak" boundary; Krippendorff's lower limit |
 | Small base | percentages withheld under 30 | tabulation convention, see above |
 | Quotes per top code | 2–3 | convention; enough to show range without cherry-picking one |
-| Sampling seed | 1 unless given | any fixed value; it is reported so the draw can be repeated |
+| Sampling seeds | 1, 2, 3 for the codebook, pilot and double-coded samples | any fixed values; they are reported so a draw can be repeated. Distinct seeds because the same seed on the same file repeats the earlier draw (Python's `random.sample`) |
 | Bootstrap | 2,000 replicates, seed 1, no interval if under half the replicates are defined | convention |
 | High agreement, low kappa flag | agreement ≥ 80% and kappa < 0.40 | convention |
+| Pooled kappa (two coders) | Cohen's kappa on the present/absent table summed over every code at least one coder used; not computed when each answer has one code | a summary beside the per-code figures, never instead of them; convention. An interval that crosses a Landis-Koch edge is marked `*` |
+| Band edges flagged on an interval | Landis-Koch and McHugh for kappa, Krippendorff for alpha | an interval spanning an edge of any band printed beside it is marked `*` |
 | Health check | rare under 5 uses, broad over 50%, `OTHER` over 10%, top 5 pairs | conventions, all settable |
 | Sentiment values | positive, negative, neutral, mixed | convention |
 
@@ -282,7 +296,6 @@ Also cited:
 - Feinstein, A. R., & Cicchetti, D. V. (1990). High agreement but low kappa: I. The problems of two
   paradoxes. *Journal of Clinical Epidemiology*, 43(6), 543–549; Cicchetti & Feinstein (1990), II.
   Resolving the paradoxes, same issue, 551–558.
-- Saldaña, J. (2021). *The Coding Manual for Qualitative Researchers* (4th ed.). Sage.
 - AAPOR (2022). *Best Practices for Survey Research*.
   https://aapor.org/wp-content/uploads/2022/11/AAPOR-Standards-best-practices_March-2022.pdf
 - Byrt, T., Bishop, J., & Carlin, J. B. (1993). Bias, prevalence and kappa. *Journal of Clinical

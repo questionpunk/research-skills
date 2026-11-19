@@ -76,7 +76,9 @@ only read. Every `expected` file was written by hand before it was compared with
   is the 15 questions in the file.
 - `export.expected-codebook.csv`: one row per variable, by hand: `commute` with values from the recodes
   (`1=Yes; 2=Sometimes; 0=No`); one `modes_n` row per multi-answer choice plus `modes_3_TEXT` for the
-  write-in; the two `agree` rows under their export tags with the scale as values; `overall_1` for the
-  slider bar; one row per side-by-side column (`sbs#1`, `sbs#2`, the tags in the file); `hours_n`,
-  `contact_n`, `split_n` for the text matrix, form and constant sum. Descriptive text (QID1) and the
-  Trash question (QID9) have no row.
+  write-in; `nps` and `nps_NPS_GROUP` (detractor, passive, promoter); the two `agree` rows under their
+  export tags with the scale as values; `overall_1` for the slider bar; one row per side-by-side column
+  and row (`sbs#1_1` to `sbs#2_2`); one row per text box of the text matrix (`hours_1_1`, `hours_2_1`);
+  `contact_n` and `split_n` for the form and constant sum; and the embedded-data field `source`. 26 in
+  all. Descriptive text (QID1) and the Trash question (QID9) have no row. (Rows for the NPS group, the
+  side-by-side cells, the text-matrix cells and embedded data were added after the 2026-11-19 review.)

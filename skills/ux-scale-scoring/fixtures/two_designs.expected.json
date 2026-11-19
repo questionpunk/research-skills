@@ -1,0 +1,12 @@
+{
+  "_source": "Synthetic, worked in fixtures/README.md section 2. Scores by ((sum odd - 5) + (25 - sum even)) x 2.5; p-values by Simpson integration of the t density.",
+  "scores": {"A": [75.0, 100.0, 80.0, 50.0, 82.5, 90.0, 67.5, 70.0, 95.0, 40.0, 80.0, 85.0],
+             "B": [52.5, 75.0, 60.0, 45.0, 67.5, 75.0, 47.5, 52.5, 75.0, 25.0, 70.0, 67.5]},
+  "A": {"n": 12, "mean": 76.25, "sd": 17.5, "ci": [65.13103, 87.36897], "grade": "B", "percentile": 76.935},
+  "B": {"n": 12, "mean": 59.375, "sd": 15.378741, "ci": [49.60381, 69.14619], "grade": "D"},
+  "overall": {"n": 24, "mean": 67.8125, "sd": 18.271986, "ci": [60.09692, 75.52808], "grade": "C"},
+  "welch": {"difference": 16.875, "t": 2.5091823, "df": 21.642629, "p_value": 0.0201035},
+  "paired": {"difference": 16.875, "sd_difference": 5.4486237, "t": 10.728712, "df": 11, "p_value": 3.6449e-07,
+             "ci": [13.41311, 20.33689]},
+  "overall_vs_68_above": {"t": -0.0502714, "p_value": 0.5198299}
+}

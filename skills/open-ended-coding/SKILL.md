@@ -1,9 +1,9 @@
 ---
 name: open-ended-coding
-description: "Build a codebook from open-ended survey answers, apply it to every row of a CSV with a definition for every code, count themes with honest denominators, pull verbatim quotes with row ids, and check coder agreement (Cohen's kappa, Krippendorff's alpha) on a double-coded sample, human or LLM. Use for \"code these responses\", \"themes from open-ended answers\", \"thematic analysis of survey comments\", \"categorize or tag free-text feedback\", \"analyze NPS comments or verbatims\", \"inter-rater reliability\" or \"does the LLM coding agree with mine\"."
+description: "Builds a codebook from open-ended survey answers, applies it to every row of a CSV with a definition for every code, counts themes with honest denominators, pulls verbatim quotes with row ids, and checks coder agreement (Cohen's kappa, Krippendorff's alpha) on a double-coded sample, human or LLM. Use for \"code these responses\", \"themes from open-ended answers\", \"thematic analysis of survey comments\", \"categorize or tag free-text feedback\", \"analyze NPS comments or verbatims\", \"inter-rater reliability\" or \"does the LLM coding agree with mine\"."
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -18,7 +18,9 @@ denominators, verbatim quotes with row ids, and a coder-agreement check with con
 
 You do the coding: reading, defining codes, assigning them to every row. The script does the arithmetic
 that goes wrong in conversation: [`scripts/open_ended_coding.py`](scripts/open_ended_coding.py) (Python
-3.9+, standard library only). Run it; do not redo the math yourself. References:
+3.9+, standard library only). Run it; do not redo the math yourself. Run it by its path inside this skill's
+directory: the commands below write `scripts/open_ended_coding.py`, meaning
+`python3 <skill-dir>/scripts/open_ended_coding.py` from wherever the data is. References:
 
 - [`references/sources.md`](references/sources.md): formulas, thresholds, citations, what is convention.
 - [`references/formats-and-briefs.md`](references/formats-and-briefs.md): file formats, the second
@@ -39,11 +41,12 @@ Do not use it for:
 
 - The NPS score, its interval or trend: `nps-analysis` (it sends the comments here).
 - Removing speeders, duplicates and gibberish rows first: `survey-data-cleaning`.
-- Cross-tabs of closed questions, or testing whether segments differ: `survey-crosstabs`.
 - Writing the question or the interview guide: `survey-from-decision`, `ai-interview-guide`.
-- Checking claims in a finished report: `research-claims-check`.
+- Significance tests between segments, or cross-tabs of closed questions. `counts` cuts code shares by a
+  segment with an interval per cell; it does not test the differences.
 - Sentiment scoring or topic models. This skill can count a sentiment column you filled; it does not
   score text.
+- Weighted estimates. `counts` is unweighted; it takes no survey weight column.
 
 ### Which kind of analysis is this?
 
@@ -55,49 +58,60 @@ Do not use it for:
 Never call this skill's output "Braun and Clarke thematic analysis": they reject agreement statistics
 for their method.
 
-A skill named in this section may not be installed (some are still planned). If it is missing, say so, name
-the method the request needs, and do not stretch this skill to cover it.
+A skill named in this section may not be installed. If it is missing, say so, name the method the request
+needs, and do not stretch this skill to cover it.
 
 ## What to ask for
 
 Start from what the user gave you. Ask one question only if the file or the question wording is missing:
-"Which column holds the answers, and what exactly were respondents asked?"
+"Which column holds the answers, what exactly were respondents asked, and what decision should the coding
+inform?" The question says what is on-topic; the decision says which distinctions the codes must keep.
 
 | Input | Default if not given |
 |---|---|
 | CSV, one row per respondent, with the answer column | Required. Pasted text: save it as CSV with `id` = line number and say so. |
 | Id column | `id`. None in the file: add `id` = row number and say so. |
 | Question wording | Required to judge what is on-topic. Use the column header if it is the full question. |
+| Decision the coding supports | Ask once; if unknown, say the codebook follows the respondents' own distinctions. |
 | Existing codebook | None: build one from a sample. If given, convert it to the fixed format, keep its codes. |
 | Codes per response | Every code that applies, each counted once per response. One code only if asked. |
 | Nets (parent codes) | None. Add a `parent` column to the codebook if the user wants roll-ups. |
 | Segment column | None: overall counts only. |
 | Second coder | A person codes the sample blind if one is available; otherwise a fresh-context pass, labelled as such. |
-| Double-coded sample | 20% of answered rows, at least 30 (all rows if fewer). |
+| Double-coded sample | 20% of answered rows, at least 30 (all rows if fewer): `--fraction 0.2 --at-least 30`. |
 | Small-base threshold | 30 (`--min-base`): below it, counts only. |
-| Seeds | 1 for sampling and for the bootstrap. Report them. |
+| Seeds | 1 for the codebook sample, 2 for the pilot, 3 for the double-coded sample (a new seed per draw), 1 for the bootstrap. Report them. |
 
 ## Steps
 
 The order is fixed: sample, draft codebook, pilot, freeze a version, code everything, double-code,
-adjudicate, count. Do not skip or reorder.
+adjudicate, count. Do not skip or reorder. One exception: when the user brings files that are already
+coded and asks only for agreement, start at step 8 (then step 9 if they want the disputes settled) and
+report only the summary line, `### Agreement` and `### Caveats`.
 
 1. **Look at the file.** Read the header and some rows; count rows and blanks. Say so if duplicates or
-   test rows are visible. Rows are respondents: never drop blank rows, they are a category.
-2. **Sample** for the codebook (100 answered rows or fewer: read them all).
+   test rows are visible. Rows are respondents: never drop blank rows, they are a category. Files are read
+   as UTF-8 (a BOM is fine); a semicolon, tab or pipe between columns is detected when the header has no
+   comma, and `--csv-delimiter` sets it. `--delimiter` (alias `--code-sep`) is the separator between codes
+   inside the `codes` cell, not between columns.
+2. **Sample** for the codebook: 100 answered rows, or all of them if fewer, in a seeded random order.
 
    ```bash
-   python3 scripts/open_ended_coding.py sample responses.csv --text-col answer --n 100 --seed 1 --out sample_codebook.csv
+   python3 scripts/open_ended_coding.py sample responses.csv --text-col answer --n 100 --all-if-fewer --shuffle --seed 1 --out sample_codebook.csv
    ```
 
-3. **Draft the codebook.** Read the sample in order and code it as you go, in the respondents' terms.
-   Then check the stopping rule (base of 50 answers, runs of 25, stop at 5% new codes or fewer):
+3. **Draft the codebook.** Read the sample top to bottom (the shuffled order) and code it as you go, in
+   the respondents' terms: save it as `sample_codebook_coded.csv` with a `codes` column added, every row
+   you have read coded. Then check the stopping rule (base of 50 answers, runs of 25 moving one answer at a
+   time, stop at 5% new codes or fewer):
 
    ```bash
    python3 scripts/open_ended_coding.py saturation sample_codebook_coded.csv
    ```
 
-   If it is not met, draw 50 more (`--exclude sample_codebook.csv`) and continue. Merge codes you cannot
+   It refuses rows with no code: an unread row is not evidence. Under 75 rows, pass a smaller `--base`
+   and `--run` and say which. If the rule is not met, draw 50 more (`--exclude sample_codebook_coded.csv
+   --shuffle`), append them to the end of the coded sample, code them and rerun. Merge codes you cannot
    tell apart; split a code holding two ideas a reader would act on differently. Write one row per code:
 
    | Column | Content |
@@ -111,37 +125,65 @@ adjudicate, count. Do not skip or reorder.
 
    A code without `include` and `exclude` is not finished. Reserved codes: `OTHER` (a real answer that
    fits no code), `UNCODABLE` (typed, no usable content), `NO_ANSWER` (blank).
-4. **Pilot.** Code 30 fresh answers with the draft and have the second coder do the same, then compare
-   informally. Fix definitions that were read two ways.
+4. **Pilot.** Code 30 fresh answers with the draft and have the second coder (the one step 7 uses) do
+   the same, then compare informally. Fix definitions that were read two ways.
+
+   ```bash
+   python3 scripts/open_ended_coding.py sample responses.csv --text-col answer --exclude sample_codebook_coded.csv --n 30 --all-if-fewer --seed 2 --out pilot.csv
+   ```
+
+   If it reports no eligible answers, the codebook sample used them all: skip the pilot, say so, and let
+   the double-coded sample in step 7 be the first test.
 5. **Freeze version 1.** From here every change is a new version with a line in the change log, and
    **any change to a definition means recoding every row it could affect** and re-testing agreement.
-6. **Code every row**, in batches, into a `codes` column (`;` between codes). Assign every code whose
+6. **Code every row** in batches small enough that you read each answer in full; with thousands of rows
+   keep going batch by batch, and never swap reading for keyword rules. For each batch write `id,codes`
+   (`;` between codes) to a batch file, blank answers included as `id,NO_ANSWER`; never retype the
+   answers. An LLM coder may add a `rationale` column (the words that triggered each code, see
+   [`references/llm-coding.md`](references/llm-coding.md)); `merge` ignores it. Assign every code whose
    definition is met; `exclude` decides borderline cases; never invent a code mid-pass (use `OTHER`);
-   `UNCODABLE` and `NO_ANSWER` stand alone. Counts come from the fully coded file, never from the sample.
-   Answers in another language are coded in that language. Then validate until clean:
+   `UNCODABLE` and `NO_ANSWER` stand alone. Answers in another language are coded in that language. Counts
+   come from the fully coded file, never from the sample. Merge the batches by id, then validate against
+   the original file until clean:
 
    ```bash
-   python3 scripts/open_ended_coding.py validate coded.csv --codebook codebook.csv --text-col answer
+   python3 scripts/open_ended_coding.py merge responses.csv --adjudicated batch_01.csv --adjudicated batch_02.csv --final-col codes --out coded.csv
+   python3 scripts/open_ended_coding.py validate coded.csv --codebook codebook.csv --text-col answer --source responses.csv
    ```
 
-   Fix the rows it lists; do not edit the codebook to make errors disappear.
-7. **Double-code a blind sample** (the output holds only id and answer; `--top-up-min 5` adds rows for
-   rare codes, `--stratify-col` spreads the draw over segments):
+   `--source` confirms that every respondent is in the coded file with the same answer text. Fix the rows
+   it lists; do not edit the codebook to make errors disappear.
+7. **Double-code a blind sample** of answers that neither built nor piloted the codebook (the output
+   holds only id and answer; `--stratify-col` spreads the draw over segments):
 
    ```bash
-   python3 scripts/open_ended_coding.py sample coded.csv --text-col answer --fraction 0.2 --seed 1 --out sample_second.csv
+   python3 scripts/open_ended_coding.py sample coded.csv --text-col answer --exclude sample_codebook_coded.csv --exclude pilot.csv --fraction 0.2 --at-least 30 --seed 3 --out sample_second.csv
    ```
 
-   - **A person is available:** they code `sample_second.csv` with the codebook, not seeing your codes.
-     This is the only check that says whether a model's reading matches a human's.
-   - **No person:** give the brief, the codebook and the sample to a fresh context that has seen neither
-     this conversation nor your codes. **An LLM coding twice is not double coding**: it shows whether the
-     definitions can be applied consistently, nothing more. Label it "same-model second pass" everywhere
-     and recommend a human check before a decision that rests on a close count.
+   The share is of the answers not excluded; report the sample's share of all answered rows. If it draws
+   fewer than 30 (a small file), rerun without the `--exclude` options and say in the report that the
+   agreement sample overlaps the rows used to build the codebook. Never reuse an earlier seed on the same
+   file: the draw would repeat the codebook sample.
+
+   `--top-up-min 5 --top-up-out audit_rare.csv` also writes rows for rare codes to a separate audit file.
+   They are chosen from your codes, so they are coded blind too but kept out of kappa and alpha: read
+   them only for disagreements.
+
+   - **A person is available:** stop here and hand them `sample_second.csv`, `codebook.csv` and the
+     [brief](references/formats-and-briefs.md#brief-for-a-blind-second-coder); they code it without
+     seeing your codes, and you continue when they return it. This is the only check that says whether a
+     model's reading matches a human's.
+   - **No person:** give the [brief](references/formats-and-briefs.md#brief-for-a-blind-second-coder),
+     the codebook and the sample to a fresh context that has seen neither
+     this conversation nor your codes: a subagent, or where the client has none, a new chat or session
+     given only those three files. If neither is possible, say the second pass was not blind. **An LLM
+     coding twice is not double coding**: it shows whether the definitions can be applied consistently,
+     nothing more. Label it "same-model second pass" everywhere and recommend a human check before a
+     decision that rests on a close count.
 8. **Compute agreement** and write out the disputed rows:
 
    ```bash
-   python3 scripts/open_ended_coding.py agreement coded.csv second_coded.csv --allow-unmatched \
+   python3 scripts/open_ended_coding.py agreement coded.csv second_coded.csv --sample sample_second.csv \
      --codebook codebook.csv --text-col answer --disagreements disagreements.csv \
      --coder-info "claude-run1,llm,MODEL" --coder-info "anna,human" --codebook-version v1
    ```
@@ -153,6 +195,8 @@ adjudicate, count. Do not skip or reorder.
      recode, test again on a fresh sample (`--exclude sample_second.csv`);
    - alpha from 0.667 to 0.800, or an interval that crosses a band (marked `*`): report as tentative;
    - "not tested": neither coder used the code in the sample. Say so; do not report it as agreement;
+   - "on every row": every coder gave the code to every answer, so kappa and alpha are undefined. Report
+     the percent agreement and say the sample could not test the code;
    - "high agreement, low kappa": a rare code. Judge it on positive agreement and the disputed rows.
 
    Agreement is kappa or alpha with percent agreement beside it. Chi-square, Pearson's r and Cronbach's
@@ -176,35 +220,43 @@ adjudicate, count. Do not skip or reorder.
     that mostly occur together, fix the codebook (new version, recode) before reporting. Report nets
     from the nets table, never by adding code counts.
 11. **Pick quotes.** For each top code choose 2–3 answers that show its range. Copy them word for word
-    with the row id into `quotes.csv` (`id,code,quote`) and run `validate ... --quotes quotes.csv`. Trim
-    with "..." only at the ends; never join two answers. After the check, replace names, emails and
-    phone numbers with `[name]`, `[email]`, `[phone]` and say quotes were redacted.
+    with the row id into `quotes.csv` (`id,code,quote`) and check them. Trim with "..." only at the ends
+    (the check ignores them there); never join two answers.
+
+    ```bash
+    python3 scripts/open_ended_coding.py validate coded_final.csv --codebook codebook.csv --text-col answer --source responses.csv --quotes quotes.csv
+    ```
+
+    After the check, replace names, emails and phone numbers with `[name]`, `[email]`, `[phone]` in the
+    quotes and in the codebook's example quotes you show, and say quotes were redacted.
 
 Exit code 2 means bad input: fix the cause the message names. `--json` works on every subcommand.
 
 ## Output
 
-Always this shape, in this order.
+Always this shape, in this order (an agreement-only request: the summary line, `### Agreement` and
+`### Caveats`).
 
 ```markdown
 ## Open-ended coding: "<question wording>"
 
-**<Top code label>: 7 of 17 who answered (41.2%, 95% interval 21.6 to 64.0).** <One sentence on what
-the table shows and how firm it is.>
+**<Top code label>: 7 of 17 who answered.** <One sentence on what the table shows and how firm it is.>
+(With 30 or more who answered: "<n> of <base> (<x>%, 95% interval <low> to <high>)".)
 
-Data: <file>, answer column `<name>`. 20 respondents; 17 answered, 3 blank; 2 of the answers uncodable.
+Data: <file>, answer column `<name>`. 20 respondents; 17 answered, 3 blank (No answer); 2 of the answers uncodable.
 Method: codebook v<k> built from a random sample of <n> answers (seed <s>), applied to every row.
 
 ### Codebook (v<k>)
-| Code | Label | Definition | Include | Exclude | Example quote (row) |
+| Code | Label | Definition | Include | Exclude | Example quote |
 
 ### Frequencies
 | Code | n | % of all respondents (N) | % of those who answered (n) | 95% interval |
-| ... / Other / Uncodable / No answer (blank) |
-Responses can carry several codes, so shares add up to more than 100%. <Nets, small-base note.>
+| ... / Other / Uncodable |
+Responses can carry several codes, so shares add up to more than 100%. <Small-base note.>
+<Nets, if any: | Net | Codes | n | % of those who answered | 95% interval |, from the nets table.>
 
 ### By <segment> (only if asked)
-| Code | <segment A> n (%) of <base> | <segment B> n (%) of <base> | Note |
+| Code | <segment A> n (%, 95% interval) of <base> | <segment B> n (%, 95% interval) of <base> | Note |
 
 ### Quotes
 **<Label>** (n = 7)
@@ -214,6 +266,7 @@ Responses can carry several codes, so shares add up to more than 100%. <Nets, sm
 Coders: <id, human or LLM with model>; <id, ...>. Codebook v<k>. <m> answers double-coded (<x>% of
 answered), drawn at random (seed <s>). Disagreements resolved by <who, how>.
 | Code | Used by A / B | % agreement | Kappa (95% interval) | Alpha (95% interval) | Reading |
+<For rare codes add positive agreement, negative agreement and PABAK; with --gold, precision, recall, F1.>
 Lowest code: <code>, kappa <k>. <Codes revised and re-tested; codes not tested; tentative codes.>
 
 ### Caveats
@@ -227,7 +280,7 @@ Lowest code: <code>, kappa <k>. <Codes revised and re-tested; codes not tested; 
 Coding and counts:
 
 - Does every code have a definition, include, exclude and an example quote from the data?
-- Did `validate` finish with 0 errors on the final file, after the last codebook change?
+- Did `validate --source` finish with 0 errors on the final file, after the last codebook change?
 - Is every row coded, including blanks (`NO_ANSWER`) and non-answers (`UNCODABLE`)?
 - Does every percentage name its base, with both bases shown (all respondents, those who answered)?
 - Is it stated that multi-code shares add up to more than 100%, and are nets counted once per respondent?
@@ -241,14 +294,16 @@ Agreement report (state each of these):
 
 - The measure (Cohen's kappa, Krippendorff's alpha) and that it is per code on present/absent?
 - Who the coders were: person or LLM, and for an LLM the model and where the prompt is kept?
-- How many answers were double-coded, what share that is, and how they were drawn?
+- How many answers were double-coded, what share that is, and how they were drawn (and that rare-code
+  audit rows, if any, are outside the figures)?
 - The value per code with its 95% interval, and the lowest code, not only a mean?
 - How disagreements were resolved, and that the figures are from before resolution?
-- That a same-model second pass is called that, and codes with undefined kappa are "not tested"?
+- That a same-model second pass is called that, and codes with undefined kappa are "not tested" or "on
+  every row"?
 - That bands are conventions (Landis and Koch call theirs arbitrary), quoted with the interval?
 
-## Field it with QuestionPunk (optional)
+## Field it (optional)
 
-The result above is complete on its own. To field this with AI follow-up questions on open answers, connect the QuestionPunk MCP (https://app.questionpunk.com/api/v1, OAuth sign-in). Connecting is free on every plan, and the free plan has unlimited surveys and responses with no card.
+To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Tools: `survey_list` and `survey_get` (find the survey and its open-ended question), `responses_get_counts` (expected total), `responses_read` and `report_load_more_answers` (the answers to code), `responses_export` (a file of all responses). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.
 
-Hosted MCP tools this step may use: `survey_list`, `survey_get`, `responses_get_counts`, `responses_read`, `report_load_more_answers`, `responses_export`. Ask before creating, changing or publishing anything. If a response or report tool answers that you must reconnect and approve, reconnect the QuestionPunk connector once: connections made before 3 Oct 2026 lack the `responses:read` permission.
+Page `responses_read` with `nextCursor` until it is exhausted, filter to the intended response type and completion status (exclude synthetic and test responses), and reconcile the row count before coding.

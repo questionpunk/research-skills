@@ -32,13 +32,15 @@ Exit codes: 0 success, 2 bad input or arguments, 3 the logit has no finite estim
 """
 import argparse
 import csv
+import io
 import json
 import math
 import random
 import re
 import sys
+import time
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 # Thresholds and defaults. Each one is listed with its source in references/sources.md.
 MIN_BASE = 200  # respondents per reported group (Sawtooth guideline)
@@ -54,8 +56,8 @@ MAX_HALVINGS = 30  # step-halving cap (implementation constant)
 MAX_FAILED_REPLICATE_SHARE = 0.05
 
 EXCLUSION_REASONS = [
-    ("set_not_in_design", "the (version, set) is not in the design file"),
     ("duplicate_set", "the same respondent and set appears on more than one row (wide format)"),
+    ("set_not_in_design", "the (version, set) is not in the design file"),
     ("invalid_value", "a best/worst cell is not 0 or 1 (long format) or not a number (position coding)"),
     ("duplicate_item", "the same item is listed twice in the set"),
     ("fewer_than_two_items", "the set shows fewer than two items"),
@@ -64,7 +66,12 @@ EXCLUSION_REASONS = [
     ("choice_not_shown", "the best or worst item is not among the items shown"),
     ("best_equals_worst", "the same item is marked best and worst"),
 ]
-SHOWN_COLUMN_RE = re.compile(r"^(item|shown|option)[ _-]?\d+$", re.IGNORECASE)
+SHOWN_COLUMN_RE = re.compile(r"^(item|shown|option)[ _-]?(\d+)$", re.IGNORECASE)
+# Long-format best/worst flags: 0/1 as written by most tools, plus the forms spreadsheets and R/pandas write.
+FLAG_VALUES = {"0": False, "1": True, "0.0": False, "1.0": True, "false": False, "true": True}
+# Above this share of sets excluded, the script stops instead of scoring what is left (a wrong column mapping
+# or choice coding is the usual cause). A convention of this script; --allow-exclusions overrides it.
+MAX_EXCLUDED_SHARE = 0.5
 NOT_SHOWN = "\x00not shown"  # stands in for a position that does not exist in the set
 
 
@@ -81,21 +88,38 @@ class EstimationError(Exception):
 # --------------------------------------------------------------------------------------------------
 
 
+def _sniff_delimiter(first_line):
+    """Comma, semicolon or tab: whichever splits the header line into the most fields (comma on a tie)."""
+    counts = {d: len(next(csv.reader([first_line], delimiter=d))) for d in (",", ";", "\t")}
+    best = max(counts.values())
+    return "," if counts[","] == best else max(counts, key=counts.get)
+
+
 def _read_csv(path, delimiter):
     try:
         with open(path, newline="", encoding="utf-8-sig") as handle:
-            reader = csv.reader(handle, delimiter=delimiter)
-            rows = [row for row in reader]
+            text = handle.read()
     except OSError as exc:
         raise InputError(f"cannot read {path}: {exc.strerror or exc}")
     except UnicodeDecodeError:
         raise InputError(f"{path} is not UTF-8 text; re-export it as UTF-8 CSV")
+    if "\x00" in text:
+        raise InputError(f"{path} contains NUL bytes (often a UTF-16 file); re-export it as UTF-8 CSV")
+    if not text.strip():
+        raise InputError(f"{path} is empty")
+    if delimiter is None:
+        delimiter = _sniff_delimiter(text.lstrip("\r\n").splitlines()[0])
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
+    except csv.Error as exc:
+        raise InputError(f"{path} is not valid CSV: {exc}")
     if not rows:
         raise InputError(f"{path} is empty")
     header = [h.strip() for h in rows[0]]
     if len(set(header)) != len(header):
-        dupes = sorted({h for h in header if header.count(h) > 1})
-        raise InputError(f"{path}: duplicate column name(s): {', '.join(dupes)}")
+        dupes = sorted({h or "(blank)" for h in header if header.count(h) > 1})
+        raise InputError(f"{path}: duplicate column name(s): {', '.join(dupes)}"
+                         + ("; remove empty trailing columns" if "(blank)" in dupes else ""))
     records = []
     for number, row in enumerate(rows[1:], start=2):
         if not any(cell.strip() for cell in row):
@@ -118,20 +142,33 @@ def _require(header, columns, path):
         )
 
 
+def _design_column(header, flag_value, default):
+    """The design file's column: the name given for the responses if the design has it, else the default."""
+    return flag_value if flag_value in header else default
+
+
 def _read_design(path, args):
-    header, records = _read_csv(path, args.delimiter)
-    _require(header, [args.set_col, args.position_col, args.item_col], path)
-    has_version = args.version_col in header
+    # The design file has its own delimiter and, by default, maxdiff-design's column names
+    # (version,set,position,item), whatever the responses' columns are called.
+    header, records = _read_csv(path, None)
+    set_col = _design_column(header, args.set_col, "set")
+    position_col = _design_column(header, args.position_col, "position")
+    item_col = _design_column(header, args.item_col, "item")
+    version_col = _design_column(header, args.version_col, "version")
+    _require(header, [set_col, position_col, item_col], path)
+    has_version = version_col in header
     cells = {}
     for number, rec in records:
-        version = rec[args.version_col] if has_version else ""
-        set_id, position, item = rec[args.set_col], rec[args.position_col], rec[args.item_col]
+        version = rec[version_col] if has_version else ""
+        set_id, position, item = rec[set_col], rec[position_col], rec[item_col]
         if not set_id or not item or (has_version and not version):
             raise InputError(f"{path} line {number}: blank version, set or item")
         try:
             order = float(position)
         except ValueError:
             raise InputError(f"{path} line {number}: position {position!r} is not a number")
+        if not math.isfinite(order):
+            raise InputError(f"{path} line {number}: position {position!r} is not a finite number")
         key = (version, set_id)
         slot = cells.setdefault(key, {})
         if order in slot:
@@ -156,21 +193,37 @@ def _task_columns(header, best_prefix, worst_prefix):
         for column in header:
             match = pattern.match(column)
             if match:
-                found.setdefault(int(match.group(1)), {})[kind] = column
-    pairs = []
-    for number in sorted(found):
-        if len(found[number]) == 2:
-            pairs.append((str(number), found[number]["best"], found[number]["worst"]))
-    return pairs
+                slot = found.setdefault(int(match.group(1)), {})
+                if kind in slot:
+                    raise InputError(f"columns {slot[kind]!r} and {column!r} both name the {kind} choice of set "
+                                     f"{int(match.group(1))}; rename or drop one")
+                slot[kind] = column
+    if not found:
+        return []
+    unpaired = [(number, slot) for number, slot in sorted(found.items()) if len(slot) != 2]
+    if unpaired:
+        names = ", ".join(next(iter(slot.values())) for _number, slot in unpaired)
+        raise InputError(f"best/worst column(s) without a partner: {names}. Every set needs both a "
+                         f"{best_prefix}<n> and a {worst_prefix}<n> column; a missing half would drop the set unseen")
+    return [(str(number), slot["best"], slot["worst"]) for number, slot in sorted(found.items())]
 
 
 def load_sets(args):
     """Return (sets, items, meta). Each set: dict(respondent, set, items, best, worst)."""
     header, records = _read_csv(args.input, args.delimiter)
     fmt = args.format
-    task_columns = _task_columns(header, args.best_prefix, args.worst_prefix)
+    if args.shown_col and args.shown_cols:
+        raise InputError("give --shown-col or --shown-cols, not both")
+    if args.design and (args.shown_col or args.shown_cols):
+        raise InputError("--design says which items were shown; do not combine it with --shown-col or --shown-cols")
+    if fmt == "long" and (args.shown_col or args.shown_cols):
+        raise InputError("--shown-col and --shown-cols apply to the wide format, not to long")
+    looks_respondent = args.set_col not in header and args.best_col not in header and args.worst_col not in header
+    task_columns = []
+    if fmt == "respondent" or (fmt == "auto" and looks_respondent):
+        task_columns = _task_columns(header, args.best_prefix, args.worst_prefix)
     if fmt == "auto":
-        if args.set_col not in header and task_columns:
+        if looks_respondent and task_columns:
             fmt = "respondent"
         elif args.design or args.shown_cols or args.shown_col or args.item_col not in header:
             fmt = "wide"
@@ -201,6 +254,7 @@ def load_sets(args):
     sets = []
     item_order = []
     item_seen = set()
+    numeric_not_shown = [0]  # choice_not_shown sets whose best and worst cells are whole numbers
 
     def note_item(label):
         if label not in item_seen:
@@ -253,14 +307,25 @@ def load_sets(args):
                 raise InputError(f"{args.input} line {number}: blank item")
             note_item(rec[args.item_col])
             grouped.setdefault((respondent, set_id), []).append(rec)
+        other_forms = set()
+
+        def flag(cell):
+            value = FLAG_VALUES.get(cell.lower())
+            if value is not None and cell not in ("0", "1"):
+                other_forms.add(cell)
+            return value
+
         for (respondent, set_id), rows in grouped.items():
-            if any(r[args.best_col] not in ("0", "1") or r[args.worst_col] not in ("0", "1") for r in rows):
+            flags = [(flag(r[args.best_col]), flag(r[args.worst_col])) for r in rows]
+            if any(b is None or w is None for b, w in flags):
                 exclude("invalid_value", respondent, set_id)
                 continue
             items = [r[args.item_col] for r in rows]
-            bests = [r[args.item_col] for r in rows if r[args.best_col] == "1"]
-            worsts = [r[args.item_col] for r in rows if r[args.worst_col] == "1"]
+            bests = [r[args.item_col] for r, (b, _w) in zip(rows, flags) if b]
+            worsts = [r[args.item_col] for r, (_b, w) in zip(rows, flags) if w]
             accept(respondent, set_id, items, bests, worsts)
+        if other_forms:
+            notes.append("Best/worst flags written as " + ", ".join(sorted(other_forms)) + " were read as 1 and 0.")
     else:
         design, versions, design_has_version, join_on_version = None, [], False, False
         shown_cols = []
@@ -281,16 +346,30 @@ def load_sets(args):
             _require(header, [args.shown_col], args.input)
             notes.append(f"Shown items read from column {args.shown_col!r}, split on {args.shown_sep!r}.")
         elif args.shown_cols:
-            shown_cols = [c.strip() for c in args.shown_cols.split(",") if c.strip()]
-            _require(header, shown_cols, args.input)
+            # Positions follow the order given on the command line.
+            names = [c.strip() for c in args.shown_cols.split(",") if c.strip()]
+            _require(header, names, args.input)
+            shown_cols = [(float(n), c) for n, c in enumerate(names, start=1)]
         else:
-            shown_cols = [c for c in header if SHOWN_COLUMN_RE.match(c)]
+            # Autodetected item1..itemN columns: the number in the name is the position, whatever the
+            # column order in the file.
+            numbered = {}
+            for c in header:
+                match = SHOWN_COLUMN_RE.match(c)
+                if match:
+                    number = int(match.group(2))
+                    if number in numbered:
+                        raise InputError(f"{args.input}: columns {numbered[number]!r} and {c!r} both hold position "
+                                         f"{number}; pass --shown-cols to give the order")
+                    numbered[number] = c
+            shown_cols = [(float(n), numbered[n]) for n in sorted(numbered)]
             if len(shown_cols) < 2:
                 raise InputError(
                     f"{args.input}: no {args.item_col!r} column (long format) and no shown-item columns "
                     "(wide format). Pass --shown-cols col1,col2,..., --shown-col CELL or --design DESIGN.csv."
                 )
-            notes.append(f"Shown items read from columns: {', '.join(shown_cols)}.")
+            notes.append("Shown items read from columns " + ", ".join(c for _n, c in shown_cols)
+                         + "; the number in each name is the position.")
         if args.choice_coding == "position":
             notes.append("Best and worst were read as positions in the set and translated to items.")
 
@@ -332,7 +411,7 @@ def load_sets(args):
                 parts = [part.strip() for part in rec[args.shown_col].split(args.shown_sep)]
                 slots = [(float(n), part) for n, part in enumerate(parts, start=1)]
             else:
-                slots = [(float(n), rec[c]) for n, c in enumerate(shown_cols, start=1)]
+                slots = [(position, rec[c]) for position, c in shown_cols]
             items = [label for _, label in slots if label]
             if design is None:
                 for label in items:
@@ -349,17 +428,28 @@ def load_sets(args):
                     except ValueError:
                         bad_number = True
                         break
+                    if not math.isfinite(wanted):
+                        bad_number = True
+                        break
                     match = [label for position, label in slots if position == wanted and label]
                     choices.append(match or [NOT_SHOWN])
             if bad_number:
                 exclude("invalid_value", respondent, set_id)
                 continue
+            before = excluded["choice_not_shown"]
             accept(respondent, set_id, items, choices[0], choices[1])
+            if (excluded["choice_not_shown"] > before and args.choice_coding == "label"
+                    and all(re.fullmatch(r"\d+", c or "") for c in (best_cell, worst_cell))):
+                numeric_not_shown[0] += 1
 
     total_sets = len(sets) + sum(excluded.values())
     if not sets:
         detail = "; ".join(f"{reason}: {count}" for reason, count in excluded.items() if count)
-        raise InputError(f"no valid sets left after validation ({detail}). Check the column names and the 0/1 coding.")
+        hint = "Check the column names and how best and worst are coded."
+        if numeric_not_shown[0] > sum(excluded.values()) / 2:
+            hint = ("Best/worst hold whole numbers that are not item labels: if they are positions in the set, "
+                    "rerun with --choice-coding position.")
+        raise InputError(f"no valid sets left after validation ({detail}). {hint}")
     used_items = set()
     for s in sets:
         used_items.update(s["items"])
@@ -368,7 +458,7 @@ def load_sets(args):
     # item10). The last item is the reference item of the reference-coded utilities.
     items = [label for label in item_order if label in used_items]
     if not args.design:
-        items.sort(key=lambda label: [(0, int(part), "") if part.isdigit() else (1, 0, part.lower())
+        items.sort(key=lambda label: [(0, int(part), "") if part.isdecimal() else (1, 0, part.lower())
                                       for part in re.split(r"(\d+)", label) if part] + [(2, 0, label)])
     if len(items) < 2:
         raise InputError("fewer than two items appear in valid sets; nothing to compare")
@@ -386,6 +476,7 @@ def load_sets(args):
         "respondents_read": len(seen_respondents),
         "respondents_without_valid_sets": dropped,
         "items_without_valid_sets": never_valid,
+        "numeric_choice_not_shown": numeric_not_shown[0],
         "notes": notes,
     }
     return sets, items, segments, meta
@@ -538,6 +629,29 @@ def separation_groups(k, edges):
     return groups
 
 
+def cooccurrence_groups(k, shown_sets):
+    """Groups of items linked by appearing in a set together (directly or through other items).
+
+    Items in different groups are never compared, so no data put them on one scale: the logit has no
+    estimate and counting scores rank items only within a group (references/method.md, section 5).
+    """
+    parent = list(range(k))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for members in shown_sets:
+        for other in members[1:]:
+            parent[find(other)] = find(members[0])
+    groups = {}
+    for i in range(k):
+        groups.setdefault(find(i), []).append(i)
+    return sorted(groups.values())
+
+
 def _evaluate(u, d, best_sets, worst_sets, derivatives):
     """Log-likelihood, and with derivatives=True the score and information for items 0..K-2."""
     k = len(u)
@@ -570,11 +684,15 @@ def _evaluate(u, d, best_sets, worst_sets, derivatives):
     return loglik, grad, info
 
 
-def fit_logit(k, pooled, model, start=None):
+def fit_logit(k, pooled, model, start=None, compute_cov=True):
     """Maximum-likelihood utilities with the last item fixed at 0 (Newton-Raphson, step halving).
 
-    Returns dict(u, cov, loglik, loglik_null, iterations). Raises EstimationError.
+    Returns dict(u, cov, loglik, loglik_null, iterations). Raises EstimationError. With compute_cov=False
+    (bootstrap replicates) the null log-likelihood and the covariance matrix are skipped.
     """
+    shown_groups = cooccurrence_groups(k, list(pooled["best_sets"]))
+    if len(shown_groups) > 1:
+        raise EstimationError(("disconnected", shown_groups))
     groups = separation_groups(k, pooled["edges"])
     if len(groups) > 1:
         raise EstimationError(("separation", groups))
@@ -587,7 +705,7 @@ def fit_logit(k, pooled, model, start=None):
     best_sets = list(pooled["best_sets"].items())
     worst_sets = list(pooled["worst_sets"].items())
     p = k - 1
-    loglik_null = _evaluate([0.0] * k, d, best_sets, worst_sets, False)[0]
+    loglik_null = _evaluate([0.0] * k, d, best_sets, worst_sets, False)[0] if compute_cov else None
     u = list(start) if start else [0.0] * k
     u[k - 1] = 0.0
     loglik, grad, info = _evaluate(u, d, best_sets, worst_sets, True)
@@ -597,17 +715,25 @@ def fit_logit(k, pooled, model, start=None):
             raise EstimationError(("singular", None))
         step = cholesky_solve(lower, grad)
         scale = 1.0
-        for _ in range(MAX_HALVINGS):
-            trial = [u[i] + scale * step[i] for i in range(p)] + [0.0]
-            trial_loglik = _evaluate(trial, d, best_sets, worst_sets, False)[0]
-            if trial_loglik >= loglik - 1e-12 * abs(loglik):
-                break
-            scale /= 2.0
-        else:
-            raise EstimationError(("no_ascent", None))
+        # The full step is usually accepted, so evaluate it with derivatives at once and reuse them.
+        trial = [u[i] + step[i] for i in range(p)] + [0.0]
+        trial_loglik, trial_grad, trial_info = _evaluate(trial, d, best_sets, worst_sets, True)
+        if trial_loglik < loglik - 1e-12 * abs(loglik):
+            for _ in range(MAX_HALVINGS):
+                scale /= 2.0
+                trial = [u[i] + scale * step[i] for i in range(p)] + [0.0]
+                trial_loglik = _evaluate(trial, d, best_sets, worst_sets, False)[0]
+                if trial_loglik >= loglik - 1e-12 * abs(loglik):
+                    break
+            else:
+                raise EstimationError(("no_ascent", None))
+            trial_loglik, trial_grad, trial_info = _evaluate(trial, d, best_sets, worst_sets, True)
         u = trial
-        loglik, grad, info = _evaluate(u, d, best_sets, worst_sets, True)
+        loglik, grad, info = trial_loglik, trial_grad, trial_info
         if max(abs(scale * s) for s in step) < STEP_TOLERANCE and max(abs(g) for g in grad) < GRADIENT_TOLERANCE * tasks:
+            if not compute_cov:
+                return {"u": u, "cov": None, "loglik": loglik, "loglik_null": None,
+                        "iterations": iteration, "tasks": tasks}
             lower = cholesky(info)
             if lower is None:
                 raise EstimationError(("singular", None))
@@ -643,7 +769,9 @@ def shares(centred, scale, items_per_set):
     if scale == "preference":
         raw = [math.exp(v - top) for v in centred]
     else:
-        raw = [math.exp(v) / (math.exp(v) + items_per_set - 1.0) for v in centred]
+        # exp(v) / (exp(v) + a - 1), written so that neither branch overflows for large |v|.
+        raw = [1.0 / (1.0 + (items_per_set - 1.0) * math.exp(-v)) if v >= 0
+               else math.exp(v) / (math.exp(v) + items_per_set - 1.0) for v in centred]
     total = sum(raw)
     return [100.0 * r / total for r in raw]
 
@@ -652,6 +780,14 @@ def describe_estimation_error(exc, items):
     kind, groups = exc.args[0]
     if kind == "not_shown":
         return f"items never shown in this group cannot be estimated: {', '.join(groups)}"
+    if kind == "disconnected":
+        names = "; ".join("[" + ", ".join(items[i] for i in g) + "]" for g in groups)
+        return (
+            f"the items fall into {len(groups)} groups that were never shown in a set together: {names}. Nothing in "
+            "the data compares one group with another, so there is no overall ranking or logit across groups. "
+            "Counting scores rank items only within their group: rerun with --no-logit and report each group "
+            "separately, or field sets that link the groups."
+        )
     if kind == "separation":
         names = [", ".join(items[i] for i in g) for g in groups]
         first, last = names[0], names[-1]
@@ -690,6 +826,18 @@ def bw_scores(pooled):
     ]
 
 
+def _report_pace(started, replicates, args):
+    """After 5 replicates, say on stderr how long the bootstrap of this group will take, when it is long.
+
+    Only stderr: the report itself stays the same from run to run.
+    """
+    expected = (time.monotonic() - started) / 5.0 * replicates
+    if expected > 20:
+        print(f"maxdiff-analysis: about {expected:.0f} s for {replicates} bootstrap replicates of this group "
+              "(and as long again for each segment); use --bootstrap 200 for a first look, or run it in the "
+              "background", file=sys.stderr)
+
+
 def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_logit_error):
     k = len(items)
     pooled = pool(stats, respondents, k, args.model)
@@ -709,6 +857,16 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
             f"Items were not shown equally often ({min(shown_counts)} to {max(shown_counts)} times); "
             "counting scores assume a balanced design, so prefer the logit columns."
         )
+    shown_groups = cooccurrence_groups(k, list(pooled["best_sets"]))
+    shown_groups = [g for g in shown_groups if any(pooled["shown"][i] for i in g)]
+    if len(shown_groups) > 1:
+        result["item_groups"] = [[items[i] for i in g] for g in shown_groups]
+        warnings.append(
+            f"The items fall into {len(shown_groups)} groups never shown in a set together ("
+            + "; ".join("[" + ", ".join(items[i] for i in g) + "]" for g in shown_groups)
+            + "). Counting scores and ranks compare items only within a group; one overall ranking is not "
+            "supported by this data."
+        )
     scores = bw_scores(pooled)
 
     logit = {"status": "skipped", "model": args.model}
@@ -726,9 +884,13 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
             logit = {"status": "not_estimated", "model": args.model, "reason": message}
             warnings.append(f"Logit not estimated: {message}")
         else:
-            centred, errors = zero_centre(fit["u"], fit["cov"])
+            composite = args.model == "marginal"
+            centred, errors = zero_centre(fit["u"], None if composite else fit["cov"])
             share = shares(centred, args.share_scale, items_per_set)
-            ref_se = [math.sqrt(max(fit["cov"][i][i], 0.0)) for i in range(k - 1)] + [0.0]
+            if composite:
+                ref_se = [None] * k
+            else:
+                ref_se = [math.sqrt(max(fit["cov"][i][i], 0.0)) for i in range(k - 1)] + [0.0]
             logit = {
                 "status": "ok",
                 "model": args.model,
@@ -741,8 +903,12 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
                 "rlh": math.exp(fit["loglik"] / fit["tasks"]),
                 "rlh_chance": math.exp(fit["loglik_null"] / fit["tasks"]),
                 "mcfadden_r2": 1.0 - fit["loglik"] / fit["loglik_null"] if fit["loglik_null"] else None,
-                "lr_chi_square": 2.0 * (fit["loglik"] - fit["loglik_null"]),
-                "lr_degrees_of_freedom": k - 1,
+                # The marginal model treats best and worst as independent choices from the same set, so its
+                # likelihood is a composite (pseudo) likelihood: the chi-square reference and the model SE
+                # overstate the information (references/method.md, section 8). Only the bootstrap is quoted.
+                "likelihood": "composite (best and worst treated as independent)" if composite else "full",
+                "lr_chi_square": None if composite else 2.0 * (fit["loglik"] - fit["loglik_null"]),
+                "lr_degrees_of_freedom": None if composite else k - 1,
                 "share_scale": args.share_scale,
                 "reference_coded": {
                     items[i]: {"utility": fit["u"][i], "se": ref_se[i]} for i in range(k)
@@ -754,16 +920,31 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
     rep_scores, rep_utils, rep_shares = [], [], []  # one list per replicate; None when not available
     failed = 0
     n = len(respondents)
-    for _ in range(args.bootstrap):
+    replicates_run = args.bootstrap if n >= 2 else 0
+    if args.bootstrap and n < 2:
+        # Every resample of one respondent is that respondent: zero-width intervals that would mark
+        # every difference as separated.
+        warnings.append(f"Only {n} respondent in this group: a respondent bootstrap needs 2 or more, so no "
+                        "intervals are given.")
+    started = time.monotonic()
+    for replicate_number in range(replicates_run):
         draw = [respondents[int(rng.random() * n)] for _ in range(n)]
         replicate = pool(stats, draw, k, args.model)
         rep_scores.append(bw_scores(replicate))
+        if replicate_number == 4 and replicates_run > 20:
+            _report_pace(started, replicates_run, args)
         if fit is None:
             continue
         try:
             if any(c == 0 for c in replicate["shown"]):
                 raise EstimationError(("separation", None))
-            refit = fit_logit(k, replicate, args.model, start=fit["u"])
+            try:
+                refit = fit_logit(k, replicate, args.model, start=fit["u"], compute_cov=False)
+            except EstimationError as exc:
+                if exc.args[0][0] not in ("singular", "no_ascent", "no_convergence"):
+                    raise
+                # A warm start far from this resample's optimum can stall; retry from zero once.
+                refit = fit_logit(k, replicate, args.model, compute_cov=False)
         except EstimationError:
             failed += 1
             rep_utils.append(None)
@@ -785,11 +966,23 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
     def column(replicates, i):
         return [vector[i] for vector in replicates if vector is not None]
 
-    logit_intervals_ok = fit is not None and args.bootstrap > 0
-    if args.bootstrap:
-        result["bootstrap"] = {"replicates": args.bootstrap, "level": args.ci, "unit": "respondent"}
+    def score_interval(i):
+        """Counting-score interval, withheld when the item was missing from too many resamples."""
+        values = column(rep_scores, i)
+        present = [v for v in values if v is not None]
+        if not values or len(values) - len(present) > MAX_FAILED_REPLICATE_SHARE * len(values):
+            if values and pooled["shown"][i]:
+                sparse_items.append(items[i])
+            return None
+        return interval(present)
+
+    sparse_items = []
+
+    logit_intervals_ok = fit is not None and replicates_run > 0
+    if replicates_run:
+        result["bootstrap"] = {"replicates": replicates_run, "level": args.ci, "unit": "respondent"}
         if fit is not None:
-            failed_share = failed / args.bootstrap
+            failed_share = failed / replicates_run
             result["bootstrap"]["logit_replicates_failed"] = failed
             result["bootstrap"]["logit_replicates_failed_share"] = failed_share
             result["bootstrap"]["logit_intervals"] = "ok"
@@ -797,13 +990,13 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
                 logit_intervals_ok = False
                 result["bootstrap"]["logit_intervals"] = "unreliable"
                 warnings.append(
-                    f"{failed} of {args.bootstrap} bootstrap replicates ({100 * failed_share:.1f}%) had no finite "
+                    f"{failed} of {replicates_run} bootstrap replicates ({100 * failed_share:.1f}%) had no finite "
                     f"logit estimate, above the {100 * MAX_FAILED_REPLICATE_SHARE:g}% limit this script uses. Utility and "
                     "share intervals are unreliable and are not shown; use the counting-score intervals."
                 )
             elif failed:
                 warnings.append(
-                    f"{failed} of {args.bootstrap} bootstrap replicates ({100 * failed_share:.1f}%) had no finite "
+                    f"{failed} of {replicates_run} bootstrap replicates ({100 * failed_share:.1f}%) had no finite "
                     "logit estimate and were left out, so the utility and share intervals are somewhat too narrow."
                 )
     result["_replicates"] = {"bw_score": rep_scores, "share": rep_shares if logit_intervals_ok else None}
@@ -818,7 +1011,7 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
             "best_rate": pooled["best"][i] / pooled["shown"][i] if pooled["shown"][i] else None,
             "worst_rate": pooled["worst"][i] / pooled["shown"][i] if pooled["shown"][i] else None,
             "bw_score": scores[i],
-            "bw_score_ci": interval(column(rep_scores, i)),
+            "bw_score_ci": score_interval(i),
             "utility": centred[i] if centred else None,
             "utility_se": errors[i] if errors else None,
             "utility_ci": interval(column(rep_utils, i)) if logit_intervals_ok else None,
@@ -826,6 +1019,12 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
             "share_ci": interval(column(rep_shares, i)) if logit_intervals_ok else None,
         }
         rows.append(row)
+    if sparse_items:
+        warnings.append(
+            "Shown in so few resampled respondents that over "
+            f"{100 * MAX_FAILED_REPLICATE_SHARE:g}% of bootstrap replicates did not include them, so their counting-score "
+            "intervals are not given: " + ", ".join(sparse_items) + "."
+        )
     key = "share" if share else "bw_score"
     ranked = sorted(rows, key=lambda r: (-(r[key] if r[key] is not None else float("-inf")), items.index(r["item"])))
     previous, rank = None, 0
@@ -844,7 +1043,7 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
 
     # Adjacent items in the ranking: is the gap between them established by this sample?
     metric = "share" if share and logit_intervals_ok else "bw_score"
-    replicates = result["_replicates"][metric] if args.bootstrap else []
+    replicates = result["_replicates"][metric] if replicates_run else []
     pairs = []
     scored = [row for row in ranked if row[key] is not None]
     for upper, lower in zip(scored, scored[1:]):
@@ -853,10 +1052,21 @@ def analyse_group(stats, respondents, items, args, items_per_set, rng, fail_on_l
             continue
         gaps = [vector[a] - vector[b] for vector in replicates
                 if vector is not None and vector[a] is not None and vector[b] is not None]
+        ci = interval(gaps)
+        if ci is None:
+            verdict = None
+        elif ci[0] > 0:
+            verdict = "separated"
+        elif ci[1] < 0:
+            # Possible when the ranking (by share) and the metric tested (counting score) disagree.
+            verdict = "reversed"
+        else:
+            verdict = "not separated"
         pair = {
             "higher": upper["item"], "lower": lower["item"], "metric": metric,
             "difference": upper[metric] - lower[metric],
-            "difference_ci": interval(gaps),
+            "difference_ci": ci,
+            "verdict": verdict,
             "prob_higher_above": (
                 (sum(1 for g in gaps if g > 0) + 0.5 * sum(1 for g in gaps if g == 0)) / len(gaps) if gaps else None
             ),
@@ -899,11 +1109,14 @@ def segment_differences(groups, items, args):
                 if va is None or vb is None:
                     rows.append({"item": label, "difference": None, "difference_ci": None, "excludes_zero": None})
                     continue
+                paired = list(zip(reps_a or [], reps_b or []))
                 gaps = sorted(
-                    ra[i] - rb[i] for ra, rb in zip(reps_a or [], reps_b or [])
+                    ra[i] - rb[i] for ra, rb in paired
                     if ra is not None and rb is not None and ra[i] is not None and rb[i] is not None
                 )
-                ci = [percentile(gaps, lower_q), percentile(gaps, 100.0 - lower_q)] if gaps else None
+                # Replicates fail independently in each segment; withhold the interval when too few pairs are left.
+                enough = paired and len(paired) - len(gaps) <= MAX_FAILED_REPLICATE_SHARE * len(paired)
+                ci = [percentile(gaps, lower_q), percentile(gaps, 100.0 - lower_q)] if gaps and enough else None
                 rows.append({
                     "item": label, "difference": va - vb, "difference_ci": ci,
                     "excludes_zero": (ci[0] > 0 or ci[1] < 0) if ci else None,
@@ -939,14 +1152,22 @@ def render_table(group):
     logit = group["logit"]
     if logit["status"] == "ok":
         out.append(f"Average share: {group['average_share']:.1f} (100 / number of items)")
-        out.append(
-            f"Fit: log-likelihood {logit['log_likelihood']:.2f} (null {logit['log_likelihood_null']:.2f}); "
-            f"RLH {logit['rlh']:.3f} (chance {logit['rlh_chance']:.3f}); "
-            f"McFadden pseudo-R2 {logit['mcfadden_r2']:.3f}; "
-            f"LR chi-square {logit['lr_chi_square']:.1f} on {logit['lr_degrees_of_freedom']} df"
-        )
+        if logit["lr_chi_square"] is None:
+            out.append(
+                f"Fit (composite likelihood: best and worst treated as independent, so no chi-square test or model SE): "
+                f"log-likelihood {logit['log_likelihood']:.2f} (null {logit['log_likelihood_null']:.2f}); "
+                f"RLH {logit['rlh']:.3f} (chance {logit['rlh_chance']:.3f}); "
+                f"McFadden pseudo-R2 {logit['mcfadden_r2']:.3f}"
+            )
+        else:
+            out.append(
+                f"Fit: log-likelihood {logit['log_likelihood']:.2f} (null {logit['log_likelihood_null']:.2f}); "
+                f"RLH {logit['rlh']:.3f} (chance {logit['rlh_chance']:.3f}); "
+                f"McFadden pseudo-R2 {logit['mcfadden_r2']:.3f}; "
+                f"LR chi-square {logit['lr_chi_square']:.1f} on {logit['lr_degrees_of_freedom']} df"
+            )
         coded = ", ".join(
-            f"{label} {entry['utility']:+.3f} (SE {entry['se']:.3f})"
+            f"{label} {entry['utility']:+.3f}" + (f" (SE {entry['se']:.3f})" if entry["se"] is not None else "")
             for label, entry in logit["reference_coded"].items() if label != logit["reference_item"]
         )
         out.append(f"Reference-coded utilities ({logit['reference_item']} = 0): {coded}")
@@ -957,7 +1178,8 @@ def render_table(group):
         unit = "share points" if pairs[0]["metric"] == "share" else "B-W score"
         out.append(f"Adjacent items (difference in {unit}, bootstrap interval, share of replicates with the same order):")
         for pair in pairs:
-            sure = "" if pair["difference_ci"][0] > 0 else "  not separated"
+            sure = {"separated": "", "not separated": "  not separated",
+                    "reversed": "  reversed: the interval is below 0, so this metric orders them the other way"}[pair["verdict"]]
             out.append(
                 f"  {pair['higher']} vs {pair['lower']}: {pair['difference']:+.3f}"
                 f"{_fmt_ci(pair['difference_ci'], '{:+.3f}')}  {100 * pair['prob_higher_above']:.0f}%{sure}"
@@ -991,8 +1213,11 @@ def render_text(report):
     out.append(f"Logit: {method['logit']}")
     out.append(f"Shares: {method['shares']}")
     out.append(f"Intervals: {method['intervals']}")
+    out.append(f"Hierarchical Bayes: {method['hierarchical_bayes']}")
+    out.append(f"Anchoring: {method['anchoring']}")
     out.append("")
-    out.append(f"All respondents (n={report['overall']['n_respondents']})")
+    flag = "  [below minimum base]" if report["overall"].get("below_min_base") else ""
+    out.append(f"All respondents (n={report['overall']['n_respondents']}){flag}")
     out.append(render_table(report["overall"]))
     for name, group in report.get("segments", {}).items():
         out.append("")
@@ -1028,13 +1253,16 @@ def build_parser():
         description="MaxDiff analysis: counting scores and an aggregate multinomial logit from a best-worst CSV.",
         epilog="Input shapes and every option are described in references/input-formats.md.",
     )
-    parser.add_argument("input", help="responses CSV (long or wide format)")
-    parser.add_argument("--design", help="design CSV with columns version,set,position,item (wide format only)")
+    parser.add_argument("input", help="responses CSV (long, wide or one-row-per-respondent format)")
+    parser.add_argument("--design", help="design CSV with columns version,set,position,item, as maxdiff-design writes "
+                                         "it (wide and respondent formats)")
     parser.add_argument("--format", choices=["auto", "long", "wide", "respondent"], default="auto")
     parser.add_argument("--choice-coding", choices=["label", "position"], default="label",
                         help="wide/respondent formats: best and worst hold item labels (default) or the position "
                              "of the chosen item in the set")
-    parser.add_argument("--delimiter", default=",", help="CSV delimiter (default: comma)")
+    parser.add_argument("--delimiter", default=None,
+                        help="delimiter of the responses CSV (default: comma, semicolon or tab, read from the header; "
+                             "the design file's is read from its own header)")
     parser.add_argument("--respondent-col", default="respondent")
     parser.add_argument("--set-col", default="set")
     parser.add_argument("--item-col", default="item")
@@ -1061,6 +1289,9 @@ def build_parser():
                         help=f"bootstrap replicates over respondents (default {BOOTSTRAP_REPLICATES}; 0 = no intervals)")
     parser.add_argument("--seed", type=int, default=SEED, help=f"random seed for the bootstrap (default {SEED})")
     parser.add_argument("--ci", type=float, default=CI_LEVEL, help="interval level in percent (default 95)")
+    parser.add_argument("--allow-exclusions", action="store_true",
+                        help=f"score even when more than {100 * MAX_EXCLUDED_SHARE:g}% of sets are excluded "
+                             "(by default the script stops: that many usually means a wrong mapping or coding)")
     parser.add_argument("--min-base", type=int, default=MIN_BASE,
                         help=f"warn when a reported group has fewer respondents (default {MIN_BASE})")
     parser.add_argument("--respondent-scores", action="store_true",
@@ -1074,8 +1305,10 @@ def run(args):
         raise InputError("--bootstrap must be 0 or more")
     if not 0 < args.ci < 100:
         raise InputError("--ci must be between 0 and 100, for example 95")
-    if len(args.delimiter) != 1:
+    if args.delimiter is not None and len(args.delimiter) != 1:
         raise InputError("--delimiter must be a single character")
+    if args.items_per_set is not None and args.items_per_set < 2:
+        raise InputError("--items-per-set must be 2 or more")
     if not args.shown_sep:
         raise InputError("--shown-sep must not be empty")
     sets, items, segments, meta = load_sets(args)
@@ -1083,17 +1316,26 @@ def run(args):
     stats = respondent_stats(sets, items)
     respondents = list(stats)
     sizes = sorted({len(s["items"]) for s in sets})
-    items_per_set = sizes[0] if len(sizes) == 1 else None
-    if args.share_scale == "probability" and not args.no_logit:
-        if args.items_per_set:
-            items_per_set = args.items_per_set
-        elif items_per_set is None:
-            raise InputError(
-                f"--share-scale probability needs one set size, but sets show {sizes[0]} to {sizes[-1]} items; "
-                "pass --items-per-set or use --share-scale preference"
-            )
-        if items_per_set < 2:
-            raise InputError("--items-per-set must be 2 or more")
+    data_items_per_set = sizes[0] if len(sizes) == 1 else None
+    # The "a" of the probability scale: the data's set size, or --items-per-set when given.
+    items_per_set = args.items_per_set if args.items_per_set is not None else data_items_per_set
+    if args.share_scale == "probability" and not args.no_logit and items_per_set is None:
+        raise InputError(
+            f"--share-scale probability needs one set size, but sets show {sizes[0]} to {sizes[-1]} items; "
+            "pass --items-per-set or use --share-scale preference"
+        )
+
+    excluded_share = meta["sets_excluded"] / meta["sets_read"]
+    if excluded_share > MAX_EXCLUDED_SHARE and not args.allow_exclusions:
+        detail = ", ".join(f"{reason} {count}" for reason, count in meta["excluded_by_reason"].items())
+        hint = "Check the column mapping and the choice coding"
+        if meta["numeric_choice_not_shown"] > meta["sets_excluded"] / 2:
+            hint = ("Most excluded sets have whole numbers in best/worst that are not item labels: if they are "
+                    "positions in the set, rerun with --choice-coding position")
+        raise InputError(
+            f"{meta['sets_excluded']} of {meta['sets_read']} sets ({100 * excluded_share:.0f}%) were excluded ({detail}). "
+            f"{hint}; pass --allow-exclusions to score the rest anyway."
+        )
 
     warnings = []
     if meta["sets_excluded"]:
@@ -1106,14 +1348,15 @@ def run(args):
         )
     if meta["items_without_valid_sets"]:
         warnings.append(
-            "Items that appear only in excluded sets are not scored: " + ", ".join(meta["items_without_valid_sets"]) + "."
+            "Items not shown in any valid set are not scored: " + ", ".join(meta["items_without_valid_sets"]) + "."
         )
     if len(sizes) > 1:
         warnings.append(f"Sets show {sizes[0]} to {sizes[-1]} items; check that this matches the design.")
-    if not args.no_logit:
+    if not args.no_logit and args.model != "marginal":
         warnings.append(
             "The utility SE comes from the inverse information matrix and treats every set as independent; "
-            "quote the bootstrap intervals, which resample respondents."
+            + ("quote the bootstrap intervals, which resample respondents." if args.bootstrap
+               else "with --bootstrap 0 there are no respondent-level intervals, so treat it as too small.")
         )
 
     overall = analyse_group(stats, respondents, items, args, items_per_set, random.Random(args.seed), True)
@@ -1130,7 +1373,7 @@ def run(args):
         logit_text = (
             "aggregate marginal best-worst multinomial logit: P(best=i|S) = exp(u_i)/sum_S exp(u_j) and "
             "P(worst=j|S) = exp(-u_j)/sum_S exp(-u_k), both over all shown items; Newton-Raphson; "
-            "utilities zero-centred"
+            "utilities zero-centred; a composite likelihood, so no chi-square test or model SE"
         )
     else:
         logit_text = (
@@ -1153,7 +1396,7 @@ def run(args):
             "design": args.design,
             "format": meta["format"],
             "n_items": k,
-            "items_per_set": items_per_set if items_per_set is not None else f"{sizes[0]}-{sizes[-1]}",
+            "items_per_set": data_items_per_set if data_items_per_set is not None else f"{sizes[0]}-{sizes[-1]}",
             "sets_read": meta["sets_read"],
             "sets_valid": meta["sets_valid"],
             "sets_excluded": meta["sets_excluded"],

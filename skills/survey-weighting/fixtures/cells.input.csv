@@ -1,0 +1,17 @@
+id,gender,age,q1
+1,F,young,Yes
+2,F,young,Yes
+3,F,young,No
+4,F,young,No
+5,F,old,Yes
+6,F,old,No
+7,F,old,No
+8,F,old,No
+9,F,old,No
+10,F,old,Yes
+11,M,young,Yes
+12,M,young,No
+13,M,old,No
+14,M,old,No
+15,M,old,Yes
+16,M,old,No

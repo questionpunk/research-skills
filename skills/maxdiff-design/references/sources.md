@@ -140,26 +140,42 @@ The indirect method "should probably not be used with more than 4 items shown pe
 - **Default sets:** 3K/k rounded up (`--exposures` changes the 3; values above 5 get a note).
 - **Default versions:** 10, the figure [S7] gives as enough to average out order and context effects. It
   sits between the paper minimum of 4 and Sawtooth's 300 [S1], and 10 versions can still be set up by hand
-  in tools that cannot import a design. Use up to 300 when the tool assigns versions itself, and 1 when
-  respondents are to be compared with each other ([S7]'s caveat).
+  in tools that cannot import a design. Use up to 300 when the tool assigns versions itself. When respondents
+  are to be compared with each other the script states both views rather than picking one: [S7] prefers 1
+  version, Sawtooth fields many and scores individuals with HB [S1] [S2].
 - **Length estimate:** sets x 20 seconds. The 20 seconds is an assumption, not a sourced figure; pass
   `--seconds-per-set` with a pilot timing.
-- **`--respondents N`:** total exposures per item = N x (times the least-shown item appears per version),
-  compared with the 500 and 1000 of [S1]; the exposure warning is lifted at 600 or more respondents when
-  each item is shown at least once per respondent ([S3]).
+- **`--respondents N`:** compared with [S5]'s 300 in total and 200 per reported subgroup, both raised in
+  proportion to K / 30 above 30 items (300 x K / 30; [S5]'s own example doubles them at 60 items). Total
+  exposures per item = N x (times the least-shown item appears per version), compared with the 500 and 1000
+  of [S1] only for a sparse design (under 2 exposures per respondent, the line where [S1] and [S3] warn);
+  above that the report says the rule does not apply. The per-respondent line follows [S3]: under 50
+  respondents is outside its guidance, 3 or more exposures fit it, under 1 exposure is below its 1 to 2 at any
+  sample, and the exposure warning is lifted at 600 or more respondents when each item is shown at least
+  once per respondent.
 - **Default seed:** 1. **Default restarts:** 10 per version ([S2]'s designer uses 1000 replications; raise
   `--restarts` for a slower, slightly better search).
 - **Exact constructions tried:** a cyclic difference set when S = K (search stops after 200000 nodes), the
   affine plane when K = q^2, k = q, S = q^2 + q for a prime q up to 7, and all k-subsets when S = C(K, k)
-  and S is at most 50. Otherwise a seeded randomized search.
+  and S is at most 50. Otherwise a seeded randomized search. Its Method line reports what the diagnostics
+  show: an exact BIBD when every pair count came out equal; "no BIBD has these parameters" only when the
+  counting conditions b k = v r, lambda (v - 1) = r (k - 1) or Fisher's b >= v fail [S6]; otherwise that the
+  conditions hold and the search found none, which proves nothing about existence (for example a Steiner
+  triple system, a (v, 3, 1) design, exists exactly when v = 1 or 3 mod 6 [S11], and the search can miss it).
 - **Pass, warn and fail thresholds:**
-  - fail: an item repeated inside a set; sets or versions of different shape; item frequencies more than 1
+  - fail: a set with fewer than 2 different items, or one that shows every item (a BIBD needs 2 <= k < v,
+    and a complete set is not a MaxDiff task); fewer than 3 items per set ([S3]: "must be 3 or more";
+    generation refuses `--per-set 2`); an item repeated inside a set; sets or versions of different shape; item frequencies more than 1
     apart inside a version; items that split into groups never compared (no connectivity overall);
   - warn: item frequencies more than 1 apart over all versions (fail with a single version); pair counts
-    more than 1 apart inside a version; a pair that never appears together; an item's position counts more
+    more than 1 apart inside a version; a pair that never appears together; an item missing from a version
+    (a respondent then says nothing about it, so only pooled scores cover it); an item's position counts more
     than 1 apart; a version that is not connected on its own; fewer than 3 exposures per respondent (unless
-    `--respondents` is 600 or more); more than half the items, more than 5 items or fewer than 3 items in a
-    set; an item correlation outside -0.5 to 0.5.
+    `--respondents` is 600 or more); more than half the items or more than 5 items in a set; an item
+    correlation outside -0.5 to 0.5; the same set twice in one version when enough different sets exist
+    (the generator trades items between sets to avoid it).
+  - reported, not judged: the largest position gap inside one version (the positional criterion judges the
+    whole design), and the number of item pairs with no correlation (an item in every set or in none).
 - **Prohibited pairs** are not supported and no threshold for them is stated.
   "Within 1" is the tightest bound that always exists for item and position frequencies. For pair counts it
   does not always exist, so a larger gap is a warning.
@@ -199,6 +215,9 @@ The indirect method "should probably not be used with more than 4 items shown pe
   https://cran.r-project.org/web/packages/support.BWS/support.BWS.pdf
 - [S10] Wikipedia, "Affine plane (incidence geometry)":
   https://en.wikipedia.org/wiki/Affine_plane_(incidence_geometry)
+- [S11] SageMath reference manual, "Balanced Incomplete Block Designs (BIBD)": "A Steiner Triple System of an
+  n-set exists if and only if n = 1 (mod 6) or n = 3 (mod 6)", built by Bose's and Skolem's constructions:
+  https://doc.sagemath.org/html/en/reference/combinat/sage/combinat/designs/bibd.html
 
 Background, cited through [S2]'s reference list:
 

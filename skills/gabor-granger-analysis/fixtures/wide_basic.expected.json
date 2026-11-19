@@ -1,0 +1,30 @@
+{
+ "_source": "Hand-worked, fixtures/README.md section 2",
+ "read": 22,
+ "inconsistent": 1,
+ "analysed": 21,
+ "imputed_cells": 2,
+ "buyers": [
+  19,
+  15,
+  8,
+  3
+ ],
+ "n": 21,
+ "revenue_index": [
+  9.047619047619047,
+  14.285714285714286,
+  11.428571428571429,
+  5.714285714285714
+ ],
+ "revenue_optimum": 20,
+ "unit_cost": 12,
+ "profit_index": [
+  -1.8095238095238095,
+  5.714285714285714,
+  6.857142857142857,
+  4.0
+ ],
+ "profit_optimum": 30,
+ "arc_elasticity_10_20": -0.35294117647058826
+}

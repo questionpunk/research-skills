@@ -24,12 +24,13 @@ Checked on 2026-11-12. "Verified" means the statement was read in the source its
 | 18 | Root likelihood: RLH, best value 1.0, worst "the reciprocal of the number of choices available in the average task" (0.25 for four items per set) | [S5] | Verified |
 | 19 | RLH as `exp(LL / T)` and its chance level `exp(LL0 / T)`; for the sequential model with `a` items per set the chance level is `1 / sqrt(a (a - 1))` | Derived in [method.md](method.md), section 8, from the definition in row 18 | Derivation ours |
 | 20 | Likelihood-ratio chi-square `2 (LL_model - LL_null)`, degrees of freedom = number of estimated parameters; the null model "predicts equal likelihood for each concept in each task" | [S11], section 12.2 A, eq. (1) | Verified |
-| 21 | McFadden pseudo-R2 `1 - LL / LL0` | McFadden (1974) [S12] | |
+| 21 | McFadden pseudo-R2 `1 - LL / LL0` | McFadden (1974) [S12] | Standard; not re-read |
+| 25 | Marginal model is a composite likelihood: no chi-square reference or model SE; bootstrap kept | Varin, Reid & Firth (2011) [S14]; the redundancy is exact with two items per set (method.md, section 2) | Not re-read; the two-item case is derived |
 | 22 | Best and worst answers may differ in scale; probability scores get "flatter" with noise, so groups that differ in noise should not be compared directly | [S10] p. 14 and footnote | Verified |
 | 23 | Anchored MaxDiff (a utility threshold from a direct or indirect anchor question) exists as a separate method | [S10], "Anchored MaxDiff" | Verified; not implemented |
 | 24 | Average share = 100 / number of items | Arithmetic: the shares sum to 100 | n/a |
-| 15 | Bootstrap: resample whole respondents; percentile interval | Efron & Tibshirani (1993) [S8] | |
-| 16 | Default 1000 bootstrap replicates (`BOOTSTRAP_REPLICATES = 1000`) | Common practice for percentile intervals, usually attributed to [S8] | |
+| 15 | Bootstrap: resample whole respondents; percentile interval | Efron & Tibshirani (1993) [S8] | Standard; not re-read |
+| 16 | Default 1000 bootstrap replicates (`BOOTSTRAP_REPLICATES = 1000`) | Common practice for percentile intervals, usually attributed to [S8] | Convention; not re-read |
 | 17 | A finite estimate exists exactly when the "ranked above" graph is strongly connected | Derived in [method.md](method.md), section 5; the analogous condition for Bradley-Terry and Plackett-Luce models is attributed to Ford (1957) and Hunter (2004) [S9] | Derivation ours |
 
 ### Implementation constants (not from the literature)
@@ -42,8 +43,16 @@ stops after 20 iterations or when the gradient or likelihood change is below 1 i
 - Cholesky pivot floor `1e-12`; likelihood-decrease slack `1e-12` relative.
 - `SEED = 12345`: an arbitrary fixed default so that runs repeat. `CI_LEVEL = 95`.
 - `MAX_FAILED_REPLICATE_SHARE = 0.05`: when more than 5% of bootstrap replicates have no finite logit
-  estimate, utility and share intervals are withheld. A convention of this script; no published
-  threshold was found.
+  estimate, utility and share intervals are withheld. The same 5% applies to an item's counting-score
+  interval (replicates in which no resampled respondent saw it) and to a segment difference (replicate
+  pairs lost in either segment). A convention of this script; no published threshold was found.
+- `MAX_EXCLUDED_SHARE = 0.5`: above half of the sets excluded, the script stops unless
+  `--allow-exclusions` is given. A convention of this script.
+- A group with fewer than 2 respondents gets no bootstrap: every resample would be the same person.
+- Bootstrap replicates skip the covariance matrix and the null log-likelihood, and a replicate whose
+  warm-started fit stalls is refitted once from zero before it counts as failed.
+- Long-format flags `0.0/1.0` and `FALSE/TRUE` are read as 0/1; the delimiter (comma, semicolon or tab)
+  is read from each file's header unless `--delimiter` is given.
 - `prob_higher_above` (share of bootstrap replicates in which the higher-ranked of two items stays
   higher) and the bootstrap interval of a difference between items or segments are ordinary uses of the
   bootstrap replicates, defined in [method.md](method.md), section 7. They are descriptive; the script
@@ -85,6 +94,8 @@ stops after 20 iterations or when the gradient or likelihood change is below 1 i
   P. Zarembka (ed.), *Frontiers in Econometrics*, 105-142. Academic Press.
 - **[S13]** Displayr, `flipMaxDiff` R package, `R/maxdiff.R` (read as a downloaded source file).
   https://github.com/Displayr/flipMaxDiff
+- **[S14]** Varin, C., Reid, N. & Firth, D. (2011). An overview of composite likelihood methods.
+  *Statistica Sinica* 21, 5-42. https://utstat.toronto.edu/reid/research/A09-300_edited_varin.pdf
 - **[S8]** Efron, B. & Tibshirani, R. J. (1993). *An Introduction to the Bootstrap.* Chapman & Hall.
 - **[S9]** Hunter, D. R. (2004). MM algorithms for generalized Bradley-Terry models. *Annals of
   Statistics*, 32(1), 384-406. https://doi.org/10.1214/aos/1079120141 ; Ford, L. R. (1957). Solution of
@@ -100,7 +111,8 @@ stops after 20 iterations or when the gradient or likelihood change is below 1 i
 - **Which model for the worst answer.** Sawtooth codes the marginal form (row 6); the
   academic literature starts from the maxdiff pair model (row 5); [S3] offers all three. The script
   defaults to the sequential form because it is a proper probability model of how the answer is given.
-  On balanced data the three give the same order and slightly different utility scales.
+  They give different utility scales and can order close items differently even on balanced data
+  (method.md, section 2), so name the model with the ranking.
 - **Counts or a model.** [S1] finds counting scores "highly correlated and nearly linear" with HB at
   the sample level in one study of 287 respondents, and recommends a model when designs are not
   balanced. Counts are the transparent check; the logit is the estimate.

@@ -15,6 +15,8 @@ Usage:
   python3 scripts/survey_bias_check.py survey.json --json
   python3 scripts/survey_bias_check.py survey.md --strict        # exit 1 when there are findings
   python3 scripts/survey_bias_check.py survey.md --mode phone --audience expert --keep Q7,Q9
+  python3 scripts/survey_bias_check.py survey.md --route-skip Q5,Q6  # length of the longest route only
+  cat survey.md | python3 scripts/survey_bias_check.py -          # read stdin
   python3 scripts/survey_bias_check.py --list-rules
 
 Exit codes: 0 = ran (with or without findings), 1 = findings and --strict, 2 = bad input.
@@ -33,8 +35,8 @@ MAX_OPTIONS = 10  # tool default, no primary source (sources.md)
 POINTS_PER_MINUTE = 8  # Versta Research length method
 POINTS = {"single": 1.0, "per_grid_row": 1.0, "per_two_multi_options": 1.0, "number": 2.0, "open": 3.0}
 SENTENCES_PER_POINT = 3  # Versta: one point per three sentences of reading
-IDEAL_MINUTES = 10  # Revilla & Ochoa 2017 (median ideal length)
-MAX_MINUTES = 20  # Revilla & Ochoa 2017 (median maximum length)
+IDEAL_MINUTES = 10  # Revilla & Ochoa 2017 (web-panel median "ideal" length)
+MAX_MINUTES = 20  # Revilla & Ochoa 2017 (web-panel median "maximum" length)
 MAX_GRID_ROWS = 10  # convention, no primary source (sources.md, "Conventions")
 MAX_OPEN = 3  # convention, no primary source
 PHONE_MAX_OPTIONS = 5  # Pew: "four or perhaps five at most", especially by telephone
@@ -43,6 +45,7 @@ PHONE_TIME_FACTOR = 1.5  # Versta: phone minutes = online minutes x 1.5
 PARENTHETICAL_WORDS = 5  # convention (SB026)
 INLINE_LIST_COMMAS = 3  # convention (SB026)
 LOAD_SIGNALS = 2  # convention (SB026): flag when at least two signals are present
+CONTINUOUS_GAP_SEVERITY = "medium"  # convention (SB010): integer-adjacent ranges of a continuous measure
 
 RULES = {
     "SB001": ("double-barreled", "Asks about two things at once; an answer cannot be assigned to either one."),
@@ -72,6 +75,7 @@ RULES = {
     "SB025": ("grid and open-question burden", "Long grids and many open questions tire respondents and get skipped."),
     "SB026": ("syntax load", "Conditions, exclusions, parentheticals and lists must all be held in mind at once."),
     "SB027": ("even-point scale", "A bipolar scale with no midpoint forces neutral respondents to pick a side."),
+    "SB028": ("duplicate option", "Two options with the same wording cannot be told apart, and one option is probably missing."),
 }
 
 # ---------------------------------------------------------------------------------------
@@ -115,7 +119,7 @@ NEGATIVE_WORDS = [
 VAGUE_STEM_PATTERN = r"\b(?:regularly|frequently|occasionally|recently|lately|sometimes|seldom|a lot)\b|(?<!how )\boften\b"
 VAGUE_OPTION_WORDS = {
     "often", "sometimes", "rarely", "occasionally", "frequently", "regularly", "seldom", "usually",
-    "a lot", "hardly ever",
+    "a lot", "hardly ever", "a few", "several", "many", "a couple",
 }
 KNOWN_ACRONYMS = {
     "US", "USA", "UK", "EU", "UN", "TV", "OK", "ID", "AM", "PM", "PC", "IT", "HR", "CEO", "ATM", "DVD",
@@ -143,7 +147,7 @@ NEGATIVE = {
     "unfavourable": "favor", "oppose": "support", "disapprove": "approval",
 }
 SPECIAL = {
-    "other": r"^other\b|something else|not listed",
+    "other": r"^other\b|something else|somewhere else|someone else|anywhere else|not listed",
     "none": r"^none\b|^nothing\b|none of|not applicable|^n/?a$|^no,? i\b|i (?:do not|don't) use|"
             r"^i (?:have not|haven't|did not|didn't|do not|don't|have never|never)\b|^(?:have )?not used\b",
     "dk": r"don't know|do not know|not sure|unsure|no opinion|can't (?:say|recall|remember)|do not recall",
@@ -245,6 +249,22 @@ ENGLISH_FUNCTION_WORDS = {
     "which", "who", "when", "where", "why", "to", "of", "in", "on", "for", "with", "have", "has", "i",
     "it", "this", "that", "and", "or", "any", "our", "we", "would", "please", "at", "be", "from",
 }
+# Words that are also common function words in German, Dutch, French, Spanish, Italian or Portuguese
+# ("was", "in", "an", "a", "i", "on", "do", "is"); they do not count as evidence of English.
+SHARED_FUNCTION_WORDS = {"a", "an", "i", "in", "on", "do", "is", "was"}
+STRONG_ENGLISH_WORDS = (ENGLISH_FUNCTION_WORDS - SHARED_FUNCTION_WORDS) | {"not", "my", "about", "been", "there"}
+ANSWER_INSTRUCTION_PATTERN = (
+    r"(?:^|(?<=[.?!])\s+)(?:please )?(?:enter|type|write) (?:0|zero|a (?:whole )?number|the number|a figure)\b"
+    r"[^.?!]*[.?!]?"
+)
+ROUTING_LINE_PATTERN = r"^\(\s*(?:if\b|skip\b|go to\b|goes to\b|only (?:if|for|shown)\b|shown (?:only|if|to)\b)[^)]*\)\.?$"
+CONTINUOUS_UNIT_PATTERN = (
+    r"\b(?:hours?|hrs?|minutes?|mins?|seconds?|secs?|kg|kilograms?|grams?|lbs?|km|kilomet(?:er|re)s?|miles?|"
+    r"met(?:er|re)s?|lit(?:er|re)s?|gallons?|degrees?)\b"
+)
+DURATION_STEM_PATTERN = r"\bhow long\b|\bhow much time\b|\bfor how long\b"
+DURATION_UNIT_PATTERN = r"\b(?:days?|weeks?|months?|years?)\b"
+CENTS_PATTERN = r"\bcents?\b|\bpence\b"
 NOT_CHECKED = (
     "Rules cannot judge: loaded wording outside the word lists, built-in assumptions, social "
     "desirability, question-order effects, whether options fit the audience, or whether a question "
@@ -259,12 +279,15 @@ class InputError(Exception):
 # ---------------------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------------------
-Q_RE = re.compile(r"^\s{0,3}(?:\*\*)?(?:Q\s*)?(\d+)[.):]\s+(.*\S)\s*$", re.I)
+Q_RE = re.compile(r"^(\s{0,3})(?:\*\*)?(?:Q\s*)?(\d+)[.):]\s+(.*\S)\s*$", re.I)
 ROW_RE = re.compile(r"^\s*([a-z])[.)]\s+(.*\S)\s*$")
 OPT_RE = re.compile(r"^\s*(?:[-*+•○●]|\( ?\)|\[ ?\])\s+(.*\S)\s*$")
-TYPE_RE = re.compile(r"\[(single|multi|open|number|scale|grid)\]", re.I)
+TYPE_RE = re.compile(r"\[(single|multi|open|text|number|scale|grid)(?:\s*[,:][^\]]*)?\]", re.I)
 REQ_RE = re.compile(r"\[required\]|\(required\)|\*\s*$", re.I)
+OPTIONAL_RE = re.compile(r"\[optional\]|\(optional\)", re.I)
 TYPES = {"single", "multi", "open", "number", "scale", "grid"}
+TYPE_ALIASES = {"text": "open"}
+PLAIN_OPTION_MAX_WORDS = 8  # convention: a short unmarked line after a finished stem reads as an option
 
 
 def norm(text):
@@ -280,7 +303,9 @@ def clean_stem(raw):
     m = TYPE_RE.search(text)
     if m:
         qtype = m.group(1).lower()
+        qtype = TYPE_ALIASES.get(qtype, qtype)
         text = TYPE_RE.sub("", text).strip()
+    text = OPTIONAL_RE.sub("", text).strip()
     required = False
     while REQ_RE.search(text):
         required = True
@@ -294,22 +319,51 @@ def parse_markdown(text):
     lines = text.splitlines()
     numbered = any(Q_RE.match(l) and not OPT_RE.match(l) for l in lines)
     questions, warnings, current, intro, intro_line, skipped = [], [], None, [], None, 0
+    routed, pending, plain_options = [], [], set()
 
-    def start(qid, raw, lineno):
+    def start(qid, raw, lineno, indent=0):
         stem, qtype, required = clean_stem(raw)
         question = {"id": qid, "text": stem, "type": qtype, "required": required, "line": lineno,
-                    "options": [], "rows": []}
+                    "options": [], "rows": [], "indent": indent}
         questions.append(question)
         return question
+
+    def flush_pending():
+        """One unmarked line after a stem continues the stem; two or more are read as options."""
+        if not pending:
+            return
+        if len(pending) == 1 and not current["options"]:
+            more, qtype, required = clean_stem(pending[0][1])
+            current["text"] = (current["text"] + " " + more).strip()
+            current["type"] = current["type"] or qtype
+            current["required"] = current["required"] or required
+        else:
+            for lineno, raw in pending:
+                current["options"].append({"text": norm(raw.strip()), "line": lineno})
+            plain_options.add(current["id"])
+        del pending[:]
 
     for lineno, line in enumerate(lines, 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         opt = OPT_RE.match(line)
+        if current is not None and not opt and re.match(ROUTING_LINE_PATTERN, norm(line.strip()), re.I):
+            routed.append(current["id"])  # skip logic written for the respondent view; not part of the stem
+            continue
+        if current is not None and not opt and re.match(r"^\s*(?:thank you|thanks)\b", line, re.I):
+            flush_pending()
+            current["done"] = True  # a closing line ends the questionnaire text; it is not part of a stem
+            continue
         if numbered and not opt:
             m = Q_RE.match(line)
-            if m:
-                current = start(m.group(1), m.group(2), lineno)
+            indent = len(line) - len(line.lstrip())
+            if m and current is not None and indent > current["indent"] and not pending:
+                # an indented numbered line inside a question ("   1) Very satisfied") is an answer option
+                opt = re.match(r"^\s*\d+[.)]\s+(.*\S)\s*$", line)
+            elif m:
+                if current is not None:
+                    flush_pending()
+                current = start(m.group(2), m.group(3), lineno, indent)
                 continue
         row = ROW_RE.match(line) if current is not None and not opt else None
         if not numbered and not opt and not row and clean_stem(line)[0].endswith("?"):
@@ -318,24 +372,171 @@ def parse_markdown(text):
         if current is None:
             intro.append(norm(line.strip()))  # introduction before the first question
             intro_line = intro_line or lineno
-        elif opt:
+            continue
+        stem_only = clean_stem(line)[0] == "" and TYPE_RE.search(line)
+        if stem_only:  # a line holding only a type tag such as "[number]" or "[text]"
+            current["type"] = current["type"] or clean_stem(line)[1]
+            current["done"] = True  # the answer box ends the question; later plain lines are notes
+            continue
+        if current.get("done") and not opt and not ROW_RE.match(line):
+            continue
+        if opt or row:
+            flush_pending()
+        if opt:
             current["options"].append({"text": norm(opt.group(1)), "line": lineno})
         elif row:
             current["rows"].append({"id": current["id"] + row.group(1), "text": norm(row.group(2)), "line": lineno})
-        elif numbered and not current["options"] and not current["rows"]:
-            more, qtype, required = clean_stem(line)
-            current["text"] = (current["text"] + " " + more).strip()
-            current["type"] = current["type"] or qtype
-            current["required"] = current["required"] or required
+        elif numbered and not current["rows"] and (pending or not current["options"]):
+            plain = clean_stem(line)[0]
+            finished = current["text"].rstrip().endswith(("?", ":"))
+            if (finished or current["id"] in plain_options) and not plain.endswith("?") \
+                    and len(plain.split()) <= PLAIN_OPTION_MAX_WORDS:
+                pending.append((lineno, line))
+                if len(pending) >= 2:
+                    flush_pending()
+            else:
+                flush_pending()
+                more, qtype, required = clean_stem(line)
+                current["text"] = (current["text"] + " " + more).strip()
+                current["type"] = current["type"] or qtype
+                current["required"] = current["required"] or required
+        elif numbered and current["id"] in plain_options and not current["rows"]:
+            plain = clean_stem(line)[0]
+            if not plain.endswith("?") and len(plain.split()) <= PLAIN_OPTION_MAX_WORDS:
+                current["options"].append({"text": norm(line.strip()), "line": lineno})
         elif not numbered:
             skipped += 1
         # in numbered input, any other line after the options is a note and is ignored
+    if current is not None:
+        flush_pending()
+    for q in questions:
+        q.pop("indent", None)
+        q.pop("done", None)
+        if q["rows"] and not q["options"] and q["type"] != "grid":
+            # lettered lines with no bulleted answer options are the options themselves ("a) Very satisfied")
+            q["options"] = [{"text": r["text"], "line": r["line"]} for r in q["rows"]]
+            q["rows"] = []
+            warnings.append("question %s: lettered lines with no '-' options were read as answer options; "
+                            "tag the question [grid] if they are grid rows" % q["id"])
+    if plain_options:
+        warnings.append("question(s) %s: unmarked lines after the question were read as answer options; "
+                        "start each option with '- ' to be sure" % ", ".join(sorted(plain_options, key=_id_key)))
+    if routed:
+        warnings.append("skip logic found after question(s) %s; routing is not checked and the length "
+                        "estimate counts every question unless --route-skip is given"
+                        % ", ".join(sorted(dict.fromkeys(routed), key=_id_key)))
     if not numbered and questions:
         warnings.append("no question numbers found; each line ending in '?' was read as a question")
     if skipped:
         warnings.append("%d line(s) were not recognised as questions or options (no number and no '?'); "
                         "check them by hand" % skipped)
     return questions, warnings, ({"text": " ".join(intro), "line": intro_line} if intro else None)
+
+
+QSF_HEADING_RE = re.compile(r"^###\s+(\S+)\s+\[([a-z-]+)\](?:\s+(required|request))?\s*$")
+QSF_TYPES = {
+    "single": "single", "dropdown": "single", "rank": "single", "sum": "single", "multi": "multi",
+    "text": "open", "text-long": "open", "essay": "open", "form": "open", "matrix": "grid",
+    "matrix-multi": "grid", "matrix-text": "grid", "slider": "grid", "nps": "single", "info": None,
+}
+QSF_MARK_RE = re.compile(r"\s*\{(?:text|exclusive|code:-?\d+|var:[^}]*)\}")
+NPS_DEFAULT_LABELS = ("Not at all likely", "Extremely likely")
+
+
+def is_qsf_markdown(text):
+    """True for the Markdown that qsf-convert writes: questions start with '### tag [type]'."""
+    return any(QSF_HEADING_RE.match(line) for line in text.splitlines())
+
+
+def parse_qsf_markdown(text):
+    """Read the survey Markdown of the qsf-convert skill (`### tag [type]` headings, `Rows:` / `Columns:`,
+    `> skip:` and `> show if:` rules). Question IDs are the tags. `[info]` screens before the first question
+    are the introduction; later ones are left out and counted in a warning."""
+    questions, warnings, intro, intro_line = [], [], [], None
+    current, target, labels, routed, info_later = None, "options", {}, [], 0
+    in_comment = False
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if in_comment or line.startswith("<!--"):
+            in_comment = "-->" not in line
+            continue
+        if line.startswith(("# ", "## ")):
+            current = None  # a block heading ends the question before it
+            continue
+        if not line or line == "---":
+            continue
+        m = QSF_HEADING_RE.match(line)
+        if m:
+            qtype = QSF_TYPES.get(m.group(2), "single")
+            current = {"id": m.group(1), "text": "", "type": qtype, "required": m.group(3) == "required",
+                       "line": lineno, "options": [], "rows": [], "qsf_type": m.group(2), "info": qtype is None}
+            target = "options"
+            if not current["info"]:
+                questions.append(current)
+            elif questions:
+                info_later += 1
+            continue
+        if current is None:
+            continue
+        if line.startswith(">"):
+            rule = line[1:].strip()
+            if rule.startswith(("skip:", "show if:")):
+                routed.append(current["id"])
+            elif rule.startswith("labels:"):
+                labels[current["id"]] = [part.strip() for part in rule[len("labels:"):].split("|")]
+            continue
+        if line in ("Rows:", "Columns:"):
+            target = "rows" if line == "Rows:" else "options"
+            continue
+        opt = re.match(r"^-\s+(.*\S)\s*$", line)
+        if opt:
+            label = norm(QSF_MARK_RE.sub("", opt.group(1)).strip())
+            if current["info"]:
+                continue
+            if current["qsf_type"] == "slider":
+                target = "rows"  # each slider bar is rated on the same scale, like a grid row
+            if target == "rows":
+                current["rows"].append({"id": current["id"] + "abcdefghijklmnopqrstuvwxyz"[len(current["rows"]) % 26],
+                                        "text": label, "line": lineno})
+            else:
+                current["options"].append({"text": label, "line": lineno})
+            continue
+        line = line[1:] if line.startswith("\\") else line
+        line = re.sub(r"<[^>]+>", "", norm(line)).strip()
+        if current["info"] and not questions:
+            intro.append(line)
+            intro_line = intro_line or lineno
+        elif not current["info"]:
+            current["text"] = (current["text"] + " " + line).strip()
+    for q in questions:
+        if q["qsf_type"] == "nps":
+            given = labels.get(q["id"], [])
+            low = given[0] if given else NPS_DEFAULT_LABELS[0]
+            high = given[-1] if len(given) >= 2 else NPS_DEFAULT_LABELS[1]
+            q["options"] = ([{"text": "0 - %s" % low, "line": None}] + [{"text": str(n), "line": None} for n in range(1, 10)]
+                            + [{"text": "10 - %s" % high, "line": None}])
+        elif q["qsf_type"] in ("matrix-text", "slider", "form"):
+            q["options"] = []  # text boxes, slider bars and form fields are not answer options
+            if q["qsf_type"] == "form":
+                q["rows"] = []
+        if not q["text"]:
+            warnings.append("question %s has no text" % q["id"])
+        for key in ("qsf_type", "info"):
+            q.pop(key, None)
+    warnings.append("read as qsf-convert Markdown: %d question(s), IDs are the tags; matrix rows are grid rows; "
+                    "slider bars are grid rows; text-box matrix and form fields are not checked as options"
+                    % len(questions))
+    if info_later:
+        warnings.append("%d descriptive text screen(s) after the first question were not checked" % info_later)
+    if routed:
+        warnings.append("skip or display logic on %s; routing is not checked and the length estimate counts every "
+                        "question unless --route-skip is given" % ", ".join(dict.fromkeys(routed)))
+    return questions, warnings, ({"text": " ".join(intro), "line": intro_line} if intro else None)
+
+
+def _id_key(qid):
+    m = re.match(r"(\d+)", str(qid))
+    return (int(m.group(1)) if m else 10 ** 9, str(qid))
 
 
 def parse_json(text):
@@ -362,9 +563,23 @@ def parse_json(text):
             raise InputError('question %d has no "text"' % i)
         stem, tagged, starred = clean_stem(raw)
         qtype = item.get("type", tagged)
+        if qtype is not None and not isinstance(qtype, str):
+            raise InputError('question %d: "type" must be text, not %s' % (i, type(qtype).__name__))
+        if qtype is not None:
+            qtype = TYPE_ALIASES.get(qtype.strip().lower(), qtype.strip().lower())
         if qtype is not None and qtype not in TYPES:
             raise InputError("question %d has unknown type %r (use one of %s)" % (i, qtype, ", ".join(sorted(TYPES))))
-        qid = str(item.get("id", i))
+        required = item.get("required", starred)
+        if isinstance(required, str) and required.strip().lower() in ("true", "yes", "false", "no"):
+            required = required.strip().lower() in ("true", "yes")
+        if isinstance(required, int) and not isinstance(required, bool) and required in (0, 1):
+            required = bool(required)
+        if not isinstance(required, bool):
+            raise InputError('question %d: "required" must be true or false, not %r' % (i, required))
+        raw_id = item.get("id", i)
+        if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)) or not str(raw_id).strip():
+            raise InputError('question %d: "id" must be text or a whole number' % i)
+        qid = str(raw_id).strip()
         options, rows = [], []
         for key, target in (("options", options), ("rows", rows)):
             values = item.get(key, [])
@@ -379,7 +594,7 @@ def parse_json(text):
                 if key == "rows":
                     entry["id"] = qid + "abcdefghijklmnopqrstuvwxyz"[j % 26]
                 target.append(entry)
-        questions.append({"id": qid, "text": stem, "type": qtype, "required": bool(item.get("required", starred)),
+        questions.append({"id": qid, "text": stem, "type": qtype, "required": required,
                           "line": None, "options": options, "rows": rows})
     return questions, [], intro
 
@@ -389,11 +604,15 @@ def load(path, fmt):
         text = sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError("cannot read %s: %s" % (path, exc))
+    if text.startswith("\ufeff"):  # a UTF-8 byte order mark from Windows editors and Excel exports
+        text = text[1:]
     if not text.strip():
         raise InputError("input is empty")
     if fmt == "auto":
-        fmt = "json" if path.lower().endswith(".json") or text.lstrip()[:1] in "[{" else "md"
-    questions, warnings, intro = parse_json(text) if fmt == "json" else parse_markdown(text)
+        fmt = ("json" if path.lower().endswith(".json") or text.lstrip()[:1] in "[{"
+               else "qsf-md" if is_qsf_markdown(text) else "md")
+    parsers = {"json": parse_json, "qsf-md": parse_qsf_markdown, "md": parse_markdown}
+    questions, warnings, intro = parsers[fmt](text)
     if not questions:
         raise InputError("no questions found: number each question (1. ...) or end each question line with '?', "
                          "and list options as '- ' items")
@@ -471,7 +690,7 @@ def polarity(label):
     return 0, 0, None
 
 
-NUM = r"(\d[\d,]*(?:\.\d+)?)\s*([km])?\b"
+NUM = r"(-?\d[\d,]*(?:\.\d+)?)\s*([km])?\b"
 UNIT = r"(?:\s*%|\s+[a-z%/.]+){0,3}"
 
 
@@ -482,9 +701,12 @@ def _number(digits, suffix):
 
 def parse_range(label):
     """Return (lo, hi, lo_strict, hi_strict) or None. Strict bounds are resolved by the caller."""
-    low = re.sub(r"[$€£]", "", label.lower()).strip()
+    low = re.sub(r"[$€£]", "", label.lower().replace("−", "-")).strip()
     low = re.sub(r"\s+", " ", low)
     inf = math.inf
+    m = re.match(r"^" + NUM + r"\s*%?\s*(?:-|–|—|to)\s*(?:under|less than|below|fewer than|<)\s*" + NUM + UNIT + r"$", low)
+    if m:  # "1 to under 5 hours": includes 1, excludes 5
+        return (_number(m.group(1), m.group(2)), _number(m.group(3), m.group(4)), False, True)
     m = re.match(r"^(?:under|below|less than|fewer than|<)\s*" + NUM, low)
     if m and not low.startswith("<="):
         return (-inf, _number(m.group(1), m.group(2)), False, True)
@@ -508,36 +730,65 @@ def parse_range(label):
     return None
 
 
-def range_step(labels):
-    decimals = 0
+def range_step(labels, stem=""):
+    decimals = 2 if re.search(CENTS_PATTERN, stem.lower()) else 0
     for label in labels:
         for frac in re.findall(r"\d\.(\d+)", label):
             decimals = max(decimals, len(frac))
     return 10 ** -decimals
 
 
-def check_ranges(labels):
-    """Return a list of (kind, matched text) for overlap, gap and reversed ranges."""
-    step = range_step(labels)
+def is_continuous(labels, stem=""):
+    """A measure that can take any value between two whole numbers: durations in hours or minutes, weights,
+    distances, or any duration asked with 'how long'. Counts, ages in years and money are not continuous."""
+    text = " ".join(labels).lower() + " " + stem.lower()
+    if re.search(CONTINUOUS_UNIT_PATTERN, text):
+        return True
+    return bool(re.search(DURATION_STEM_PATTERN, stem.lower()) and re.search(DURATION_UNIT_PATTERN, text))
+
+
+def check_ranges(labels, stem=""):
+    """Return a list of (kind, matched text) for overlap, gap, continuous_gap and reversed ranges.
+
+    Ranges are swept in order of their lower bound against the furthest upper bound seen so far, so a wide
+    range that contains later ones is reported as overlapping each of them and does not hide or invent gaps.
+    For a continuous measure, two ranges that meet at whole numbers ("5-6 hours / 7-8 hours") leave the values
+    in between (6.5 hours) without an option: a continuous_gap."""
+    step = range_step(labels, stem)
     eps = step / 1000.0
-    parsed, problems = [], []
+    raw, problems = [], []
     for label in labels:
-        lo, hi, lo_strict, hi_strict = parse_range(label)
-        if lo_strict:
-            lo += step
-        if hi_strict:
-            hi -= step
-        if lo > hi + eps and not hi_strict:
+        lo, hi, lo_open, hi_open = parse_range(label)
+        if lo > hi + eps:
             problems.append(("reversed", label))
             continue
-        parsed.append((lo, hi, label))
-    parsed.sort(key=lambda r: (r[0], r[1]))
-    for (lo1, hi1, a), (lo2, hi2, b) in zip(parsed, parsed[1:]):
-        if lo2 <= hi1 + eps:
-            problems.append(("overlap", "%s / %s" % (a, b)))
-        elif lo2 > hi1 + step + eps:
-            problems.append(("gap", "%s / %s" % (a, b)))
+        raw.append((lo, hi, lo_open, hi_open, label))
+    raw.sort(key=lambda r: (r[0], r[2], r[1]))
+    continuous = is_continuous(labels, stem)
+    furthest = None  # (closed upper bound, raw upper bound, raw upper bound open, label)
+    for lo, hi, lo_open, hi_open, label in raw:
+        lo_c = lo + step if lo_open else lo
+        hi_c = hi - step if hi_open else hi
+        if furthest is not None:
+            f_hi_c, f_hi, f_open, f_label = furthest
+            pair = "%s / %s" % (f_label, label)
+            if lo_c <= f_hi_c + eps:
+                problems.append(("overlap", pair))
+            elif lo_c > f_hi_c + step + eps:
+                problems.append(("gap", pair))
+            elif continuous and (lo > f_hi + eps or (abs(lo - f_hi) <= eps and lo_open and f_open)):
+                problems.append(("continuous_gap", pair))
+        if furthest is None or hi_c > furthest[0] + eps:
+            furthest = (hi_c, hi, hi_open, label)
     return problems
+
+
+TIME_UNIT_PATTERN = r"\b(second|minute|hour|day|week|month|year)s?\b"
+
+
+def time_units(labels):
+    """The distinct time units named in the labels; ranges in mixed units ("6 months to 1 year") are not compared."""
+    return {m.group(1) for label in labels for m in re.finditer(TIME_UNIT_PATTERN, label.lower())}
 
 
 def analyse_options(q):
@@ -553,7 +804,7 @@ def analyse_options(q):
         if not kinds:
             plain.append(label)
     info = {"plain": plain, "specials": specials, "combined": combined, "kind": "none", "family": None,
-            "direction": 0, "zero": "none" in specials, "neutrals": 0}
+            "direction": 0, "zero": "none" in specials, "neutrals": 0, "ranged": []}
     if not plain:
         return info
     lowered = [p.lower().strip() for p in plain]
@@ -563,10 +814,15 @@ def analyse_options(q):
     info["zero"] = info["zero"] or any(re.match(ZERO_OPTION_PATTERN, l) for l in lowered) or any(r and r[0] <= 0 for r in ranges)
     scale_labels = [p for p in pols if p[2]]
     stripped = [re.sub(r"^(?:very|quite|fairly) ", "", l) for l in lowered]
+    parsed = [r for r in ranges if r]
+    unparsed = len(ranges) - len(parsed)
     if set(lowered) <= {"yes", "no"} and len(set(lowered)) == 2:
         info["kind"] = "yesno"
-    elif all(ranges) and any(r[0] != r[1] for r in ranges):
+    elif (len(parsed) >= 2 and any(r[0] != r[1] for r in parsed)
+          and unparsed <= max(1, len(plain) // 3) and len(time_units(plain)) <= 1):
+        # ranges, allowing one or two options in words ("It varies", "Never") that the parser cannot read
         info["kind"] = "numeric_range"
+        info["ranged"] = [p for p, r in zip(plain, ranges) if r]
     elif all(re.match(r"^-?\d", l) for l in lowered):
         info["kind"] = "numeric_scale"
     elif len(scale_labels) >= 2 or sum(1 for l in lowered if l.startswith(INTENSITY_LOW + INTENSITY_HIGH)) >= 2:
@@ -600,8 +856,22 @@ def strip_fixed(low, pairs=True):
 
 
 def is_english(text):
+    """True when the text reads as English. Mostly non-Latin letters means not English. Two words or fewer
+    are too short to tell and pass; longer text needs English function words that other languages do not
+    share ("the", "you", "how"): one for up to seven words, two above that."""
+    letters = [c for c in text if c.isalpha()]
+    if letters and sum(1 for c in letters if c < "\u0250") < 0.8 * len(letters):
+        return False
     words = re.findall(r"[^\W\d_]+", text.lower())
-    return len(words) < 5 or any(w in ENGLISH_FUNCTION_WORDS for w in words)
+    if len(words) <= 2:
+        return True
+    hits = sum(1 for w in words if w in STRONG_ENGLISH_WORDS)
+    return hits >= (1 if len(words) <= 7 else 2)
+
+
+def strip_instructions(text):
+    """Remove answer instructions ("Enter 0 if none.") so the wording rules read the question itself."""
+    return re.sub(ANSWER_INSTRUCTION_PATTERN, "", text, flags=re.I).strip() or text
 
 
 def wording_findings(text, kind, max_words):
@@ -630,8 +900,8 @@ def wording_findings(text, kind, max_words):
     hits = [m.group(0) for p in HYPOTHETICAL_PATTERNS for m in re.finditer(p, low)]
     if hits:
         yield ("SB004", "hypothetical", "medium", "; ".join(hits),
-               "Answers about hypothetical or future behaviour overstate real behaviour. Ask about past behaviour, "
-               "or treat the result as an upper bound.")
+               "Answers about hypothetical or future behaviour overstate real behaviour. Ask about past behaviour; "
+               "if intent must be asked, report it as stated intent, not as a forecast of what people will do.")
 
     unpaired = strip_fixed(low, pairs=False)
     negations = [m.group(0) for m in re.finditer(NEGATION_PATTERN, unpaired)]
@@ -669,8 +939,9 @@ def wording_findings(text, kind, max_words):
     hits = [m.group(0) for m in re.finditer(SENSITIVE_BEHAVIOUR_PATTERN, low)]
     if hits:
         yield ("SB021", "behaviour", "low", "; ".join(dict.fromkeys(hits)),
-               "Answers about disapproved or admired behaviour drift toward what looks good. Consider neutral framing, "
-               "self-completion and anonymity; the sensitive-questions skill covers indirect methods.")
+               "Answers about disapproved or admired behaviour drift toward what looks good. Use neutral framing, "
+               "self-completion and real anonymity, and make the question optional; for high stakes consider an "
+               "indirect method such as a list experiment.")
 
     signals = []
     if re.search(CONDITIONAL_PATTERN, low):
@@ -705,6 +976,12 @@ def question_points(q):
     return base + sentences // SENTENCES_PER_POINT
 
 
+def intro_points(text):
+    """Reading time of the introduction: 1 point per three sentences, rounded up (it has no base point)."""
+    sentences = len(re.findall(r"[.?!]+(?:\s|$)", text)) or 1
+    return float(math.ceil(sentences / float(SENTENCES_PER_POINT)))
+
+
 # ---------------------------------------------------------------------------------------
 # Lint
 # ---------------------------------------------------------------------------------------
@@ -714,9 +991,12 @@ def content_words(text):
 
 
 def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), intro=None,
-         max_grid_rows=MAX_GRID_ROWS, max_open=MAX_OPEN, phone=False, keep=()):
+         max_grid_rows=MAX_GRID_ROWS, max_open=MAX_OPEN, phone=False, keep=(), route_skip=(), language="auto"):
     findings, unchecked = [], []
     lexical = set(POSITIVE.values()) | set(NEGATIVE.values())
+
+    def english_text(text):
+        return {"en": True, "other": False}.get(language, None) if language != "auto" else is_english(text)
 
     def add(q, rule, sub, severity, match, why, qid=None, line=None):
         if q is None:
@@ -750,10 +1030,12 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
         wording_kind = "agree" if is_agree else kind
         targets = [(q["id"], q["line"], q["text"])] + [(r["id"], r["line"], r["text"]) for r in q["rows"]]
         for qid, line, text in targets:
-            if not is_english(text):
-                unchecked.append({"question": qid, "line": line, "reason": "no common English words found; wording rules skipped"})
+            if not english_text(text):
+                unchecked.append({"question": qid, "line": line,
+                                  "reason": "not read as English (--language other, or no common English words); "
+                                            "wording rules skipped"})
                 continue
-            for rule, sub, severity, match, why in wording_findings(text, wording_kind, max_words):
+            for rule, sub, severity, match, why in wording_findings(strip_instructions(text), wording_kind, max_words):
                 add(q, rule, sub, severity, match, why, qid=qid, line=line)
 
         if kind == "frequency":
@@ -783,12 +1065,16 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
         if kind == "numeric_range":
             why = {"overlap": "A value on the shared boundary fits two options. Make the ranges mutually exclusive.",
                    "gap": "Some values fit no option. Close the gap.",
+                   "continuous_gap": "The measure is continuous, so values between the ranges (such as 6.5 hours "
+                                     "between 5-6 and 7-8) fit no option. Write 'under N', 'N to under M' and 'M or "
+                                     "more', or ask for the number itself.",
                    "reversed": "The lower bound is above the upper bound."}
-            problems = check_ranges(plain)
-            for sub in ("overlap", "gap", "reversed"):
+            problems = check_ranges(info["ranged"], q["text"])
+            for sub in ("overlap", "gap", "continuous_gap", "reversed"):
                 matches = [m for k, m in problems if k == sub]
                 if matches:
-                    add(q, "SB010", sub, "high", "; ".join(matches), why[sub])
+                    add(q, "SB010", sub, CONTINUOUS_GAP_SEVERITY if sub == "continuous_gap" else "high",
+                        "; ".join(matches), why[sub])
 
         if q["type"] == "multi" and "none" not in specials:
             add(q, "SB011", "none", "medium", "no 'None of these' option",
@@ -826,7 +1112,7 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
                 "Required sensitive question with no 'Prefer not to say'. Forcing an answer raises drop-out.")
 
         # SB017: reference period and recall
-        english = is_english(q["text"])
+        english = english_text(q["text"])
         counted = re.search(FREQ_COUNT_PATTERN, low)
         asked = counted or re.search(HAVE_YOU_PATTERN, low)
         if english and asked and not re.search(TIME_PATTERN, low):
@@ -886,6 +1172,17 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
                 add(q, "SB020", "unlabelled", "medium", "scale with no labelled points",
                     "The scale's points are not described. Label the points, or at least both ends.")
 
+        # SB028: the same option twice
+        seen, dups = {}, []
+        for o in q["options"]:
+            key = re.sub(r"[\s.,;:!?]+", " ", o["text"].lower()).strip()
+            if key in seen and key not in dups:
+                dups.append(key)
+            seen.setdefault(key, o["text"])
+        if dups:
+            add(q, "SB028", "duplicate", "high", "; ".join(seen[k] for k in dups),
+                "The same answer option appears twice. Remove the copy and check which option it replaced.")
+
         # SB022: combined opt-outs
         if info["combined"]:
             add(q, "SB022", "combined", "medium", "; ".join(info["combined"]),
@@ -928,12 +1225,17 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
     rated = [(q, i) for q, i in zip(questions, infos) if i["kind"] == "rating"]
     directed = [(q, i) for q, i in rated if i["direction"]]
     if directed:
-        reference = _most_common([i["direction"] for _, i in directed])
+        directions = [i["direction"] for _, i in directed]
+        reference = _most_common(directions)
+        tie = directions.count(reference) * 2 == len(directions)
         for q, i in directed:
             if i["direction"] != reference:
+                side = "negative" if i["direction"] < 0 else "positive"
                 add(q, "SB012", "direction", "medium", "%s ... %s" % (i["plain"][0], i["plain"][-1]),
-                    "This scale runs %s first; most scales in the questionnaire run the other way. Use one direction."
-                    % ("negative" if i["direction"] < 0 else "positive"))
+                    ("This scale runs %s first; the questionnaire's scales are split evenly between the two directions, "
+                     "starting the other way. Use one direction." % side) if tie else
+                    ("This scale runs %s first; most scales in the questionnaire run the other way. Use one direction."
+                     % side))
     families = {}
     for q, i in rated:
         families.setdefault(i["family"], []).append((q, i))
@@ -953,19 +1255,26 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
     # SB015: length estimate
     by_type = {}
     for q in questions:
-        by_type[q["type"]] = by_type.get(q["type"], 0) + question_points(q)
+        if q["id"] not in route_skip:
+            by_type[q["type"]] = by_type.get(q["type"], 0) + question_points(q)
+    if intro:
+        by_type["intro"] = intro_points(intro["text"])
     points = sum(by_type.values())
     minutes = points / POINTS_PER_MINUTE * (PHONE_TIME_FACTOR if phone else 1)
     length = {"points": round(points, 2), "seconds": round(minutes * 60, 1), "minutes": round(minutes, 2),
+              "minutes_rounded": math.ceil(minutes * 2 - 1e-9) / 2.0,
               "points_by_type": {k: round(v, 2) for k, v in sorted(by_type.items())},
-              "method": "Versta Research points; %d points per minute%s"
-                        % (POINTS_PER_MINUTE, ", x %s for phone" % PHONE_TIME_FACTOR if phone else "")}
+              "route_skipped": sorted(route_skip, key=_id_key),
+              "method": "Versta Research points; %d points per minute%s; each open question counted as one "
+                        "expected sentence (3 points); introduction 1 point per three sentences; %s"
+                        % (POINTS_PER_MINUTE, ", x %s for phone" % PHONE_TIME_FACTOR if phone else "",
+                           "questions off the longest route left out" if route_skip else "every question counted")}
     if minutes > IDEAL_MINUTES:
         over_max = minutes > MAX_MINUTES
         add(None, "SB015", "over_maximum" if over_max else "over_ideal", "medium" if over_max else "low",
             "%.1f minutes" % minutes,
-            "Estimated above the %d-minute %s length respondents report. Cut or split the questionnaire."
-            % ((MAX_MINUTES, "maximum") if over_max else (IDEAL_MINUTES, "ideal")))
+            "Estimated above the %d-minute median %s length that web-panel respondents report. Cut or split the "
+            "questionnaire." % ((MAX_MINUTES, "maximum") if over_max else (IDEAL_MINUTES, "ideal")))
 
     findings = [f for f in findings if f["rule"] not in ignore]
     order, parent = {"intro": -1}, {}
@@ -1023,16 +1332,39 @@ def print_report(report):
     if not report["has_intro"]:
         print("\nNo introduction text was given, so the introduction was not checked.")
     length = report["length"]
-    print("\nEstimated length: %s points = %s min (%s s). %s." % (length["points"], length["minutes"], length["seconds"], length["method"]))
+    print("\nEstimated length: %s points = %s min (%s s; report as about %s min). %s."
+          % (length["points"], length["minutes"], length["seconds"], length["minutes_rounded"], length["method"]))
     print("These are candidates found by pattern rules; judge each one before reporting it.")
     print(report["not_checked_by_rules"])
     print(report["pretest_note"])
 
 
+def resolve_ids(names, questions, flag):
+    """Match each name to a question ID: the exact ID first, then the ID without a leading 'Q' (Q7 -> 7)."""
+    ids = [q["id"] for q in questions]
+    out, missing = set(), []
+    for name in names:
+        if name in ids:
+            out.add(name)
+            continue
+        bare = re.sub(r"^[Qq]\s*", "", name)
+        matches = [i for i in ids if i == bare or re.sub(r"^[Qq]\s*", "", i) == bare]
+        if len(matches) == 1:
+            out.add(matches[0])
+        elif matches:
+            raise InputError("%s %s matches more than one question (%s); use the exact ID" % (flag, name, ", ".join(matches)))
+        else:
+            missing.append(name)
+    if missing:
+        raise InputError("%s names a question that is not in the input: %s" % (flag, ", ".join(missing)))
+    return out
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Rule-based linter for survey questionnaires (candidates, not verdicts).")
     parser.add_argument("input", nargs="?", help="questionnaire file (.md, .txt or .json); '-' reads stdin")
-    parser.add_argument("--format", choices=["auto", "md", "json"], default="auto", help="input format (default: auto)")
+    parser.add_argument("--format", choices=["auto", "md", "json", "qsf-md"], default="auto",
+                        help="input format; qsf-md is the Markdown the qsf-convert skill writes (default: auto)")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     parser.add_argument("--strict", action="store_true", help="exit 1 when there is at least one high, medium or low finding")
     parser.add_argument("--mode", choices=["web", "phone"], default="web",
@@ -1042,6 +1374,12 @@ def main(argv=None):
                         help="expert: skip the jargon and acronym rule SB007 (default: general)")
     parser.add_argument("--keep", default="", help="question numbers that must stay unchanged, e.g. Q7,Q9; "
                                                    "their findings are reported as 'keep as is' and not counted")
+    parser.add_argument("--route-skip", default="", help="questions a respondent on the longest route never sees "
+                                                         "(the shorter of two exclusive branches), e.g. Q5,Q6; "
+                                                         "left out of the length estimate")
+    parser.add_argument("--language", choices=["auto", "en", "other"], default="auto",
+                        help="en: run the wording rules on every question; other: run none and list every question "
+                             "as unchecked (default: auto-detect per question)")
     parser.add_argument("--max-words", type=int, default=MAX_WORDS, help="SB008 word limit (default %d)" % MAX_WORDS)
     parser.add_argument("--max-options", type=int, help="SB013 option limit (default %d; phone %d)" % (MAX_OPTIONS, PHONE_MAX_OPTIONS))
     parser.add_argument("--max-grid-rows", type=int, help="SB025 grid row limit (default %d; phone %d)" % (MAX_GRID_ROWS, PHONE_MAX_GRID_ROWS))
@@ -1060,7 +1398,8 @@ def main(argv=None):
     max_options = args.max_options if args.max_options is not None else (PHONE_MAX_OPTIONS if phone else MAX_OPTIONS)
     max_grid_rows = args.max_grid_rows if args.max_grid_rows is not None else (PHONE_MAX_GRID_ROWS if phone else MAX_GRID_ROWS)
     ignore = {r.strip().upper() for r in args.ignore.split(",") if r.strip()}
-    keep = {re.sub(r"^[Qq]\s*", "", k.strip()) for k in args.keep.split(",") if k.strip()}
+    keep_raw = [k.strip() for k in args.keep.split(",") if k.strip()]
+    skip_raw = [k.strip() for k in args.route_skip.split(",") if k.strip()]
     unknown = sorted(ignore - set(RULES))
     try:
         if unknown:
@@ -1068,16 +1407,16 @@ def main(argv=None):
         if min(args.max_words, max_options, max_grid_rows) < 1 or args.max_open < 0:
             raise InputError("--max-words, --max-options and --max-grid-rows must be positive; --max-open cannot be negative")
         questions, warnings, intro = load(args.input, args.format)
-        missing = sorted(keep - {q["id"] for q in questions})
-        if missing:
-            raise InputError("--keep names a question that is not in the input: %s" % ", ".join(missing))
+        keep = resolve_ids(keep_raw, questions, "--keep")
+        route_skip = resolve_ids(skip_raw, questions, "--route-skip")
     except InputError as exc:
         print("survey-bias-check: error: %s" % exc, file=sys.stderr)
         return 2
     if args.audience == "expert":
         ignore.add("SB007")
     findings, length, unchecked = lint(questions, args.max_words, max_options, ignore, intro=intro,
-                                       max_grid_rows=max_grid_rows, max_open=args.max_open, phone=phone, keep=keep)
+                                       max_grid_rows=max_grid_rows, max_open=args.max_open, phone=phone, keep=keep,
+                                       route_skip=route_skip, language=args.language)
     report = build_report(args.input, questions, warnings, findings, length, unchecked, intro)
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))

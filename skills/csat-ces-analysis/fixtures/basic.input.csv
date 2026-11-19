@@ -1,0 +1,43 @@
+ticket_id,channel,month,csat,comment
+T001,email,2026-09,5 - Very satisfied,Fixed it fast
+T002,email,2026-09,5,
+T003,email,2026-09,5 - Very satisfied,
+T004,email,2026-09,4,Helpful
+T005,email,2026-09,4 - Satisfied,
+T006,email,2026-09,4,
+T007,email,2026-09,3 - Neither satisfied nor dissatisfied,Fine I guess
+T900,email,2026-09,,
+T008,email,2026-09,2,
+T009,email,2026-09,1 - Very dissatisfied,
+T010,email,2026-09,1,Took three emails to get an answer
+T011,email,2026-10,5 - Very satisfied,Fixed it fast
+T012,email,2026-10,5,
+T013,email,2026-10,4 - Satisfied,
+T014,email,2026-10,4,Helpful
+T015,email,2026-10,4 - Satisfied,
+T016,email,2026-10,4,
+T017,email,2026-10,4 - Satisfied,Helpful
+T018,email,2026-10,3,
+T019,email,2026-10,2 - Dissatisfied,
+T020,email,2026-10,1,Took three emails to get an answer
+T021,chat,2026-09,5 - Very satisfied,Fixed it fast
+T022,chat,2026-09,5,
+T023,chat,2026-09,5 - Very satisfied,
+T024,chat,2026-09,5,Fixed it fast
+T901,chat,2026-10,N/A,never got a reply
+T025,chat,2026-09,4 - Satisfied,
+T026,chat,2026-09,4,
+T027,chat,2026-09,4 - Satisfied,Helpful
+T028,chat,2026-09,4,
+T029,chat,2026-09,3 - Neither satisfied nor dissatisfied,
+T030,chat,2026-09,3,Fine I guess
+T031,chat,2026-10,5 - Very satisfied,Fixed it fast
+T032,chat,2026-10,5,
+T033,chat,2026-10,5 - Very satisfied,
+T034,chat,2026-10,5,Fixed it fast
+T035,chat,2026-10,5 - Very satisfied,
+T036,chat,2026-10,4,
+T037,chat,2026-10,4 - Satisfied,Helpful
+T038,chat,2026-10,4,
+T039,chat,2026-10,4 - Satisfied,
+T040,chat,2026-10,2,Slow reply
