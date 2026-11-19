@@ -717,5 +717,32 @@ class ReviewFixTest(unittest.TestCase):
         self.assertNotIn("upper bound", " ".join(f["why"] for f in found))
 
 
+class GeminiReviewTest(unittest.TestCase):
+    """Third (Gemini) review, 2026-11-19. Each case failed before the fix."""
+
+    def test_numbered_verbal_scale_is_a_rating(self):
+        f = one("How satisfied or dissatisfied are you with the app?",
+                ["1 - Very dissatisfied", "2 - Somewhat dissatisfied", "3 - Neither satisfied nor dissatisfied",
+                 "4 - Satisfied", "5 - Very satisfied", "6 - Extremely satisfied"])
+        self.assertIn(("SB009", "high"), [(x["rule"], x["severity"]) for x in f])
+        self.assertNotIn("SB020", rules(f))
+
+    def test_one_product_name_with_a_digit_keeps_a_list_nominal(self):
+        tools = ["Slack", "Microsoft 365", "Notion", "Jira", "Asana", "Trello", "Monday", "Linear", "ClickUp",
+                 "Basecamp", "Airtable", "Zoom"]
+        self.assertIn("SB013", rules(one("Which of these tools do you use at work?", tools)))
+        self.assertIn("SB013", rules(one("Which of these do you use?", tools[:11] + ["Everyday notes"])))
+
+    def test_four_point_likelihood_scale_is_balanced(self):
+        f = one("How likely or unlikely are you to renew?",
+                ["Very likely", "Somewhat likely", "Not very likely", "Not at all likely"])
+        self.assertNotIn("SB009", rules(f))
+
+    def test_one_sided_scale_around_a_midpoint_is_unbalanced(self):
+        f = one("How satisfied or dissatisfied are you with support?",
+                ["Extremely satisfied", "Very satisfied", "Satisfied", "Somewhat satisfied", "Neutral"])
+        self.assertIn(("SB009", "high"), [(x["rule"], x["severity"]) for x in f])
+
+
 if __name__ == "__main__":
     unittest.main()

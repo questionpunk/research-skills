@@ -3,7 +3,7 @@ name: survey-sample-size
 description: "Calculates survey sample size: how many responses are needed for a margin of error and confidence level, a power analysis to compare two groups (minimum detectable difference), NPS margins and comparisons, minimum subgroup sizes, MaxDiff and conjoint rules of thumb, invitations from a response rate, and how many interviews reach saturation. Use for \"how many people do I need\", \"what's the margin of error on 150 responses\", \"is n=80 enough\" or \"is my sample big enough to be statistically significant\"."
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -41,7 +41,8 @@ Do not use for:
 - Coding the interviews: use `open-ended-coding`; this skill only checks saturation from its code counts.
 - Out of scope, say so and name the right method: paired or before/after comparisons of the same
   respondents (McNemar's test, paired t test), website A/B tests with sequential stopping, clinical trials,
-  cluster-randomised or multi-arm designs beyond a Bonferroni split.
+  cluster-randomised or multi-arm designs beyond a Bonferroni split, usability-test problem discovery
+  (1 − (1 − p)^n), and shares of two answers to one multi-select question.
 - Power computed after the study from the observed difference: do not compute it; it only restates the
   p-value. Report the confidence interval instead.
 
@@ -55,16 +56,16 @@ answer. Ask one question only when the mode's required input is missing and cann
 
 | Mode | Needed | Defaults |
 |---|---|---|
-| Percentage, margin of error (`proportion`) | target margin, or the n (and count) to check | margin 0.05, p 0.5, confidence 0.95, large population, design effect 1 |
-| Mean, margin of error (`mean`) | SD and margin in scale units | confidence 0.95. No default SD: take it from a pilot or an earlier wave |
+| Percentage, margin of error (`proportion`) | target margin, or the n (and count) to check | margin 0.05 (pass it: the script needs `--margin` or `--n`), p 0.5, confidence 0.95, large population, design effect 1 |
+| Mean, margin of error (`mean`) | SD and margin in scale units | confidence 0.95. No default SD: take it from a pilot or an earlier wave; without one, size the top-2-box share with `proportion` instead |
 | Two groups (`compare`) | the two percentages (or a lift), or the difference in SDs (d) | alpha 0.05 two-sided, power 0.80, equal groups, one comparison, pooled variance, no continuity correction |
 | What an n supports (`check`) | n | p 0.5, confidence 0.95, alpha 0.05, power 0.80, large population |
-| Net Promoter Score (`nps`) | target margin in NPS points, an n, or a difference to detect | promoter and detractor shares from an earlier wave, else variance 0.67; confidence 0.95; for `--diff`: alpha 0.05 two-sided, power 0.80 |
-| Gap between two answers (`gap`) | the two shares and n | confidence 0.95 |
+| Net Promoter Score (`nps`) | target margin or difference in NPS points as a proportion (0.05 = ±5 points), or an n | promoter and detractor shares from an earlier wave, else variance 0.67; confidence 0.95; for `--diff`: alpha 0.05 two-sided, power 0.80 |
+| Gap between two answers (`gap`) | the two shares of one single-select question, and n | confidence 0.95 |
 | Subgroups (`subgroups`) | each reported subgroup's share | minimum base 100 (200 for MaxDiff or conjoint), or a target margin |
 | Invitations (`invites`) | completes and response rate | incidence, completion rate, deliverability 1.0; removal rate 0. No default response rate |
 | MaxDiff (`maxdiff`) | number of items | 4 per set (3 for 6 or 7 items, as `maxdiff-design`), sets = 3K/k, 1 subgroup. If a design exists, pass its `--per-set` and `--sets` |
-| Conjoint (`conjoint`) | tasks, alternatives, levels per attribute | main effects, 1 subgroup |
+| Conjoint (`conjoint`) | tasks, alternatives (not counting None), levels per attribute | main effects, 1 subgroup |
 | Interviews (`interviews`) | number of distinct segments | 1 fairly homogeneous group, narrow aim, goal "codes" |
 | Saturation (`saturation`) | new codes per interview, in order | base 4, run length 2, threshold 0.05 |
 
@@ -75,8 +76,10 @@ small population). If they give only an n ("is 80 enough?"), run `check`.
 Give proportions, not percentages, to the script (0.05, not 5).
 
 When the result will be published as a margin of error, ask how respondents were selected unless it is
-clear. For an opt-in sample (panel, customer list, social post) pass `--opt-in`: the statement then reads
-as a simple-random-sample benchmark, not the precision of the actual sample.
+clear; meanwhile give the number under the stated assumption. For an opt-in sample (a panel such as
+Prolific, an open link sent to the whole customer list, a social post) pass `--opt-in`: the statement then
+reads as a simple-random-sample benchmark, not the precision of the actual sample. A random sample drawn
+from a complete list is not opt-in (its non-response still is a caveat).
 
 ## Steps
 
@@ -86,36 +89,41 @@ as a simple-random-sample benchmark, not the precision of the actual sample.
 2. **Run the matching subcommand** with `--json`, by the script's path inside this skill's directory:
 
    ```bash
-   S=<skill-dir>/scripts/survey_sample_size.py
-   python3 $S proportion --margin 0.05 --table --json        # n for ±5 points, and n at other margins
-   python3 $S proportion --margin 0.05 --population 2000 --weight-cv 0.5 --json
-   python3 $S proportion --n 150 --json                       # margin of error on 150 responses
-   python3 $S proportion --n 12 --x 3 --json                  # 3 of 12: Wilson interval, not a ± margin
-   python3 $S check --n 80 --share under35=0.3 over35=0.7 --json   # is n=80 enough? what it supports
-   python3 $S mean --sd 1.1 --margin 0.2 --json
-   python3 $S compare --p1 0.50 --p2 0.60 --table --json      # n per group; add --lift 0.2 instead of --p2
-   python3 $S compare --p1 0.50 --p2 0.60 --n 150 --json      # power with 150 per group
-   python3 $S compare --p1 0.50 --n 150 --json                # smallest detectable difference
-   python3 $S compare --p1 0.50 --p2 0.60 --ratio 2 --comparisons 3 --json   # unequal groups, three comparisons
-   python3 $S compare --d 0.3 --json                          # two means, d = difference / SD
-   python3 $S gap --p1 0.42 --p2 0.37 --n 600 --json          # A vs B in the same sample
-   python3 $S nps --promoters 0.4 --detractors 0.2 --margin 0.05 --table --json   # ±5 NPS points; ±3/5/7/10 rows
-   python3 $S nps --diff 0.10 --table --json                  # n per group for a 10-point change; 5-20 point rows
-   python3 $S subgroups --share smb=0.5 mid=0.35 ent=0.15 --margin 0.10 --json   # quota table
-   python3 $S invites --completes 667 --response-rate 0.12 --incidence 0.6 --completion-rate 0.85 --removal-rate 0.1 --json
-   python3 $S maxdiff --items 20 --per-set 4 --sets 15 --subgroups 2 --json
-   python3 $S conjoint --tasks 12 --alternatives 3 --levels 3,4,5 --json
-   python3 $S interviews --segments 3 --json
-   python3 $S saturation --new-codes 14,9,6,5,3,2,1,0 --json   # or --file codes.csv
+   S="<skill-dir>/scripts/survey_sample_size.py"
+   python3 "$S" proportion --margin 0.05 --table --json        # n for ±5 points, and n at other margins
+   python3 "$S" proportion --margin 0.05 --population 2000 --weight-cv 0.5 --json
+   python3 "$S" proportion --n 150 --json                       # margin of error on 150 responses
+   python3 "$S" proportion --n 400 --opt-in --json              # opt-in panel: benchmark wording
+   python3 "$S" proportion --n 12 --x 3 --json                  # 3 of 12: Wilson interval, not a ± margin
+   python3 "$S" check --n 80 --share under35=0.3 over35=0.7 --json   # is n=80 enough? what it supports
+   python3 "$S" mean --sd 1.1 --margin 0.2 --json
+   python3 "$S" compare --p1 0.50 --p2 0.60 --table --json      # n per group; add --lift 0.2 instead of --p2
+   python3 "$S" compare --p1 0.50 --p2 0.60 --n 150 --json      # power with 150 per group
+   python3 "$S" compare --p1 0.50 --n 150 --json                # smallest detectable difference
+   python3 "$S" compare --p1 0.50 --p2 0.60 --ratio 2 --comparisons 3 --json   # unequal groups, three comparisons
+   python3 "$S" compare --d 0.3 --json                          # two means, d = difference / SD
+   python3 "$S" compare --diff 0.4 --sd 1.2 --json              # two means in scale units
+   python3 "$S" compare --p1 0.50 --p2 0.60 --n 120 --n2 300 --json   # power with groups of 120 and 300
+   python3 "$S" gap --p1 0.42 --p2 0.37 --n 600 --json          # A vs B in the same sample
+   python3 "$S" nps --promoters 0.4 --detractors 0.2 --margin 0.05 --table --json   # ±5 NPS points; ±3/5/7/10 rows
+   python3 "$S" nps --diff 0.10 --table --json                  # n per group for a 10-point change; 5-20 point rows
+   python3 "$S" subgroups --share smb=0.5 mid=0.35 ent=0.15 --margin 0.10 --json   # quota table
+   python3 "$S" invites --completes 667 --response-rate 0.12 --incidence 0.6 --completion-rate 0.85 --removal-rate 0.1 --json
+   python3 "$S" maxdiff --items 20 --per-set 4 --sets 15 --subgroups 2 --json
+   python3 "$S" conjoint --tasks 12 --alternatives 3 --levels 3,4,5 --json
+   python3 "$S" interviews --segments 3 --json                 # --method focus-groups, --goal meaning
+   python3 "$S" saturation --new-codes 14,9,6,5,3,2,1,0 --json   # or --file codes.csv
    ```
 
-   `python3 $S SUBCOMMAND --help` lists every option. Bad input exits with status 2 and a one-line
+   `python3 "$S" SUBCOMMAND --help` lists every option; `--opt-in`, `--population`, `--deff`, `--weight-cv`
+   and `--icc` with `--cluster-size` go on any subcommand that takes them. Bad input exits with status 2 and a one-line
    message; fix the input, do not work around it.
 3. **Adjust for the sample you will really get.**
    - Population under about 20 times the n: pass `--population` (finite population correction; also on
      `check`). If everyone in it responded, the script reports a census with no sampling error.
    - Weighted data: `--weight-cv` (coefficient of variation of the weights), or `--deff` if known.
-     Clustered data (classes, stores, teams): `--icc` with `--cluster-size`.
+     Clustered sampling for a descriptive estimate (classes, stores, teams): `--icc` with
+     `--cluster-size`. Assigning whole clusters to the arms of an experiment is out of scope.
    - Results per subgroup: run `subgroups` with every reported subgroup's share and use its quota table.
    - A subgroup comparison that must detect a stated difference: run `compare` (with `--ratio` when the
      groups differ in size); it usually asks for more than the minimum base.
@@ -130,9 +138,10 @@ as a simple-random-sample benchmark, not the precision of the actual sample.
 5. **Turn completes into invitations** with `invites` when the user recruits from a list. Use their own
    past response and removal rates; if they have none, show two scenarios rather than inventing a rate.
 6. **MaxDiff and conjoint:** report the result as a rule of thumb and name the source. MaxDiff: at least
-   300 respondents in total and 200 per subgroup reported (the same rule `maxdiff-design` and
-   `maxdiff-analysis` use); for a sparse design (each item under 2 times per respondent) also 500 item
-   exposures per group, preferably 1000. Conjoint: 500 representations per level, 1000 preferred. Those
+   300 respondents in total and 200 per subgroup reported, raised above 30 items (doubled at 60; the same
+   rule `maxdiff-design` and `maxdiff-analysis` use); for a sparse design (each item under 2 times per respondent) also 500 item
+   exposures per group, preferably 1000. Conjoint: 500 representations per level, 1000 preferred, and at
+   least 300 respondents (200 per compared subgroup). Those
    500/1000 figures count exposures or representations, not respondents. For a high-stakes study
    recommend simulating the design.
 7. **Interviews and focus groups:** run `interviews` for the planning range and present it as guidance per
@@ -192,7 +201,8 @@ Sources: <the sources the script printed>
 ```
 
 For an "is n enough" question the Answer line reads: `**Answer:** Yes | No: n = <n> gives <margin, interval
-or detectable difference>; <need> takes <n required>.`
+or detectable difference>; <need> takes <n required>.` With no stated need, drop "Yes | No" and give the
+numbers.
 
 ## Checks before answering
 

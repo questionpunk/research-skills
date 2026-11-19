@@ -27,7 +27,7 @@ import os
 import re
 import sys
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 INSTRUMENTS = {
     "sus": {"name": "SUS (standard, alternating tone)", "items": 10, "scale": (1, 5), "higher_is_better": True},
@@ -102,7 +102,7 @@ INSTRUMENT_PRESETS = {"sus": ("agree5", "agree5-somewhat"), "sus-positive": ("ag
 LABELLED_RE = re.compile(r"^\s*(?:\(\s*(-?\d{1,3})\s*\)\s*|(-?\d{1,3})\s*(?:[-–—:=.)]\s*|\s+))([^\W\d_].*)$")
 NON_ANSWER_RE = re.compile(
     r"^(n/?a|na|none|-+|\.|\?|don'?t know|do not know|dk|not applicable|prefer not to (say|answer)|refused|"
-    r"skipped|no answer|no opinion)$",
+    r"skipped|no answer|no opinion|nan)$",
     re.I,
 )
 DELIMITERS = {"comma": ",", "semicolon": ";", "tab": "\t", "pipe": "|", "\\t": "\t"}
@@ -255,6 +255,10 @@ def read_table(path, delimiter=None, skip_rows=None, notes=None):
     if not table:
         raise InputError(f"{path} is empty or has no header row")
     headers = [h.strip() for h in table[0]]
+    # Excel can save trailing empty columns: drop them when no row has anything there.
+    while len(headers) > 1 and not headers[-1] and not any(
+            len(r) >= len(headers) and r[len(headers) - 1].strip() for r in table[1:]):
+        headers.pop()
     repeated = sorted({h for h in headers if headers.count(h) > 1})
     if repeated:
         raise InputError(
@@ -313,7 +317,10 @@ def norm_label(text):
 
 
 def as_number(text):
-    """The number in a plain numeric answer ("4", "4.0", "4,0"), else None."""
+    """The number in a plain numeric answer ("4", "4.0", "4,0"), else None. Python's float() also reads "0_5"
+    as 5, so an underscore is refused."""
+    if "_" in text:
+        return None
     try:
         return float(text.replace(",", ".")) if re.fullmatch(r"-?\d+,\d+", text) else float(text)
     except ValueError:
@@ -487,8 +494,9 @@ def preset_value(name, text):
     return LABEL_PRESETS[name]["map"].get(text)
 
 
-def read_point(raw, labels):
-    """Return (value, None) or (None, reason). Reasons: blank, non_answer, non_numeric, non_integer."""
+def read_point(raw, labels, allow_fraction=False):
+    """Return (value, None) or (None, reason). Reasons: blank, non_answer, non_numeric, non_integer. A digital
+    TLX slider can record 42.5 (allow_fraction); every other scale here has whole points."""
     text = (raw or "").strip()
     if not text:
         return None, "blank"
@@ -505,7 +513,7 @@ def read_point(raw, labels):
     if math.isnan(value) or math.isinf(value):
         return None, "non_numeric"
     if value != int(value):
-        return None, "non_integer"
+        return (value, None) if allow_fraction else (None, "non_integer")
     return int(value), None
 
 
@@ -526,14 +534,14 @@ def detect_items(headers, instrument, items_arg):
             numbered = {}
             for h in pool:
                 match = SUS_ITEM_RE.match(SUS_PREFIX_RE.sub("", h) if pool is not headers else h)
-                if match and 1 <= int(match.group(1)) <= 10:
+                if match:  # every number, so Q1 ... Q15 or Q0 ... Q10 is not cut down to ten
                     numbered.setdefault(int(match.group(1)), []).append(h)
             if sorted(numbered) == list(range(1, 11)) and all(len(v) == 1 for v in numbered.values()):
                 return [numbered[i][0] for i in range(1, 11)], "auto-detected (numbered 1 to 10)"
         groups = {}
         for h in headers:
             match = ROW_SUFFIX_RE.match(h)
-            if match and 1 <= int(match.group(2)) <= 10:
+            if match:
                 groups.setdefault(match.group(1).lower(), {}).setdefault(int(match.group(2)), []).append(h)
         complete = [g for g in groups.values()
                     if sorted(g) == list(range(1, 11)) and all(len(v) == 1 for v in g.values())]
@@ -593,14 +601,13 @@ def score_row(instrument, values, scale, reverse_performance, seq_reversed=False
 
 def pearson(xs, ys):
     n = len(xs)
-    if n < 3:
-        return None
-    mx, my = sum(xs) / n, sum(ys) / n
-    sxx = sum((x - mx) ** 2 for x in xs)
-    syy = sum((y - my) ** 2 for y in ys)
-    if sxx == 0 or syy == 0:
-        return None
-    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / math.sqrt(sxx * syy)
+    if n < 3 or max(xs) == min(xs) or max(ys) == min(ys):  # a constant side has no correlation (and float
+        return None                                           # rounding would invent one)
+    mx, my = math.fsum(xs) / n, math.fsum(ys) / n
+    sxx = math.fsum((x - mx) ** 2 for x in xs)
+    syy = math.fsum((y - my) ** 2 for y in ys)
+    r = math.fsum((x - mx) * (y - my) for x, y in zip(xs, ys)) / math.sqrt(sxx * syy)
+    return max(-1.0, min(1.0, r))
 
 
 def cgs(score):
@@ -739,6 +746,9 @@ def target_test(group, target, tail, confidence, min_base):
         out.update({"tested": False, "note": "pooled over designs in a paired study (each participant counted "
                                              "once per design): test each design instead"})
         return out
+    if group.get("pooled_across_groups"):
+        out.update({"tested": False, "note": "pooled across the groups, a mix of designs: test each group instead"})
+        return out
     if group["n"] < 2 or not group.get("sd"):
         out.update({"tested": False, "note": "needs at least 2 participants whose scores differ"})
         return out
@@ -781,6 +791,37 @@ def same_file(a, b):
         return os.path.realpath(a) == os.path.realpath(b)
 
 
+def check_agree_orientation(raw_values, scale):
+    """Stop when labelled agree answers put "agree" at the low end ("1 - Strongly agree"): SUS and UMUX-Lite
+    score 1 as disagree, so reading those numbers as they stand would turn an 85 into a 15."""
+    ends = {scale[0]: [], scale[1]: []}
+    for raw in raw_values:
+        pair = labelled_number((raw or "").strip())
+        if pair and pair[0] in ends:
+            ends[pair[0]].append(pair[1].lower())
+    agree_low = any("agree" in t and "disagree" not in t and "not" not in t.split() for t in ends[scale[0]])
+    disagree_high = any("disagree" in t for t in ends[scale[1]])
+    if agree_low or disagree_high:
+        raise InputError(f"the answers label {scale[0]} as agree (or {scale[1]} as disagree), the reverse of the scoring "
+                         f"here ({scale[1]} = strongly agree). Check the questionnaire, then recode the answers or "
+                         "map every label with --labels.")
+
+
+def check_seven_point_labels(raw_values, allowed):
+    """Stop when the text answers fit a 7-point agree scale better than any 5-point one: a few "Somewhat agree"
+    answers among "Agree" ones mean "Agree" was 6 of 7, not 4 of 5."""
+    texts = text_answers(raw_values)
+    if not texts:
+        return
+
+    def unread(name):
+        return sum(c for t, c in texts.items() if preset_value(name, t) is None)
+
+    if unread("agree7") < min(unread(n) for n in allowed):
+        raise InputError("the text answers fit a 7-point agree scale (" + describe_presets(["agree7"]) + "). A 7-point "
+                         "SUS is not the SUS and is not scored against its benchmarks.")
+
+
 def check_seq_orientation(raw_values, scale, seq_reversed):
     """Stop when labelled SEQ answers put "easy" at the low end: older forms ran very easy (1) to very difficult
     (7), the current one the other way round."""
@@ -791,8 +832,9 @@ def check_seq_orientation(raw_values, scale, seq_reversed):
         pair = labelled_number((raw or "").strip())
         if pair and pair[0] in ends:
             ends[pair[0]].append(pair[1].lower())
-    easy_low = any("easy" in t and "difficult" not in t for t in ends[scale[0]])
-    hard_high = any("difficult" in t or "hard" in t for t in ends[scale[1]])
+    negated = re.compile(r"\b(?:not|no|hardly)\b")  # "Not at all easy" is the difficult end
+    easy_low = any("easy" in t and "difficult" not in t and not negated.search(t) for t in ends[scale[0]])
+    hard_high = any(("difficult" in t or "hard" in t) and not negated.search(t) for t in ends[scale[1]])
     if easy_low or hard_high:
         raise InputError(f"the SEQ answers label {scale[0]} as easy (or {scale[1]} as difficult), the reverse of the "
                          f"scoring here ({scale[1]} = very easy). Pass --seq-reversed to score them as "
@@ -815,6 +857,10 @@ def analyse(args):
     if args.tail in ("above", "below") and args.compare and args.target is not None:
         raise InputError("--tail sets the direction of both the target tests and --compare; run them separately so "
                          "each one-sided question is stated on its own (or drop --tail for a two-sided compare)")
+    if args.compare and args.pairwise:
+        raise InputError("--compare and --pairwise both name the tests to run; pass one of them")
+    if args.tail in ("above", "below") and not args.compare and args.target is None:
+        raise InputError("--tail above/below sets the direction of --compare or --target; pass one of them")
     if args.tail in ("above", "below") and args.pairwise:
         raise InputError("--tail above/below needs a direction for each pair, which --pairwise does not set: use "
                          "--compare A B (A minus B) for the pair the hypothesis names")
@@ -831,12 +877,20 @@ def analyse(args):
     if args.paired and not (args.id_col and args.group_col):
         raise InputError("--paired needs --id-col (the participant) and --group-col (the design or condition)")
     items, items_source = detect_items(headers, instrument, args.items)
+    if args.reverse_performance and items_source == "given":
+        perf = [i for i, c in enumerate(items) if re.search(TLX_PATTERNS["performance"], c, re.I)]
+        if perf and perf != [3]:
+            raise InputError(f"--reverse-performance flips the fourth --items column ({items[3]!r}), but "
+                             f"{items[perf[0]]!r} looks like performance. Pass --items in the order "
+                             + ",".join(TLX_SUBSCALES) + ".")
     scale = resolve_scale(args, instrument)
     if instrument == "tlx" and not args.scale:
         notes.append("NASA-TLX read on 0-100. For the paper form's 21 marks pass --scale 1-21 (or 0-20).")
     if args.impute_midpoint and not instrument.startswith("sus"):
         raise InputError("--impute-midpoint follows Brooke's SUS instruction; it is not offered for other scales")
     raw = [r[c] for r in rows for c in items]
+    if instrument.startswith("sus") and not args.labels:
+        check_seven_point_labels(raw, INSTRUMENT_PRESETS[instrument])
     # The instrument fixes the scale; only label maps of that scale are considered (a 7-point UMUX-Lite's
     # "Strongly agree" is 7, never the 5 of a 5-point map).
     scale, scale_source, labels, label_source = resolve_scale_and_labels(
@@ -848,7 +902,12 @@ def analyse(args):
     if labelled:
         notes.append(labelled)
     if instrument == "seq":
+        if args.seq_reversed and label_source == "ease7":
+            raise InputError("the SEQ answers are text labels (\"Very easy\" ... \"Very difficult\"), which name their "
+                             "own end; --seq-reversed would invert them. Drop --seq-reversed.")
         check_seq_orientation(raw, scale, args.seq_reversed)
+    elif not args.labels:
+        check_agree_orientation(raw, scale)
     excluded = {}
     unread = non_blank = 0
     records = []
@@ -856,9 +915,14 @@ def analyse(args):
     for row in rows:
         values, problem, missing = [], None, 0
         for col in items:
-            value, reason = read_point(row[col], labels)
+            value, reason = read_point(row[col], labels, instrument == "tlx")
             if reason is None and not scale[0] <= value <= scale[1]:
                 reason = "out_of_range"
+                if instrument.startswith("sus") and scale[1] < value <= 10 and not args.allow_unreadable:
+                    raise InputError(
+                        f"a SUS answer of {value:g} (column {col!r}): the SUS has 5 points, so this looks like a "
+                        "7-point or 0-10 version, which is not the SUS and is not scored against its benchmarks. "
+                        "Pass --allow-unreadable only if these few answers are typos.")
             if reason in ("blank", "non_answer"):
                 missing += 1
                 values.append(None)
@@ -899,10 +963,6 @@ def analyse(args):
     if not records:
         raise InputError("no participant could be scored: " +
                          (", ".join(f"{k} {v}" for k, v in sorted(excluded.items())) or "the file has no rows"))
-    if imputed:
-        notes.append(f"{imputed} participant(s) with up to {args.max_imputed} skipped SUS item(s) scored with the "
-                     "midpoint (3) for those items. Brooke (1996) gave that as an instruction to respondents; "
-                     "applying it afterwards is this skill's option, so the complete-case result is shown too.")
     if excluded.get("incomplete"):
         notes.append(f"{excluded['incomplete']} participant(s) with skipped items were not scored" +
                      (f" (more than {args.max_imputed} skipped)." if args.impute_midpoint else
@@ -928,7 +988,9 @@ def analyse(args):
             if flagged:
                 warnings.append(
                     f"{len(flagged)} participant(s) agreed (or disagreed) with both the positive and the negative "
-                    "items, a sign of misreading the alternating wording. They are kept; --drop-flagged removes them."
+                    "items, a sign of misreading the alternating wording. " +
+                    ("They were removed (--drop-flagged); report the result with them kept as well." if args.drop_flagged
+                     else "They are kept; --drop-flagged removes them.")
                 )
                 if args.drop_flagged:
                     keep = set(range(len(records))) - set(flagged)
@@ -941,6 +1003,11 @@ def analyse(args):
                 f"Odd and even items move in opposite directions (r = {r_oe:.2f}), as in the standard alternating "
                 "SUS. If items 2, 4, 6, 8 and 10 were negatively worded, rerun with --instrument sus."
             )
+    imputed = sum(1 for r in records if r["imputed"])  # after --drop-flagged, so it counts scored rows only
+    if imputed:
+        notes.append(f"{imputed} participant(s) with up to {args.max_imputed} skipped SUS item(s) scored with the "
+                     "midpoint (3) for those items. Brooke (1996) gave that as an instruction to respondents; "
+                     "applying it afterwards is this skill's option, so the complete-case result is shown too.")
     bounds = (0.0, 100.0) if instrument != "seq" else scale
     seven_point = scale[1] - scale[0] + 1 == 7
     if instrument == "umux-lite" and not seven_point:
@@ -1031,7 +1098,7 @@ def analyse(args):
                 out = paired(a, b, by_id[0], by_id[1], args.confidence, args.min_base, tuple(blanks))
             else:
                 if args.id_col and warn:
-                    shared = {r["id"] for r in ga} & {r["id"] for r in gb}
+                    shared = {r["id"] for r in ga if r["id"]} & {r["id"] for r in gb if r["id"]}
                     if shared:
                         warnings.append(f"{len(shared)} participant(s) appear in both {a} and {b}; the independent "
                                         "test assumes different people. Use --paired for a within-subjects study.")
@@ -1067,7 +1134,9 @@ def analyse(args):
     if args.target is not None:
         tail = args.tail or "two"
         targets = [target_test(overall, args.target, tail, args.confidence, args.min_base)]
-        targets += [target_test(g, args.target, tail, args.confidence, args.min_base) for g in result.get("groups", [])]
+        # Rows with no group are summarised but not tested, as in --pairwise.
+        targets += [target_test(g, args.target, tail, args.confidence, args.min_base) for g in result.get("groups", [])
+                    if g["label"] != "(blank)"]
         holm(targets, args.adjust, 1 - args.confidence, args.min_base)  # the target tests are their own family
         if args.adjust == "none" and sum(1 for t in targets if t.get("tested")) > 1:
             warnings.append(f"{sum(1 for t in targets if t.get('tested'))} target tests were run without a "

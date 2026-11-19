@@ -24,7 +24,7 @@ import re
 import sys
 from statistics import NormalDist
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 DEFAULT_SMALL_BASE = 30  # convention of this skill: no letters for a column with an (effective) base under 30
 DEFAULT_ANONYMITY_K = 5  # common minimum group size in employee surveys; configurable (references/sources.md)
@@ -34,7 +34,7 @@ DEFAULT_NA = ["", "NA", "N/A", "n/a", "#N/A", "NaN", "nan", "NULL", "null", "Non
 # A coded label needs an explicit delimiter or parentheses after the code ("5 - Very", "(5) Very", "5. Very"), so
 # "1 week", "18 to 24" and "50k-75k" stay text categories. Same rule as survey-weighting.
 LABELLED_RE = re.compile(r"^\s*(?:\((-?\d{1,4})\)|(-?\d{1,4})\s*[-–—:=.)])\s*[^\W\d_].*$")
-THOUSANDS_RE = re.compile(r"-?\d{1,3}(?:,\d{3})+")
+THOUSANDS_RE = re.compile(r"-?[1-9]\d{0,2}(?:,\d{3})+")  # "0,500" is a decimal comma, never thousands
 DELIMITERS = {"comma": ",", "semicolon": ";", "tab": "\t", "pipe": "|", "\\t": "\t"}
 
 
@@ -309,7 +309,7 @@ def read_table(path, delimiter=None, skip_rows=None, notes=None):
 
 def ambiguous_comma(text):
     """'1,020' could be 1020 (thousands) or 1.02 (decimal comma): refuse rather than guess."""
-    return bool(re.fullmatch(r"-?\d{1,3},\d{3}", text.strip()))
+    return bool(re.fullmatch(r"-?[1-9]\d{0,2},\d{3}", text.strip()))
 
 
 def parse_number(text):
@@ -432,13 +432,17 @@ def letters_for(count):
 
 # ------------------------------------------------------------------------------------------------ loading
 
-def parse_kv_list(items, flag):
+def parse_kv_list(items, flag, merge=False):
+    """COLUMN=v1;v2 items. A repeated column adds up (merge, for --hide) or stops (--order), never overwrites."""
     out = {}
     for item in items or []:
         if "=" not in item:
             raise InputError(f"{flag} takes COLUMN=VALUES; got {item!r}")
         col, rest = item.split("=", 1)
-        out[col.strip()] = [v for v in rest.split(";") if v.strip()]
+        values = [v for v in rest.split(";") if v.strip()]
+        if col.strip() in out and not merge:
+            raise InputError(f"{flag} names {col.strip()!r} twice; give its values once")
+        out.setdefault(col.strip(), []).extend(values)
     return out
 
 
@@ -628,12 +632,15 @@ def build_table(row_var, banner_var, data, args, z, nets, letter_map=None, force
     if banner_var is not None:
         if letter_map is None:
             letter_map, _ = banner_letters(banner_var, data)
-        bcats = [b for b in letter_map if b in col_acc]
+        # Under the anonymity rule every group stays listed (empty ones hidden), so a group missing from one table
+        # does not show that all its members skipped that question.
+        bcats = [b for b in letter_map if b in col_acc or args.anonymity is not None]
     else:
         bcats = []
     columns = [{"key": None, "label": "Total", "letter": None, "acc": total_acc}]
     for b in bcats:
-        columns.append({"key": b, "label": str(banner_var.labels[b]), "letter": letter_map[b], "acc": col_acc[b]})
+        columns.append({"key": b, "label": str(banner_var.labels[b]), "letter": letter_map[b],
+                        "acc": col_acc.setdefault(b, Acc())})
     for col in columns:
         acc = col["acc"]
         col["n"] = acc.n
@@ -948,11 +955,12 @@ def apply_anonymity(table, k, force_hidden=()):
         withhold(table, "Anonymity: the table could not be protected cell by cell, so it is hidden.")
         return set()
     if extra_cols:
-        notes.append("Anonymity: also hid " + ", ".join(extra_cols) + " (complementary), so hidden groups cannot be "
+        notes.append("Anonymity: also hid " + ", ".join(sorted(extra_cols)) + ", so hidden groups cannot be "
                      "worked out as Total minus the shown groups.")
     if primary or secondary:
-        notes.append(f"Anonymity: {primary} cell(s) with fewer than {k} respondents hidden, plus {secondary} "
-                     "complementary cell(s), so no hidden count can be worked out from what is shown.")
+        # One combined count: splitting it into "under k" and "complementary" would bound each hidden value.
+        notes.append(f"Anonymity: {primary + secondary} cell(s) hidden (fewer than {k} respondents, or hidden with "
+                     "them so no hidden count can be worked out from what is shown).")
     # Nets and means are hidden wherever one of their cells is.
     for r in rows:
         if r["kind"] != "net":
@@ -1085,14 +1093,16 @@ def chi_square(table, weighted):
     table is scaled to the Kish effective total (a first-order design-effect correction)."""
     columns = table["columns"][1:]
     cat_rows = [r for r in table["rows"] if r["kind"] == "category"]
-    use_cols = [i + 1 for i, c in enumerate(columns) if c["weighted_base"] > 0 and not c["suppressed"]]
+    use_cols = [i + 1 for i, c in enumerate(columns)
+                if c["weighted_base" if weighted else "n"] > 0 and not c["suppressed"]]
     if any(r["cells"][ci]["suppressed"] for r in cat_rows for ci in use_cols):
         # A statistic computed from hidden cells can be inverted to recover them (sources.md, Anonymity rule).
         return {"statistic": None, "df": None, "p": None,
                 "note": "withheld: the anonymity rule hides cells in the groups it would test"}
     if len(use_cols) < 2 or len(cat_rows) < 2:
         return {"statistic": None, "df": None, "p": None, "note": "needs at least two groups and two answers"}
-    obs = [[r["cells"][ci]["weighted_count"] for ci in use_cols] for r in cat_rows]
+    # Equal weights (constant_w) report unweighted results: use the counts, or X2 would scale with the weight.
+    obs = [[r["cells"][ci]["weighted_count" if weighted else "count"] for ci in use_cols] for r in cat_rows]
     obs = [row for row in obs if sum(row) > 0]
     if len(obs) < 2:
         return {"statistic": None, "df": None, "p": None, "note": "every answer is the same"}
@@ -1117,7 +1127,9 @@ def chi_square(table, weighted):
                 tiny += 1
             stat += (o - e) ** 2 / e if e > 0 else 0.0
     df = (len(obs) - 1) * (len(use_cols) - 1)
-    out = {"statistic": stat, "df": df, "p": chi2_sf(stat, df), "expected_under_5": small, "cells": cells,
+    out = {"statistic": stat, "df": df, "p": chi2_sf(stat, df),
+           "cramers_v": math.sqrt(stat / (total * min(len(obs) - 1, len(use_cols) - 1))) if total > 0 else None,
+           "expected_under_5": small, "cells": cells,
            "weighted": weighted, "reliable": not (tiny or small > 0.2 * cells),
            "groups": [table["columns"][ci]["label"] for ci in use_cols]}
     if not out["reliable"]:
@@ -1145,8 +1157,8 @@ def analyse(args):
     headers, rows, data, dropped = load(args, notes)
     if args.list_columns:
         return {"columns": describe_columns(headers, rows, args)}
-    if data["rows_used"] == 0:
-        raise InputError("no usable rows")
+    if data["rows_used"] == 0 or sum(f * w for f, w in zip(data["freq"], data["w"])) <= 0:
+        raise InputError("no usable rows (every count, or every weight, is 0)")
     if args.anonymity and sum(data["freq"]) < args.anonymity:
         raise InputError(f"the file has {sum(data['freq'])} respondents, fewer than the anonymity threshold "
                          f"{args.anonymity}, so no table can be shown without identifying someone")
@@ -1161,7 +1173,7 @@ def analyse(args):
         if (net_col, net_label.lower()) in seen_nets:
             raise InputError(f"--net {net_col}:{net_label} is given twice; give each net on a question its own name")
         seen_nets.add((net_col, net_label.lower()))
-    hide = parse_kv_list(args.hide, "--hide")
+    hide = parse_kv_list(args.hide, "--hide", merge=True)
     for col in hide:
         if col not in (args.banner or []):
             raise InputError(f"--hide names {col!r}, which is not one of --banner")
@@ -1261,6 +1273,14 @@ def strip_table(t):
     out = {key: t[key] for key in TABLE_FIELDS if key in t}
     out["withheld"] = bool(t.get("withheld"))
     out["columns"] = []
+    if out["withheld"]:
+        # Nothing about who answered: the blank counts give the number of answers, the column list who gave them.
+        out["blank_row"] = out["blank_banner"] = None
+        out["rows"], out["mean_row"] = [], None
+        for key in ("chi_square", "nets"):
+            if key in out:
+                out[key] = None
+        return out
     for c in t["columns"]:
         col = {key: c[key] for key in COLUMN_FIELDS}
         col["key"] = col["key"] if col["key"] is None or isinstance(col["key"], (int, str)) else str(col["key"])
@@ -1302,7 +1322,7 @@ def describe_columns(headers, rows, args):
         for v in answered:
             if v not in distinct:
                 distinct.append(v)
-        multi_hint = sum(1 for v in answered if ";" in v) > 0.2 * max(1, len(answered))
+        multi_hint = sum(1 for v in answered if args.multi_sep in v) > 0.2 * max(1, len(answered))
         out.append({"column": h, "answered": len(answered), "blank": len(vals) - len(answered),
                     "distinct": len(distinct), "examples": distinct[:5],
                     "numeric_codes": bool(answered) and all(code_of(v) is not None for v in answered),
@@ -1330,6 +1350,11 @@ def fmt_p(p):
     if p is None:
         return "-"
     return "<0.001" if p < 0.001 else f"{p:.3f}"
+
+
+def md(text):
+    """A label safe inside a Markdown table cell: an escaped pipe, newlines as spaces."""
+    return " ".join(str(text).split()).replace("|", "\\|")
 
 
 def render(result, show_ci=False):
@@ -1373,7 +1398,7 @@ def render(result, show_ci=False):
             for note in t["notes"]:
                 out.append(f"- {note}")
             continue
-        heads = [c["label"] if c["letter"] is None else f"{c['label']} ({c['letter']})" for c in t["columns"]]
+        heads = [md(c["label"]) if c["letter"] is None else f"{md(c['label'])} ({c['letter']})" for c in t["columns"]]
         out.append("| | " + " | ".join(heads) + " |")
         out.append("|---" * (len(heads) + 1) + "|")
 
@@ -1399,7 +1424,7 @@ def render(result, show_ci=False):
                 if cell["letters"]:
                     txt += " " + fmt_letters(cell["letters"])
                 cells.append(txt)
-            label = f"**{r['label']}**" if r["kind"] == "net" else r["label"]
+            label = f"**{md(r['label'])}**" if r["kind"] == "net" else md(r["label"])
             out.append(f"| {label} | " + " | ".join(cells) + " |")
         if t.get("mean_row"):
             cells = []
@@ -1421,7 +1446,8 @@ def render(result, show_ci=False):
         cs = t.get("chi_square")
         if cs and cs.get("statistic") is not None:
             line = (f"Chi-square{' (weighted: Kish approximation, scaled to effective n)' if cs['weighted'] else ''}: "
-                    f"X2 = {cs['statistic']:.2f}, df = {cs['df']}, p = {fmt_p(cs['p'])}.")
+                    f"X2 = {cs['statistic']:.2f}, df = {cs['df']}, p = {fmt_p(cs['p'])}"
+                    + (f", Cramer's V = {cs['cramers_v']:.2f}." if cs.get("cramers_v") is not None else "."))
             if not cs["reliable"]:
                 line += " " + cs["note"]
                 if "fisher_p" in cs:

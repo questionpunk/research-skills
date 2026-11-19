@@ -88,13 +88,16 @@ one crossing.
 
 - **Sign change between neighbouring grid prices p1 and p2**: linear interpolation,
   p* = p1 + (p2 − p1) × d1 / (d1 − d2). The same formula is in the R package's newer intersection routine
-  (`R/psm_utils.R`).
+  (`R/psm_utils.R`), the one version 1.3.3 runs (checked against an R run).
 - **d = 0 at exactly one grid price**: that price is the crossing. (Follows from the formula.)
 - **d = 0 at several neighbouring grid prices** (the curves coincide, typically where both are 0% because no
   one's too-cheap price reaches as high as anyone's too-expensive price): the script reports the midpoint of
   the interval, the interval itself, and a warning. **Our convention**; no source prescribes one. `--tie`
   offers `min` (lower end, the R package's default `intersection_method`), `max` (upper end), `mean` (mean
-  of the observed prices in the run, as in R's older routine) and `midpoint` (default).
+  of the observed prices in the run, as in R's older routine) and `midpoint` (default). Under
+  `--compat r` the rule is R 1.3.3's, checked against an R run: a crossing at each sign change of the
+  difference, so the run's first price and, only when the curves part again before the highest observed
+  price, its last price; `--tie` picks from those.
 - **`--no-interpolate`**: the crossing is the first grid price at which the rising curve is at or above the
   falling one; `--tie` then applies to the run of neighbouring grid prices at which both curves keep those
   values. This is the R package's older routine (`R/psm-utils.R`, the only one up to version 1.3.0).

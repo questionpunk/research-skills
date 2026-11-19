@@ -46,8 +46,8 @@ Participant 04 answered 3 to every A item (straight-lined; scores 50).
 - Paired (the right test for this design): differences mean 16.875, SD 5.4486, SE 1.5729, t = **10.73**,
   df 11, p = **3.6 × 10⁻⁷**, interval **13.41 to 20.34**. The paired test is far more sensitive here because
   each participant's general leniency cancels out.
-- Overall vs 68, one-tailed "above", as the script computes it without `--paired` (rows treated as
-  independent; it warns that the same participants appear in both designs): t = (67.8125 − 68)/(18.272/√24)
+- Overall vs 68, one-tailed "above", as the script computes it without `--group-col` (the 24 rows treated as
+  one independent sample; with `--group-col` the pooled line is not tested): t = (67.8125 − 68)/(18.272/√24)
   = −0.0503, p = **0.520**.
 
 ## 3. `umux_lite.input.csv`: UMUX-Lite on 7 points

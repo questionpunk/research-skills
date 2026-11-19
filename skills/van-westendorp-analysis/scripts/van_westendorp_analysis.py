@@ -38,7 +38,7 @@ import sys
 from fractions import Fraction
 from xml.sax.saxutils import escape
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 DEFAULT_MIN_N = 100
 DEFAULT_INTENT_SCALE = "5,4,3,2,1"
 NMS_PRESETS = {
@@ -71,7 +71,7 @@ POINT_NAMES = {
     "pme": "PME  point of marginal expensiveness",
 }
 COMPAT = {
-    "r": {"strict": True, "boundary": "exclusive-forced-ends", "tie": "min"},
+    "r": {"strict": True, "boundary": "exclusive-forced-ends", "tie": "min", "r_ties": True},
     "r-1.3.0": {"strict": True, "boundary": "exclusive", "tie": "min", "no_interpolate": True},
 }
 BOUNDARY_TEXT = {
@@ -414,8 +414,13 @@ def _tie(prices, rule):
     return (prices[0] + prices[-1]) / 2
 
 
-def crossing(grid, falling, rising, interpolate=True, tie="midpoint"):
-    """Where a falling and a rising curve (exact counts on the grid) cross. Rules: module docstring."""
+def crossing(grid, falling, rising, interpolate=True, tie="midpoint", r_ties=False):
+    """Where a falling and a rising curve (exact counts on the grid) cross. Rules: module docstring.
+
+    r_ties (--compat r): R pricesensitivitymeter 1.3.3 takes a crossing at every sign change of the
+    difference, so a run of coinciding prices gives its first price and, only when the curves part again
+    before the highest observed price, its last price; --tie then picks from those one or two prices.
+    """
     diff = [a - b for a, b in zip(falling, rising)]
     first = next((i for i, d in enumerate(diff) if d <= 0), None)
     if first is None or (first == 0 and diff[0] < 0):
@@ -436,6 +441,9 @@ def crossing(grid, falling, rising, interpolate=True, tie="midpoint"):
         prices = [grid[i] for i in run]
         if len(prices) == 1:
             return {"price": prices[0], "status": "exact", "at": prices[0]}
+        if r_ties:
+            ends = [prices[0]] + ([prices[-1]] if run[-1] + 1 < len(grid) else [])
+            return {"price": _tie(ends, tie), "status": "flat", "interval": [prices[0], prices[-1]]}
         return {"price": _tie(prices, tie), "status": "flat", "interval": [prices[0], prices[-1]]}
     x1, x2, d1, d2 = grid[first - 1], grid[first], diff[first - 1], diff[first]
     return {"price": x1 + (x2 - x1) * float(Fraction(d1) / Fraction(d1 - d2)), "status": "interpolated",
@@ -447,7 +455,8 @@ def price_points(grid, counts, opts):
         if a not in counts or b not in counts:
             return {"price": None, "status": "unavailable", "curves": [LABELS[a], LABELS[b]]}
         fall, rise = (a, b) if a in FALLING else (b, a)
-        result = crossing(grid, counts[fall], counts[rise], not opts.no_interpolate, opts.tie)
+        result = crossing(grid, counts[fall], counts[rise], not opts.no_interpolate, opts.tie,
+                          getattr(opts, "r_ties", False))
         result["curves"] = [LABELS[a], LABELS[b]]
         return result
 
@@ -703,7 +712,8 @@ def analyse(rows, columns, opts, scale):
         elif point["status"] == "flat":
             low, high = point["interval"]
             warnings.append(f"{name}: the {point['curves'][0]} and {point['curves'][1]} curves coincide from "
-                            f"{fmt(low)} to {fmt(high)}; {fmt(point['price'])} is reported (--tie {opts.tie}). "
+                            f"{fmt(low)} to {fmt(high)}; {fmt(point['price'])} is reported (--tie {opts.tie}"
+                            f"{', R rule' if getattr(opts, 'r_ties', False) else ''}). "
                             "Read it as that interval, not as a point.")
     pmc, pme, opp, ipp = (points[k]["price"] for k in ("pmc", "pme", "opp", "ipp"))
     if pmc is not None and pme is not None and pmc > pme:
@@ -1192,6 +1202,7 @@ def main(argv=None):
         args.no_interpolate = args.no_interpolate or preset.get("no_interpolate", False)
         args.boundary = args.boundary or preset.get("boundary", "inclusive")
         args.tie = args.tie or preset.get("tie", "midpoint")
+        args.r_ties = preset.get("r_ties", False)
         args.intent_scale_given = args.intent_scale is not None
         args.intent_scale = args.intent_scale or DEFAULT_INTENT_SCALE
         args.skipped_note = None

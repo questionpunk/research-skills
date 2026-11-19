@@ -41,8 +41,8 @@ world-class, award-winning, revolutionary, terrible, awful, horrible, disastrous
 love/enjoy", "new and improved".
 
 - Before: Don't you agree that our amazing new dashboard saves time?
-- After: Compared with the old dashboard, does the new dashboard take you more time, less time or about
-  the same time? (More time / About the same / Less time)
+- After: Compared with the old dashboard, does the new dashboard take you more time, about the same time or
+  less time? (More time / About the same / Less time)
 
 Ignore when: the adjective is part of a name or a quoted statement being tested. Rules miss: one-sided
 stems ("How satisfied are you ...?" without "or dissatisfied"), loaded nouns ("the failed rollout"), named
@@ -56,7 +56,8 @@ single. "Ever" and "all" are not flagged.
 - Before: Do you always read the release notes? (Yes / No)
 - After: Of the last 5 releases, for how many did you read the release notes? Enter a number from 0 to 5.
 
-Ignore when: the absolute is the point of the question ("Have you never used ...?" as a screener).
+Ignore when: the absolute is inside a quoted statement being tested. A screener built on "never" ("Have you
+never used ...?") is also a negation (SB005): ask "Have you ever used ...? (Yes / No)" instead.
 
 ### SB004 hypothetical (medium)
 
@@ -67,7 +68,8 @@ buy/pay/use/subscribe/renew/...". "How would you rate/describe" and "likely to r
 - Before: If we added a team plan, would you pay $20 per month for it?
 - After: In the past 12 months, did your team pay for a shared plan of any similar tool? (Yes / No / Not
   sure). If intent must be asked, report it as stated intent in its own units, not as a forecast; check it
-  against behaviour (past purchases, a trial) before forecasting what people will buy.
+  against behaviour (past purchases, a trial) before forecasting what people will buy. To set a price, use a
+  price method (`van-westendorp-analysis`, `gabor-granger-analysis`, `conjoint-design`) instead.
 
 Ignore when: the study is about intent by design (concept test, pricing study) and the report treats the
 numbers as stated intent.
@@ -196,8 +198,9 @@ Detects: answer options that are only consecutive whole numbers starting at 0 or
 with no options, when the stem does not say what the numbers mean ("where 1 is ...").
 
 - Before: How easy was it to book a class? (1 / 2 / 3 / 4 / 5)
-- After: How easy or difficult was it to book a class? (Very difficult / Somewhat difficult / Neither /
-  Somewhat easy / Very easy), or keep the numbers and label both ends.
+- After: How easy or difficult was it to book a class? (Very difficult / Somewhat difficult / Neither easy
+  nor difficult / Somewhat easy / Very easy). A tracked 0-10 scale such as NPS keeps its end labels so waves
+  and benchmarks compare: pass `--keep`.
 
 Counts ("How many cars ...? 0 / 1 / 2 / 3") and years are not flagged.
 
@@ -235,8 +238,10 @@ sources.md). Decide on purpose whether neutral respondents should be forced to o
 
 ### SB009 unbalanced scale (high; low for excellent/good/fair/poor)
 
-Detects: a rating scale with both positive and negative labels in unequal numbers. "Not at all ..." counts
-as the zero point of a unipolar scale, not as a negative label; "Neither ..." and "Neutral" are midpoints.
+Detects: a rating scale with both positive and negative labels in unequal numbers, or two or more labels on
+one side of a "Neither ..." / "Neutral" midpoint and none on the other. "Not at all ..." counts as the zero
+point of a unipolar scale, not as a negative label, except beside a "Not very ..." step (Very / Somewhat /
+Not very / Not at all likely is balanced). Numbered labels ("1 - Very dissatisfied") are read by their words.
 
 - Before: Very satisfied / Satisfied / Somewhat satisfied / Neutral / Dissatisfied
 - After: Very satisfied / Somewhat satisfied / Neither satisfied nor dissatisfied / Somewhat dissatisfied /
@@ -272,7 +277,8 @@ whole units.
   number of hours.
 
 Rules miss: a missing open-ended top or bottom range (check by reading: can everyone answer?), ranges with
-mixed units ("6 months to 1 year"; skipped), and ranges written in words.
+mixed units ("6 months to 1 year"; skipped), ranges written in words, and ranges listed out of order (the
+check sorts them first; read the order yourself).
 
 ### SB011 missing answer option (medium or low)
 
@@ -317,9 +323,9 @@ Ignore when: the list is factual and familiar (countries, departments in one com
 Detects: answer options with both "agree" and "disagree" labels; a grid when the question has lettered rows.
 
 - Before: I would recommend the app to a colleague. (Strongly disagree ... Strongly agree)
-- After: How likely or unlikely are you to recommend the app to a colleague? (Very likely ... Very unlikely)
+- After: How likely or unlikely are you to recommend the app to a colleague? (Very unlikely ... Very likely)
 - Before (grid row): The app is easy to use.
-- After: How easy or difficult is the app to use? (Very easy ... Very difficult)
+- After: How easy or difficult is the app to use? (Very difficult ... Very easy)
 
 Ignore when: the items are a validated instrument, or a tracker needs the old wording.
 
@@ -359,7 +365,7 @@ Text before the first question is read as the introduction (in JSON: `intro`).
 - Before: Experts say regular exercise matters. We want to show that our members are healthier than most.
 - After: This survey is about your exercise habits. It has 13 questions and takes about 4 minutes.
 
-When no introduction is given the script says so and checks nothing; ask whether one exists.
+When no introduction is given the script says so and checks nothing; report it under "Not checked".
 
 ### SB025 grid and open-question burden (low)
 
@@ -389,8 +395,11 @@ bare questions carries no question types. The limits are conventions, not resear
 
 Review these by reading the questionnaire:
 
-- Order: general questions before specific ones on the same topic; behaviour before attitude; an earlier
-  question that primes a later one.
+- Order: general questions before specific ones on the same topic; an earlier question that primes a later
+  one (a specific behaviour or attribute asked before an overall rating pulls the rating toward it).
+- `[multi]` opt-outs ("None of these", "Prefer not to say") set as exclusive in the survey tool; required
+  questions with no way out; intro claims (time, anonymity) the questionnaire contradicts; skip logic that
+  leads nowhere or routes on a multi-select.
 - Nominal lists: should the order be randomised, with "Other" and "None" kept last?
 - Ordinal options: are they in a logical order, from low to high or high to low?
 - Jargon or vague words inside answer options (SB007 and most of SB006 read the stem only).
@@ -433,13 +442,13 @@ sources.md); the short descriptions are ours.
 | 6a | Sensitive content | SB016, SB021 |
 | 6b | Sensitive wording | SB002 (partly), agent judgment |
 | 6c | Socially acceptable answer implied | SB002, SB021, SB024 |
-| 7a | Open-ended question | SB025 |
+| 7a | Open-ended question | SB025 (count and position only), agent judgment |
 | 7b | Question and answer categories do not match | SB019 |
 | 7c | Technical terms in categories | agent judgment |
 | 7d | Vague categories | SB006 options, SB020 |
 | 7e | Overlapping categories | SB010 overlap, SB022, SB028 |
 | 7f | Missing categories | SB010 gap, SB011, SB018 |
-| 7g | Illogical order of categories | SB012 direction (partly), agent judgment |
+| 7g | Illogical order of categories | agent judgment (SB012 compares direction across questions, not order within one) |
 | 8 | Other problems | agent judgment |
 
 Rules with no QAS-99 code: SB004 (hypotheticals), SB009 (balance), SB013 (list length), SB014

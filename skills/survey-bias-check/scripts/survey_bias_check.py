@@ -139,6 +139,10 @@ ORDINAL_STARTS = (
     "always", "once", "twice", "every", "several times", "a few times", "less than", "more than", "less often",
     "more often", "today", "yesterday", "this ", "longer ago", "in the last", "in the past", "within",
 )
+# Whole words only, so "Everyday notes" or "This app" in a list of names does not start an ordinal ladder.
+ORDINAL_RE = re.compile(r"^(?:%s)\b" % "|".join(re.escape(s.strip()) for s in INTENSITY_LOW + INTENSITY_HIGH + ORDINAL_STARTS))
+# "1 - Very dissatisfied", "(2) Agree", "3. Neutral": a code in front of a verbal label.
+CODE_PREFIX_RE = re.compile(r"^\s*\(?-?\d{1,3}\)?\s*[-\u2013\u2014:=.)]\s*(?=[^\W\d_])")
 NEGATIVE = {
     "dissatisfied": "satisfaction", "unsatisfied": "satisfaction", "disagree": "agreement",
     "unlikely": "likelihood", "poor": "quality", "bad": "quality", "terrible": "quality",
@@ -807,6 +811,10 @@ def analyse_options(q):
             "direction": 0, "zero": "none" in specials, "neutrals": 0, "ranged": []}
     if not plain:
         return info
+    if all(CODE_PREFIX_RE.match(p) for p in plain):
+        # Numbered verbal labels are read by their words: the codes are not the scale's labels.
+        plain = [CODE_PREFIX_RE.sub("", p) for p in plain]
+        info["plain"] = plain
     lowered = [p.lower().strip() for p in plain]
     ranges = [parse_range(p) for p in plain]
     pols = [polarity(p) for p in plain]
@@ -829,12 +837,18 @@ def analyse_options(q):
         info["kind"] = "rating"
         info["family"] = scale_labels[0][2] if scale_labels else "intensity: " + lowered[-1].split()[-1]
         info["direction"] = (pols[0][1] > pols[-1][1]) - (pols[0][1] < pols[-1][1])
+        if (any(re.match(r"not at all\b", l) for l in lowered)
+                and any(re.match(r"not (?:very|too|so)\b", l) for l in lowered)):
+            # "Very / Somewhat / Not very / Not at all likely": with a "not very" step below the middle, "not at
+            # all" is the far end of that side, not a zero point outside it.
+            pols = [(-1, d, f) if re.match(r"not at all\b", l) else (b, d, f)
+                    for (b, d, f), l in zip(pols, lowered)]
         info["positives"] = sum(1 for p in pols if p[0] > 0)
         info["negatives"] = sum(1 for p in pols if p[0] < 0)
+        info["midpoint"] = any(l == "neutral" or l.startswith("neither") for l in lowered)
     elif sum(1 for s in stripped if s in VAGUE_OPTION_WORDS) >= 2:
         info["kind"] = "frequency"
-    elif any(re.search(r"\d", l) or l.startswith(INTENSITY_LOW + INTENSITY_HIGH + ORDINAL_STARTS)
-             for l in lowered):
+    elif 2 * sum(1 for l in lowered if re.search(r"\d", l) or ORDINAL_RE.match(l)) >= max(2, len(lowered)):
         info["kind"] = "ordinal"  # amounts or durations the range parser cannot read; list rules do not apply
     else:
         info["kind"] = "nominal"
@@ -1043,6 +1057,11 @@ def lint(questions, max_words=MAX_WORDS, max_options=MAX_OPTIONS, ignore=(), int
             add(q, "SB006", "options", "low", "; ".join(vague),
                 "Vague frequency labels mean different amounts to different people. Offer counts for a set period.")
 
+        if (kind == "rating" and info.get("midpoint") and not (info["positives"] and info["negatives"])
+                and max(info["positives"], info["negatives"]) >= 2):
+            add(q, "SB009", "balance", "high",
+                "%d positive vs %d negative labels around a midpoint" % (info["positives"], info["negatives"]),
+                "A scale with a neutral midpoint is two-sided: offer the same number of labels on each side.")
         if kind == "rating" and info["positives"] and info["negatives"] and info["positives"] != info["negatives"]:
             lows = {p.lower().strip() for p in plain}
             established = {"excellent", "fair", "poor"} <= lows

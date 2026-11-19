@@ -3,7 +3,7 @@ name: gabor-granger-analysis
 description: "Estimates a demand curve and the revenue- or profit-maximizing price from Gabor-Granger purchase-likelihood answers: take rate at each tested price with confidence intervals, a monotonicity check per respondent, a monotone demand curve, arc price elasticity, revenue and profit curves with a bootstrap check on the optimal price, and optional user-supplied weights for stated-intent overclaim. Reads full, adaptive or monadic price ladders. Use for \"Gabor-Granger\", \"price ladder results\", \"demand curve from survey\", \"revenue-maximizing price\", \"price test results\" or \"would you buy at $X\" data."
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -154,4 +154,4 @@ fewer than 100 answers given (`n_observed`) as directional.
 
 ## Field it (optional)
 
-To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). The Gabor-Granger question type can't be created over MCP: create the question in the app (yes/no at 2 to 12 prices). Tools: `responses_get_counts` (how many), `responses_read` (with `answerFormat: "numeric"` each answer is one `<price>: 1|0` line per price; write one row per respondent with a `price_<price>` column per price). Page `responses_read` with `nextCursor` until it is exhausted, filter to the intended response type and completion status (`responseType: "real"` drops synthetic responses; drop the study's own test submissions by their IDs or test markers too), and reconcile the row count with `responses_get_counts` before running the script; if they differ, report both.
+To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Create the Gabor-Granger question in the app (add-question menu: "Price Ladder", yes/no at 2 to 12 prices); it is not created over MCP. Tools: `responses_get_counts` (how many), `responses_read` (with `answerFormat: "numeric"` each answer is one `<price>: 1|0` line per price; write one row per respondent with a `price_<price>` column per price). Page `responses_read` with `nextCursor` until it is exhausted, filter to the intended response type and completion status (`responseType: "real"` drops synthetic responses; drop the study's own test submissions by their IDs or test markers too), and reconcile the row count with `responses_get_counts` before running the script; if they differ, report both. Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.

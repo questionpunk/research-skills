@@ -85,7 +85,9 @@ class TwoDesignsTest(unittest.TestCase):
         cls.exp = expected("two_designs")
         cls.args = [FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design"]
         cls.out = run_json(*cls.args, "--compare", "A", "B", "--target", "68")
-        cls.target = run_json(*cls.args, "--target", "68", "--tail", "above")
+        # The one-sample t on all 24 rows as one sample: without --group-col (with it, the pooled line is not tested).
+        cls.target = run_json(FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--target", "68", "--tail",
+                              "above")
         cls.paired = run_json(*cls.args, "--compare", "A", "B", "--paired", "--id-col", "participant")
 
     def test_group_means_intervals_and_grades(self):
@@ -122,7 +124,7 @@ class TwoDesignsTest(unittest.TestCase):
 
     def test_target_one_tailed(self):
         got = self.target["target"][0]
-        self.assertEqual(got["label"], "All participants (pooled across the design groups)")
+        self.assertEqual(got["label"], "Overall")
         self.assertAlmostEqual(got["t"], self.exp["overall_vs_68_above"]["t"], delta=1e-6)
         self.assertAlmostEqual(got["p_value"], self.exp["overall_vs_68_above"]["p_value"], delta=1e-6)
         self.assertFalse(got["significant"])
@@ -261,7 +263,7 @@ class InputAndEdgeCaseTest(unittest.TestCase):
             path = write(tmp, "s7.csv", sus_csv([[7, 1, 6, 2, 7, 1, 6, 2, 7, 1]] * 5))
             proc = run(path, "--instrument", "sus")
             self.assertEqual(proc.returncode, 2)
-            self.assertIn("could not be read", proc.stderr)
+            self.assertIn("not the SUS", proc.stderr)
             proc = run(path, "--instrument", "sus", "--scale", "1-7")
             self.assertEqual(proc.returncode, 2)
             self.assertIn("not the SUS", proc.stderr)
@@ -499,9 +501,132 @@ class QaPolishRegressionTest(unittest.TestCase):
         self.assertAlmostEqual(above["ci"][0], ninety["ci"][0], delta=1e-6)
         self.assertEqual(run(*args, "--tail", "above", "--target", "68").returncode, 2)
         pairwise = run(FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design",
-                       "--pairwise", "--tail", "above")
+                       "--pairwise", "--tail", "above", "--target", "68")
         self.assertEqual(pairwise.returncode, 2)
         self.assertIn("--compare A B", pairwise.stderr)
+
+
+class GeminiReviewRegressionTest(unittest.TestCase):
+    """Cases from the third (Gemini) review, 2026-11-19. Each failed on the version before the fix."""
+
+    def test_reverse_performance_needs_performance_fourth(self):
+        # --reverse-performance flipped the fourth --items column, whatever it was.
+        text = "m,p,t,e,performance,f\n50,20,40,60,10,30\n60,30,50,70,20,40\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "t.csv", text)
+            proc = run(path, "--instrument", "tlx", "--items", "m,p,t,e,performance,f", "--reverse-performance")
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("fourth", proc.stderr)
+            out = run_json(path, "--instrument", "tlx", "--items", "m,p,t,performance,e,f", "--reverse-performance")
+            self.assertAlmostEqual(out["overall"]["mean"], ((50 + 20 + 40 + 90 + 60 + 30) / 6 + (60 + 30 + 50 + 80 + 70 + 40) / 6) / 2)
+
+    def test_seven_point_sus_text_labels_refused(self):
+        # 2 "Somewhat" answers in 200 slipped under the 5% rule and "Agree" (6 of 7) was scored as 4 of 5.
+        rows = [["Agree", "Disagree"] * 5 for _ in range(20)]
+        rows[0][0] = "Somewhat agree"
+        rows[1][1] = "Somewhat disagree"
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run(write(tmp, "s.csv", sus_csv(rows)), "--instrument", "sus")
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("7-point", proc.stderr)
+
+    def test_seven_point_sus_numbers_refused(self):
+        # One 6 or 7 for each of 10 of 20 participants is 5% of the cells: they were dropped and the rest scored.
+        rows = [[4, 2] * 5 for _ in range(20)]
+        for i in range(10):
+            rows[i][0] = 6
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run(write(tmp, "s.csv", sus_csv(rows)), "--instrument", "sus")
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("7-point", proc.stderr)
+
+    def test_seq_negated_anchor_is_not_reversed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "q.csv", "seq\n1 - Not at all easy\n7 - Not difficult at all\n4\n")
+            out = run_json(path, "--instrument", "seq")
+            self.assertAlmostEqual(out["overall"]["mean"], 4.0)
+
+    def test_seq_reversed_refused_on_text_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "q.csv", "seq\nVery easy\nEasy\nVery difficult\n")
+            proc = run(path, "--instrument", "seq", "--seq-reversed")
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("--seq-reversed", proc.stderr)
+
+    def test_target_with_groups_leaves_out_pooled_line_and_blank_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "g.csv", "design,seq\nA,6\nA,7\nA,5\nA,6\n,3\n,4\n")
+            out = run_json(path, "--instrument", "seq", "--group-col", "design", "--target", "5", "--adjust", "holm")
+            pooled = next(t for t in out["target"] if t["label"].startswith("All participants"))
+            self.assertFalse(pooled["tested"])
+            self.assertFalse(any(t["label"] == "(blank)" for t in out["target"]))
+            a = next(t for t in out["target"] if t["label"] == "A")
+            self.assertEqual(a["family_size"], 1)
+            self.assertNotIn("p_adjusted", a)
+
+    def test_sus_detection_needs_exactly_ten_numbered_columns(self):
+        header = ",".join(f"Q{i}" for i in range(1, 16))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "q.csv", header + "\n" + ",".join(["3"] * 15) + "\n")
+            proc = run(path, "--instrument", "sus")
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("--items", proc.stderr)
+            matrix = ",".join(f"Q5_{i}" for i in range(0, 11))
+            proc = run(write(tmp, "m.csv", matrix + "\n" + ",".join(["3"] * 11) + "\n"), "--instrument", "sus")
+            self.assertEqual(proc.returncode, 2)
+
+    def test_constant_odd_even_means_have_no_correlation(self):
+        # Means like 1.4 are not exact in binary; the float sum left a tiny variance and a correlation of noise.
+        for k in range(5, 26):
+            for n in (3, 6, 10, 12, 24):
+                self.assertIsNone(M.pearson([k / 5] * n, list(range(n))), (k, n))
+        rows = [[2, 3, 1, 3, 1, 3, 1, 3, 1, 0 + 3] for _ in range(12)]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = run_json(write(tmp, "s.csv", sus_csv(rows)), "--instrument", "sus")
+            self.assertIsNone(out["checks"]["odd_even_correlation"])
+            self.assertFalse(any("move together" in w for w in out["warnings"]))
+
+    def test_reversed_agree_labels_stop(self):
+        rows = [["1 - Strongly agree", "5 - Strongly disagree"] * 5, ["2 - Agree", "4 - Disagree"] * 5]
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run(write(tmp, "s.csv", sus_csv(rows)), "--instrument", "sus")
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("agree", proc.stderr)
+
+    def test_drop_flagged_message_and_imputed_count(self):
+        rows = [[5, 5, 5, 5, 5, 5, 5, 5, 5, ""], [4, 2, 4, 2, 4, 2, 4, 2, 4, 2], [5, 1, 5, 1, 5, 1, 5, 1, 5, 1]]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = run_json(write(tmp, "s.csv", sus_csv(rows)), "--instrument", "sus", "--impute-midpoint",
+                           "--drop-flagged")
+            self.assertEqual(out["input"]["excluded"]["flagged_inconsistent"], 1)
+            self.assertEqual(out["input"]["imputed_midpoint"], 0)
+            self.assertNotIn("complete_case", out)
+            self.assertFalse(any("They are kept" in w for w in out["warnings"]))
+
+    def test_blank_ids_do_not_count_as_shared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "g.csv", "pid,design,seq\n,A,6\np1,A,7\n,B,3\np2,B,4\n")
+            out = run_json(path, "--instrument", "seq", "--group-col", "design", "--id-col", "pid", "--compare", "A", "B")
+            self.assertFalse(any("appear in both" in w for w in out["warnings"]))
+
+    def test_number_edge_cases(self):
+        self.assertIsNone(M.as_number("0_5"))
+        self.assertEqual(M.read_point("NaN", None), (None, "non_answer"))
+        with tempfile.TemporaryDirectory() as tmp:
+            text = "mental,physical,temporal,performance,effort,frustration\n42.5,10,20,30,40,50\n"
+            out = run_json(write(tmp, "t.csv", text), "--instrument", "tlx")
+            self.assertAlmostEqual(out["overall"]["mean"], (42.5 + 10 + 20 + 30 + 40 + 50) / 6)
+
+    def test_trailing_blank_header_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = "seq,,\n5,,\n6,,\n"
+            out = run_json(write(tmp, "q.csv", text), "--instrument", "seq")
+            self.assertEqual(out["overall"]["n"], 2)
+
+    def test_conflicting_flags_stop(self):
+        args = [FIXTURES / "two_designs.input.csv", "--instrument", "sus", "--group-col", "design"]
+        self.assertEqual(run(*args, "--compare", "A", "B", "--pairwise").returncode, 2)
+        self.assertEqual(run(FIXTURES / "brooke_1996.input.csv", "--instrument", "sus", "--tail", "above").returncode, 2)
 
 
 if __name__ == "__main__":

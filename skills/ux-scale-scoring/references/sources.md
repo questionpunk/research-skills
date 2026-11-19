@@ -35,10 +35,11 @@ and conventions · Pitfalls · References
      the alternating SUS it should be negative; a value above +0.1 (with 10+ participants) suggests the data
      are the all-positive version, or the even items were already reversed before export. The reverse check
      runs for `sus-positive`.
-  2. A participant whose odd-item mean and even-item mean are both 4 or more, or both 2 or less, agreed (or
+  2. Alternating SUS only: a participant whose odd-item mean and even-item mean are both 4 or more, or both 2 or less, agreed (or
      disagreed) with statements of opposite tone: a sign of misreading. Counted, kept by default,
      `--drop-flagged` removes them.
-  3. Straight-lining (all ten answers equal) is counted; on the alternating SUS it scores exactly 50.
+  3. Alternating SUS only: straight-lining (all ten answers equal) is counted; it scores exactly 50. On
+     `sus-positive` all 5s (100) or all 1s (0) are a consistent answer, so it is not counted.
 
 ## SUS benchmarks
 
@@ -130,14 +131,16 @@ and conventions · Pitfalls · References
   zero-variance rule holds on every Python version (Python 3.9's float sum left a tiny SD and an enormous t).
 - Against a target: one-sample t, two-tailed by default; `--tail above` for "is our SUS above 68" when the
   question was fixed before looking.
-- One-sided compare (`--compare A B --tail above|below`, A minus B): p = half the two-sided p in the stated
-  direction, with the matching one-sided bound, difference ∓ t₍₁₋α, df₎·SE (the lower end of the two-sided
-  1−2α interval). Refused with `--pairwise` (no direction per pair) and together with `--target` (one
+- One-sided compare (`--compare A B --tail above|below`, A minus B): p = P(T ≥ t) for `above` and P(T ≤ t)
+  for `below` (half the two-sided p when the difference points the stated way, one minus that half when it
+  does not), with the matching one-sided bound: difference − t₍₁₋α, df₎·SE as a lower bound for `above`,
+  difference + t₍₁₋α, df₎·SE as an upper bound for `below` (an end of the two-sided 1−2α interval). Refused with `--pairwise` (no direction per pair) and together with `--target` (one
   `--tail` would set both directions); run those separately.
 - p-values from the regularized incomplete beta function (continued fraction); checked against numerical
   integration of the t density in the fixtures.
 - Several comparisons: Holm (1979) or Bonferroni (`--adjust`), over the comparisons as one family and the
-  target tests (overall and per group) as another. Each records `family_size`.
+  target tests as another: overall without `--group-col`, per group with it (the pooled line and a blank
+  group are not tested). Each records `family_size`.
 
 ## Thresholds and conventions
 

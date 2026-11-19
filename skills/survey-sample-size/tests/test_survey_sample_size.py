@@ -425,5 +425,91 @@ class QaPolishRegressionTest(unittest.TestCase):
         self.assertEqual(result("proportion", "--margin", "0.05")["result"]["z"], 1.959964)
 
 
+class GeminiReviewRegressionTest(unittest.TestCase):
+    """Third (Gemini) review, 2026-11-19. Failed before the fix."""
+
+    def test_gap_n_is_labelled_as_the_edge_of_the_margin(self):
+        report = result("gap", "--p1", "0.42", "--p2", "0.37", "--n", "600")
+        self.assertIn("n_for_this_gap_to_exceed_margin", report["result"])
+        notes = " ".join(report["notes"])
+        self.assertIn("about half the time", notes)
+        self.assertIn("single-select", " ".join(report["assumptions"]))
+
+
+    def test_compare_table_with_no_rows_does_not_crash(self):
+        proc = run("compare", "--p1", "0.01", "--p2", "0.005", "--table")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("table", result("compare", "--p1", "0.01", "--p2", "0.005", "--table")["result"])
+
+    def test_tiny_n_is_at_least_one(self):
+        self.assertEqual(run("mean", "--sd", "1e-6", "--margin", "1").returncode, 0)
+        self.assertEqual(run("proportion", "--p", "1e-12", "--margin", "0.99").returncode, 0)
+        self.assertGreaterEqual(result("nps", "--variance", "1e-12", "--margin", "0.99")["result"]["n_required"], 1)
+
+    def test_one_sided_alpha_of_a_half_or_more_is_refused(self):
+        for argv in (("compare", "--d", "0.3", "--alpha", "0.9", "--power", "0.6", "--sides", "1"),
+                     ("nps", "--diff", "0.10", "--alpha", "0.8", "--sides", "1")):
+            proc = run(*argv)
+            self.assertEqual(proc.returncode, 2, argv)
+            self.assertIn("--alpha", proc.stderr)
+
+    def test_proportion_plan_reaching_the_population_is_a_census(self):
+        report = result("proportion", "--p", "0.05", "--margin", "0.05", "--population", "100")
+        self.assertEqual(report["result"]["n_required"], 100)
+        self.assertEqual(report["result"]["planning_method"], "census")
+        self.assertIn("census", report["statement"])
+
+    def test_proportion_statement_says_why_n_exceeds_cochran(self):
+        report = result("proportion", "--p", "0.05", "--margin", "0.035")
+        self.assertEqual(report["result"]["n_required"], 200)
+        self.assertIn("10 or more", report["statement"])
+        small = result("proportion", "--p", "0.5", "--margin", "0.25")
+        self.assertNotIn("overstate", small["statement"])
+
+    def test_continuity_power_is_continuous(self):
+        p49 = result("compare", "--p1", "0.50", "--p2", "0.52", "--n", "49", "--continuity")["result"]["power_at_n"]
+        p51 = result("compare", "--p1", "0.50", "--p2", "0.52", "--n", "51", "--continuity")["result"]["power_at_n"]
+        self.assertGreater(p49, 0.0)
+        self.assertLess(abs(p51 - p49), 0.01)
+
+    def test_nps_diff_refuses_population_and_reports_its_z(self):
+        proc = run("nps", "--diff", "0.10", "--population", "500")
+        self.assertEqual(proc.returncode, 2)
+        r = result("nps", "--diff", "0.10", "--alpha", "0.01")["result"]
+        self.assertAlmostEqual(r["z_alpha"], 2.575829, places=5)
+        self.assertNotIn("z", r)
+
+    def test_subgroup_base_is_raised_by_the_design_effect(self):
+        r = result("subgroups", "--share", "smb=0.5", "mid=0.35", "ent=0.15", "--weight-cv", "0.5")["result"]
+        self.assertEqual(r["min_base"], 125)
+        self.assertEqual(r["n_total"], 834)
+
+    def test_power_check_statement_gives_the_power(self):
+        report = result("compare", "--p1", "0.50", "--p2", "0.60", "--n", "150")
+        self.assertIn("With 150 per group", report["statement"])
+        self.assertIn("power", report["statement"].split("With 150 per group")[1])
+        nps = result("nps", "--diff", "0.10", "--n", "500")
+        self.assertIn("With 500 per group", nps["statement"])
+
+    def test_check_reports_the_larger_detectable_difference(self):
+        r = result("check", "--n", "80", "--p", "0.8")["result"]["two_equal_halves"]
+        self.assertLess(r["detectable_p2"], 0.8)  # downward needs the larger difference at p = 0.8
+
+    def test_observed_count_note_only_for_small_counts(self):
+        notes = " ".join(result("proportion", "--n", "100", "--x", "50")["notes"])
+        self.assertNotIn("fewer than 10", notes)
+
+    def test_saturation_file_accepts_float_integers_and_blank_rows(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "c.csv"
+            path.write_text("interview,new_codes\n1,14.0\n2,9\n3,6\n4,5\n5,3\n6,2\n7,1\n8,0\n,\n")
+            self.assertEqual(run("saturation", "--file", str(path)).returncode, 0, run("saturation", "--file", str(path)).stderr)
+
+    def test_focus_groups_get_no_interview_count_for_saturation(self):
+        notes = " ".join(result("interviews", "--method", "focus-groups")["notes"])
+        self.assertNotIn("from interview 6", notes)
+
+
 if __name__ == "__main__":
     unittest.main()

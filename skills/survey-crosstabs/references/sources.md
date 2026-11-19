@@ -34,7 +34,7 @@ source makes for us; it is a flag the user can change.
   so shares add to more than 100% and no chi-square is computed (the options are not mutually exclusive).
 - Reporting the base with every percentage follows the AAPOR Code of Professional Ethics and Practices (2021),
   section III.A (disclose sample sizes and the bases of percentages). Read from aapor.org in an earlier pass of
-  this pack; not re-fetched today.
+  this pack; not re-fetched on the check date.
 
 ## Pairwise column-proportion tests and letters
 
@@ -76,7 +76,7 @@ source makes for us; it is a flag the user can change.
   Reproduced in the tests, along with R `p.adjust` values for Holm and BH.
 - Bonferroni: min(1, m·p).
 - Family: by default every pairwise test in one table (all answers × all pairs of groups, plus the mean row) is
-  one family. `--family row` adjusts each answer row separately, as SPSS does. Convention of this skill: the
+  one family; `--net` rows join it too. `--family row` adjusts each answer row separately, as SPSS does. Convention of this skill: the
   table is the question the user asked, so it is the family. With exactly two answers the second row's tests
   repeat the first row's, so each comparison is counted once.
 
@@ -87,7 +87,10 @@ source makes for us; it is a flag the user can change.
   (series and continued fraction, Press et al. 2007, section 6.2). Checked against the 5% critical values for
   df 1, 2, 10 and 30.
 - Published check: Agresti (2007) party identification by gender (females 762, 327, 468; males 484, 239, 477):
-  X² = 30.07, df = 2, p = 2.95 × 10⁻⁷. This is the example in R's `chisq.test` help page (read today).
+  X² = 30.07, df = 2, p = 2.95 × 10⁻⁷. This is the example in R's `chisq.test` help page (read on the check date).
+- Effect size: Cramér's V = √(X² / (N × min(r − 1, c − 1))) (Cramér 1946, standard; not re-read), reported with
+  the chi-square because with a large N a tiny association is significant. The Agresti example gives V = 0.10.
+  Under weights N is the effective total the X² was scaled to.
 - Reliability rule (Cochran 1954): the approximation is doubtful when more than 20% of expected counts are under
   5 or any is under 1. The script prints a warning and, for an unweighted 2×2 table, Fisher's exact p. R's
   `chisq.test` warns when any expected count is under 5, a stricter rule; the fixture `basic` triggers R's
@@ -128,7 +131,7 @@ source makes for us; it is a flag the user can change.
 - Kish (1965, section 11.7; restated in Kish 1992) effective sample size n_eff = (Σw)²/Σw², equivalently
   n/(1 + cv²) with cv the coefficient of variation of the weights (population form). The design effect from
   weighting is n/n_eff = 1 + cv². The tests check the identity independently. Battaglia, Hoaglin and Frankel
-  (2009) restate deff = 1 + cv² (read today on surveypractice.org).
+  (2009) restate deff = 1 + cv² (read on the check date on surveypractice.org).
 - Tests on weighted data use each group's effective n in place of n and the weighted shares (the "effective
   base" approach). The approximation ignores any correlation between the weights and the answers and any
   clustering; it is usually conservative for raked weights. Convention of this skill, stated in the output.
@@ -148,6 +151,11 @@ source makes for us; it is a flag the user can change.
 
 ## Anonymity rule (small cells)
 
+Known limit: on a multi-select table, when the hidden groups' combined count for an option equals their
+combined base (or 0), a reader can tell that everyone (or no one) in them chose it; the solver does not yet
+catch that case. Under the anonymity rule, read multi-select tables for it before release, or leave such
+questions out.
+
 - Threshold rule (Hundepool et al. 2012, chapter 5, "Magnitude tabular data" and chapter 4 on frequency tables):
   a cell with fewer than k contributors is a disclosure risk and is suppressed (primary suppression); other
   cells are then suppressed so the primary ones cannot be recovered from row or column totals (secondary or
@@ -157,7 +165,7 @@ source makes for us; it is a flag the user can change.
 - k = 5 by default. **Vendor convention, not a standard:** 15Five's help centre gives 5 as its default
   minimum respondent threshold, lowerable to 3 or 4 with a warning; Dialog (support.dialog.nl) hides groups
   under 5 and also hides a larger segment when a smaller protected group would otherwise be exposed. Read
-  today via search summaries. Qualtrics EX and Culture Amp defaults were **not confirmed**.
+  on the check date via search summaries. Qualtrics EX and Culture Amp defaults were **not confirmed**.
 - What the script does (`--anonymity [K]`, unweighted counts of people):
   1. Refuses the run when the whole file has fewer than K respondents, and hides a whole table (answer labels
      included, since a listed answer shows someone chose it) when fewer than K people answered that question.
@@ -214,13 +222,13 @@ user what their tool does before calling either result wrong.
 - Battaglia, M. P., Hoaglin, D. C. & Frankel, M. R. (2009). Practical considerations in raking survey data.
   *Survey Practice* 2(5). doi:10.29115/SP-2009-0019. Read 2026-11-19.
 - Ahuja, R. K., Magnanti, T. L. & Orlin, J. B. (1993). *Network Flows: Theory, Algorithms, and Applications*.
-  Prentice Hall. Flow decomposition and residual-graph cycles; standard result, not re-read today.
+  Prentice Hall. Flow decomposition and residual-graph cycles; standard result, not re-read on the check date.
 - Benjamini, Y. & Hochberg, Y. (1995). Controlling the false discovery rate. *JRSS B* 57(1):289-300. Read
   (scanned original), p. 295.
 - Cochran, W. G. (1954). Some methods for strengthening the common χ² tests. *Biometrics* 10(4):417-451.
   Rule as restated by Agresti (2007); original not read.
 - Fleiss, J. L., Levin, B. & Paik, M. C. (2003). *Statistical Methods for Rates and Proportions*, 3rd ed.
-  Wiley. Not re-read today.
+  Wiley. Not re-read on the check date.
 - Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scand J Stat* 6(2):65-70. Formula
   checked against R `p.adjust`.
 - Hundepool, A. et al. (2012). *Statistical Disclosure Control*. Wiley. Not read in full (see above).
@@ -230,7 +238,7 @@ user what their tool does before calling either result wrong.
 - R Core Team. `chisq.test`, `prop.test`, `fisher.test`, `p.adjust`, `t.test` (stats package, R 4.x). Used to
   compute the fixture expectations independently.
 - Rao, J. N. K. & Scott, A. J. (1981). The analysis of categorical data from complex sample surveys. *JASA*
-  76:221-230; (1984) *Ann Stat* 12(1):46-60. Not read today; cited for the idea of dividing X² by a design
+  76:221-230; (1984) *Ann Stat* 12(1):46-60. Not read on the check date; cited for the idea of dividing X² by a design
   effect.
 - Welch, B. L. (1947). The generalization of Student's problem. *Biometrika* 34:28-35.
 - Wilson, E. B. (1927). Probable inference. *JASA* 22:209-212.
