@@ -5,9 +5,17 @@ server (`https://app.questionpunk.com/api/v1`). Ask the user before creating, ch
 
 ## Creating the questions
 
-QuestionPunk's Kano question type is created in the app, not over MCP. Either:
+QuestionPunk has a Kano question type. Either:
 
-- create the Kano question in the app (add-question menu: "Feature Priorities (Kano)"), or
+- create it with `question_create` (or `question_create_bulk`), answer type `kano`: `textItemDetails.features`
+  (2 to 20 short feature names), with `textItemDetails.functional_questions` and
+  `textItemDetails.dysfunctional_questions` holding one question per feature in the same order ("If the app has
+  dark mode, how would you feel?" / "If the app does not have dark mode, how would you feel?"). Optional
+  `itemDetails.ask_importance` (default false; true adds a 1 to 9 importance rating per feature) and
+  `itemDetails.randomize_features` (default true). The app supplies Berger's five answers in every language and
+  sets the feature ids itself, so don't send `feature_ids`. An existing question can't be changed into a Kano
+  question: create a new one. In the app the same question is "Feature Priorities (Kano)" in the add-question
+  menu. Or
 - build each half of each pair as its own question with `question_create`: answer type `multiple_choice`, and
   `textItemDetails.answer_options` set to Berger's five answers in order ("I like it that way", "It must be that
   way", "I am neutral", "I can live with it that way", "I dislike it that way"). Put each dysfunctional question

@@ -3,7 +3,7 @@ name: kano-analysis
 description: "Designs and analyzes Kano surveys: writes the functional and dysfunctional question pair for each feature, classifies every answer with Kano's evaluation table (attractive, one-dimensional, must-be, indifferent, reverse, questionable), assigns each feature its category with Fong's test for a clear winner, and computes Better/Worse coefficients with intervals for a quadrant chart. Use for \"Kano model\", \"Kano survey\", \"Kano analysis\", \"which features are must-haves vs delighters\", \"feature prioritization survey\" or \"better worse coefficients\"."
 license: MIT
 metadata:
-  version: "0.1.1"
+  version: "0.1.2"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -188,6 +188,6 @@ Chart: <path, if written>.
 
 ## Field it (optional)
 
-To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Tools: `survey_get` (question ids), `question_create` (each half of a pair as a multiple-choice question; the Kano question itself is created in the app: add-question menu, "Feature Priorities (Kano)"; see [`references/fielding.md`](references/fielding.md)), `responses_read` (answers; `answerFormat: "numeric"` for `--qp-answer-col`), `responses_get_counts` (to reconcile the count). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.
+To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Tools: `survey_get` (question ids), `question_create` (answer type `kano` with `textItemDetails.features`, `functional_questions` and `dysfunctional_questions`, one per feature in order; payload in [`references/fielding.md`](references/fielding.md)), `responses_read` (answers; `answerFormat: "numeric"` for `--qp-answer-col`), `responses_get_counts` (to reconcile the count). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.
 
 Page `responses_read` with `cursor` = `page.nextCursor` until it is null, filter to the intended response type and completion status (`responseType: "real"` drops synthetic responses only, so remove your own test responses too), and reconcile the row count before computing.

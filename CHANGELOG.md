@@ -3,6 +3,11 @@
 The pack and each skill use [semver](https://semver.org). A skill's version is in `catalog.json` and in its
 `SKILL.md` `metadata.version`.
 
+## 0.2.2 (2026-11-19): Kano and Gabor-Granger questions can be created over MCP
+
+- `kano-analysis` and `gabor-granger-analysis` (0.1.2): the QuestionPunk MCP server now creates both question
+  types with `question_create`, so "Field it" gives the payload instead of sending you to the app.
+
 ## 0.2.1 (2026-11-19): third review completed, Van Westendorp checked against R
 
 The third (Gemini) review of `survey-bias-check`, `survey-sample-size`, `ux-scale-scoring` and
