@@ -1,6 +1,6 @@
 {
   "note": "Second flawed fixture for SB017-SB027. Written by hand before the new rules were run. See README.md.",
-  "questions": 13,
+  "questions": 14,
   "findings": [
     {"question": "intro", "line": 3, "rule": "SB024", "kind": "leading", "severity": "medium", "match": "experts say; we want to show"},
     {"question": "intro", "line": 3, "rule": "SB024", "kind": "no_time_estimate", "severity": "low", "match": "no time or length estimate"},
@@ -19,8 +19,9 @@
     {"question": "10", "line": 41, "rule": "SB014", "kind": "grid", "severity": "medium", "match": "agree/disagree grid, 11 rows"},
     {"question": "10", "line": 41, "rule": "SB025", "kind": "grid_rows", "severity": "low", "match": "11 rows"},
     {"question": "10", "line": 41, "rule": "SB027", "kind": "even_points", "severity": "info", "match": "4 points, no midpoint"},
+    {"question": "14", "line": 64, "rule": "SB028", "kind": "duplicate", "severity": "high", "match": "Yes"},
     {"question": null, "line": null, "rule": "SB025", "kind": "open_count", "severity": "low", "match": "4 open questions"}
   ],
-  "summary": {"total": 17, "high": 1, "medium": 5, "low": 11, "info": 1},
-  "length": {"points": 33.0, "seconds": 247.5, "minutes": 4.12}
+  "summary": {"total": 18, "high": 2, "medium": 5, "low": 11, "info": 1},
+  "length": {"points": 35.0, "seconds": 262.5, "minutes": 4.38, "minutes_rounded": 4.5}
 }

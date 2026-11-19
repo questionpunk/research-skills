@@ -1,0 +1,20 @@
+{
+  "_source": "Worked by hand in fixtures/README.md section 1; Wilson limits re-derived by bisection on the score statistic.",
+  "overall": {"n": 40, "positive": 30, "negative": 6, "neutral": 4, "pct_positive": 75.0, "positive_ci": [59.806, 85.8129],
+              "negative_ci": [7.0612, 29.0723], "mean": 3.875, "sd": 1.2022948, "mean_ci": [3.4904875, 4.2595125],
+              "distribution": {"1": 3, "2": 3, "3": 4, "4": 16, "5": 14}},
+  "excluded": {"blank": 1, "non_answer": 1},
+  "segments": {
+    "email": {"n": 20, "positive": 13, "pct_positive": 65.0, "positive_ci": [43.2854, 81.8808]},
+    "chat": {"n": 20, "positive": 17, "pct_positive": 85.0, "positive_ci": [63.9581, 94.7631]}
+  },
+  "periods": {
+    "2026-09": {"n": 20, "positive": 14, "positive_ci": [48.1027, 85.4523]},
+    "2026-10": {"n": 20, "positive": 16, "positive_ci": [58.3983, 91.9342]}
+  },
+  "email_vs_chat": {"difference_pct": -20.0, "difference_ci": [-43.8084, 6.9763], "z": -1.4605935, "p_value": 0.1441270,
+                    "test": "two-proportion z", "verdict": "not significant"},
+  "oct_vs_sep": {"difference_pct": 10.0, "difference_ci": [-16.5595, 34.9383], "z": 0.7302967, "p_value": 0.4652088},
+  "comments": {"dissatisfied": {"answers": 6, "with_comment": 3}, "neutral": {"answers": 4, "with_comment": 2},
+               "satisfied": {"answers": 30, "with_comment": 11}}
+}

@@ -15,12 +15,15 @@ means the claim was confirmed only in another paper or page that reports it.
 | Straight-lining, stricter variant | run longer than 0.5 of the items | `--longstring-fraction 0.5` | Curran 2016 |
 | Smallest grid that can be flagged | 4 items | `--min-grid-items` | Convention: no published minimum, see "Straight-lining" |
 | Pattern candidates (report only) | grids of 6 or more items | `--pattern-min-items` | Convention, see "Patterned answers" |
-| Attention checks | 2 failed checks (1 when only one check exists) | `--attention-min-fails` | Prolific policy |
+| Attention checks | 2 failed checks; 1 when only one check exists, a screening convention (Prolific allows a single failed check only in studies under 5 minutes) | `--attention-min-fails` | Prolific policy |
+| Attention check left blank | counted as failed; `unshown` when skip logic may have hidden it | `--attention-blank` | Convention, see "Attention checks" |
+| Duplicate (counted) | a later row repeating an earlier id, email or user-named key column | `--dup-cols` | Definition, see "Duplicates" |
+| Identical answers, shared IP (candidates) | a later row identical in every column but the id; a later row with an earlier IP | `--dup-ignore`, `--dup-cols` | Definition, see "Duplicates"; counted only when confirmed |
 | Item non-response | more than 0.5 of the question columns blank | `--max-missing` | AAPOR Standard Definitions (example rule) |
-| Open answers | fewer than 3 characters; no vowels; a character 4 times in a row; 4 neighbouring keys; the same text of 20 or more characters from 2 or more respondents; word overlap of 0.8 or more between two such answers | `--open-min-chars`, `--repeat-run`, `--keyboard-run`, `--paste-min-chars`, `--similar-text` | No published threshold: see "Open answers" |
+| Open answers (candidates, counted only when confirmed) | fewer than 3 characters; no vowels; a character 4 times in a row; 4 neighbouring keys; the same text of 20 or more characters from 2 or more respondents; word overlap of 0.8 or more between two such answers | `--open-min-chars`, `--repeat-run`, `--keyboard-run`, `--paste-min-chars`, `--similar-text` | No published threshold: see "Open answers" |
 | Platform bot score (report only) | `Q_RecaptchaScore` below 0.5, ignored when `Q_RecaptchaStatus` is "error" | `--recaptcha-min` | Qualtrics fraud detection page |
 | High-share warning | a check, the 2+ flag group or the removal above 0.12 of respondents | `--warn-share` | Comparison point from Meade & Craig 2012; a convention, see "Sample-level summary" |
-| Removal | none; only with `--drop-if`; the recommended rule is `count>=2` | `--drop-if` | see "Removal policy" |
+| Removal | none; only with `--drop-if`; the recommended rule is `count>=2`, previewed with `--preview` first | `--drop-if`, `--preview` | see "Removal policy" |
 
 ## Speeders
 
@@ -32,7 +35,8 @@ means the claim was confirmed only in another paper or page that reports it.
   did not change marginal distributions and barely changed model coefficients.
 - **Leiner 2019** (read). Completion time was the most reliable non-reactive indicator of careless answers.
   Relative speed index: for each page, the sample's median page time divided by the respondent's time;
-  page factors are capped at 3 and averaged. A cut-off of about 1.3 separated his careless and careful
+  page factors are capped at 3 and averaged. A page time of 0 gets the cap, the limit of median/time as the
+  time falls to 0 (1 when the median is 0 too); that limit is this skill's reading. A cut-off of about 1.3 separated his careless and careful
   groups, but his "pragmatic recommendation is to use a much more lenient cut-off of 2.0", i.e. twice as
   fast as the typical respondent, which equals 0.5 of the median. He warns that speed is not a valid
   indicator when the questionnaire asks for facts or knowledge, because experts answer faster.
@@ -102,15 +106,22 @@ means the claim was confirmed only in another paper or page that reports it.
 
 ## Duplicates
 
-- The script flags a later row that is identical to an earlier row in every column except the id, and a
-  later row that repeats an earlier value in the id column or in a key column (email, IP). These are
-  definitions, not thresholds.
+- The script counts as a `duplicate` a later row that repeats an earlier value in the id column or in an
+  identifying key column (email, or a column the user names). These are definitions, not thresholds.
+- Two weaker signals are candidates, counted only when a reviewer confirms them: `identical_answers`, a
+  later row identical to an earlier one in every column except the id, and `shared_ip`. Identical answers
+  are not evidence of a duplicate submission on their own: in a one-question yes/no survey every second
+  "Yes" is identical to the first, and in any short closed-ended survey the number of possible answer
+  patterns is small. Corroborating evidence (an id, an email, a long open answer, matching timestamps)
+  is what a reviewer looks for before confirming. This split is this skill's convention; Pew 2020 (below)
+  likewise had a researcher review every suspected duplicate before acting on it.
 - Pew 2020 (read) found duplicates by comparing open answers (three or more highly similar answers out of
   six, then a human review): 0.3% of interviews overall, 1.1% in the crowdsourced sample.
 - The R package `careless` also offers even-odd consistency and psychometric synonyms and antonyms. They
   need a questionnaire with several multi-item scales and are out of scope here; use that package.
 - A shared IP is not proof of a duplicate: households, offices, universities and mobile carriers share
-  addresses. Emails and IPs are personal data; keep the flags file with the same care as the export.
+  addresses, so `shared_ip` is a candidate, not a counted flag. Emails and IPs are personal data; keep the
+  flags file with the same care as the export.
 
 ## Attention checks
 
@@ -125,8 +136,13 @@ means the claim was confirmed only in another paper or page that reports it.
   given screener.
 - **Disagreement.** Meade & Craig recommend instructed-response items; Berinsky et al. caution against
   simply dropping failers; Leiner found that a manipulation check also misidentified many careful
-  respondents. The default needs two failures; with one check in the survey a single failure flags, and the
-  log says so.
+  respondents. The default needs two failures; with one check in the survey a single failure flags. That
+  fallback is a screening convention, not Prolific's rule for studies of 5 minutes or longer, and the log
+  says so.
+- **Blank checks.** No source read here says whether a blank attention item is a failure. When the item
+  was required or always shown, a blank is a skipped instruction and the default counts it as failed;
+  when skip logic may have hidden it, a blank is "not shown" (`--attention-blank unshown`). Either way the
+  respondents with a blank check are listed. This is the skill's convention.
 
 ## Item non-response
 
@@ -136,6 +152,10 @@ means the claim was confirmed only in another paper or page that reports it.
   must be set in advance). The default flags the break-off range: more than 0.5 blank.
 - The script cannot see skip logic. A blank cell that the respondent was never shown counts as blank;
   restrict the columns with `--item-cols` when the survey branches.
+- Form metadata columns (`Timestamp` in Google Forms, `Submitted At`, `Start time`, `Completion time` and
+  similar names) are not questions and are left out of the default question columns; this list of names
+  is the skill's convention. Optional open-text questions stay in: a blank there is still item
+  non-response; pass `--item-cols` to leave them out when they were optional.
 
 ## Open answers
 
@@ -154,6 +174,15 @@ read, not a verdict.
   two answers) of 0.8 or more between two answers that are each at least 20 characters long. Pew 2020
   (read) treated "highly similar" open answers as its evidence for duplicate respondents and had a
   researcher review every pair; it gives no numeric similarity cut-off, so 0.8 is a convention.
+- These candidates count toward removal only when a reviewer confirms one (`--confirm`). Pew 2020 had a
+  researcher review every flagged pair, and a fair "No" or "CRM" must not reach a `count>=2` rule
+  together with one other weak signal unread.
+- **Near-duplicate search.** To avoid comparing every pair, the script uses exact prefix filtering
+  (Bayardo, Ma & Srikant 2007): with words ordered rarest first, two answers whose word overlap is at
+  least t must share a word among the first |x| − ⌈t·|x|⌉ + 1 words of each, so only those pairs are
+  compared, because the overlap |x ∩ y| is at least t·|x ∪ y| ≥ t·|x|. The result is identical to
+  comparing every pair (the test suite checks this against the all-pairs comparison). Citation checked
+  against the Crossref record; the paper's text was not re-read for this revision.
 - Off-topic, copied-from-the-question and machine-written answers need a reader; the script does not
   attempt them. Pew 2020 used open answers as its strongest evidence of bogus respondents.
 
@@ -165,7 +194,8 @@ read, not a verdict.
   statuses are deprecated. `Finished`: 1 / True = reached an end point, 0 / False = left before one.
   `Duration (in seconds)` includes time away from the survey. The page does not show the third row's cell
   format; the script recognises it by cells that start with `{"ImportId"`, the form seen in exports.
-- The script sets aside previews and tests (`Status` 1, 2, 17 or the matching labels) and unfinished rows
+- The script sets aside previews, tests and synthetic responses (`Status` 1, 2, 17, 256 or the matching
+  labels) and unfinished rows
   (`Finished` 0 / False): they are listed in the log, get no flags, do not enter any median, and stay in
   the file unless the user removes them with `--drop-if not_screened`.
 - **Qualtrics fraud detection fields** (read). `Q_RecaptchaScore` runs from 0 to 1: "A score of greater
@@ -191,6 +221,12 @@ read, not a verdict.
 - **Who is removed.** Berinsky et al. 2014: screener failure correlates with respondent characteristics.
   `--compare-cols` tabulates the removed (or two-or-more-flag) group against the rest on the named
   columns. It gives counts, no significance test.
+
+## Reviewer decisions
+
+- `--clear` removes a flag and `--confirm` makes a candidate count; both are recorded in the log. The
+  checks table reports the hits before review, the ids cleared or confirmed, and the final count and
+  share, and the high-share warnings use the final counts, so the table and the removal agree.
 
 ## Rules fixed in advance
 
@@ -262,6 +298,8 @@ Supporting:
   variability as an indicator of insufficient effort responding. *Journal of Business and Psychology*.
   https://doi.org/10.1007/s10869-017-9514-9
 - R package `careless` (longstring, irv): https://cran.r-project.org/package=careless
+- Bayardo, R. J., Ma, Y., & Srikant, R. (2007). Scaling up all pairs similarity search. *Proceedings of the
+  16th International Conference on World Wide Web*, 131–140. https://doi.org/10.1145/1242572.1242591
 - R package `resquin`, `resp_nondifferentiation`: https://rdrr.io/cran/resquin/man/resp_nondifferentiation.html
 - Qualtrics, quality measures within your survey:
   https://www.qualtrics.com/panels-project/quality-measures-within-your-survey
@@ -273,7 +311,7 @@ Supporting:
 - Treating a long string as proof on a short grid or one with no reverse-worded items.
 - Using the mean duration, or one cut-off across survey paths of very different length.
 - Using speed on a survey of facts or knowledge, where experts are legitimately fast.
-- Treating a shared IP as proof of duplication.
+- Treating a shared IP, or identical answers in a short survey, as proof of duplication.
 - Counting blanks from skip logic as non-response.
 - Treating open-answer heuristics as verdicts; "No" can be a complete answer.
 - Removing respondents and reporting only the cleaned result.

@@ -1,0 +1,6 @@
+{
+  "_source": "Hollander and Wolfe (1973, p. 69), as used in the R documentation example for wilcox.test: permeability constants x (10 values) vs y (5 values); W = 35, exact two-sided p = 0.2544 (one-sided 'greater' p = 0.1272).",
+  "x": [0.80, 0.83, 1.89, 1.04, 1.45, 1.38, 1.91, 1.64, 0.73, 1.46],
+  "y": [1.15, 0.88, 0.90, 0.74, 1.21],
+  "w": 35, "p_two_sided": 0.2544
+}

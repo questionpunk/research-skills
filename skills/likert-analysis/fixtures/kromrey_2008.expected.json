@@ -1,0 +1,4 @@
+{
+  "_source": "Kromrey, Romano and Hibbard (2008), SAS Global Forum paper 230-2008, Table 1: 12 observations x 5 dichotomous items, coefficient alpha 0.833, Feldt 95% interval 0.616 to 0.945. Alpha re-derived by Hoyt's ANOVA in the tests.",
+  "n": 12, "k": 5, "alpha": 0.833, "feldt_ci": [0.616, 0.945]
+}

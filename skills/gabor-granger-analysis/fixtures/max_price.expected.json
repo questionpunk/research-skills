@@ -1,0 +1,11 @@
+{
+ "_source": "Hand-worked, fixtures/README.md section 5",
+ "read": 12,
+ "analysed": 11,
+ "take": [
+  0.8181818181818182,
+  0.6363636363636364,
+  0.2727272727272727
+ ],
+ "optimum": 20
+}

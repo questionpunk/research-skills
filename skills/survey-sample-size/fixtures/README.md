@@ -89,9 +89,9 @@ the normal approximation; the second is Guenther's correction for using a t test
 
 | Case | Arithmetic | Expected | Origin |
 |---|---|---|---|
-| G1 | Sets = 3K/k = 3 × 20 / 5 = 12. Each item shown 12 × 5 / 20 = 3 times. 500 / 3 = 166.67 → 167. Floor 200 | 12 sets, n 200 | Hand, from Sawtooth's 3K/k rule and its 200-respondent guideline |
-| G2 | 60 items, 5 per set, 12 sets: recommended sets 3 × 60 / 5 = 36; shown 12 × 5 / 60 = 1 time. 500 / 1 = 500; 1000 / 1 = 1000 | n 500 (1000 preferred) | Hand, from Sawtooth's "at least 500 times and preferably 1000 times" rule |
-| G3 | G1 with 3 subgroups: floor 3 × 200 = 600; 3 × 167 = 501 | 600 | Hand |
+| G1 | Sets = 3K/k = 3 × 20 / 5 = 12. Each item shown 12 × 5 / 20 = 3 times (not sparse, so the exposure rule is reported, 500 / 3 = 166.67 → 167, but not binding). Floor 300 in total | 12 sets, n 300 | Hand, from Sawtooth's 3K/k rule and its 300-in-total guideline |
+| G2 | 60 items, 5 per set, 12 sets: recommended sets 3 × 60 / 5 = 36; shown 12 × 5 / 60 = 1 time, so sparse. 500 / 1 = 500; 1000 / 1 = 1000. Floor 300 × 60/30 = 600 (raised for more than 30 items) | n 600 (exposures: 500 minimum, 1000 preferred) | Hand, from Sawtooth's "at least 500 times and preferably 1000 times" rule and its advice to double the floors at 60 items |
+| G3 | G1 with 3 subgroups: floor max(300, 3 × 200) = 600 | 600 | Hand |
 
 ## H. Conjoint (rules of thumb)
 

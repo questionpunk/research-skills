@@ -1,0 +1,9 @@
+{
+  "_source": "Newcombe (1998) Stat Med 17:857-872, Table I examples, Wilson score method without continuity correction (method 3), 95%. Values as reproduced by the DescTools BinomCI documentation and re-derived by bisection (fixtures/README.md section 2).",
+  "cases": [
+    {"x": 81, "n": 263, "low": 25.53, "high": 36.62},
+    {"x": 15, "n": 148, "low": 6.24, "high": 16.05},
+    {"x": 0, "n": 20, "low": 0.0, "high": 16.11},
+    {"x": 1, "n": 29, "low": 0.61, "high": 17.18}
+  ]
+}

@@ -1,0 +1,250 @@
+{
+  "title": "Work tools study (synthetic)",
+  "study": "interview",
+  "platform": "own panel",
+  "topic_words": [
+    "project management",
+    "Asana",
+    "Trello"
+  ],
+  "intro": "We are looking for people to take part in a 45-minute paid conversation about how they work. This short questionnaire takes about 3 minutes.",
+  "criteria": [
+    {
+      "id": "C1",
+      "text": "Works full time or part time",
+      "exclude": false
+    },
+    {
+      "id": "C2",
+      "text": "Has used a project management tool at work in the past month",
+      "exclude": false
+    },
+    {
+      "id": "C3",
+      "text": "Chooses or recommends software for their team",
+      "exclude": false
+    },
+    {
+      "id": "C4",
+      "text": "Does not work in market research, UX research or advertising (exclude)",
+      "exclude": true
+    }
+  ],
+  "quotas": {
+    "total": 12,
+    "groups": [
+      {
+        "name": "Company size",
+        "question": "Q4",
+        "cells": [
+          {
+            "options": [
+              "1 to 49 employees"
+            ],
+            "min": 4,
+            "max": 6
+          },
+          {
+            "options": [
+              "50 to 999 employees"
+            ],
+            "min": 4,
+            "max": 6
+          },
+          {
+            "options": [
+              "1,000 or more employees"
+            ],
+            "min": 2,
+            "max": 4
+          }
+        ]
+      }
+    ]
+  },
+  "questions": [
+    {
+      "id": "Q1",
+      "type": "single",
+      "text": "Which of these best describes your current employment?",
+      "criteria": [
+        "C1"
+      ],
+      "randomize": true,
+      "articulation": false,
+      "options": [
+        {
+          "text": "Employed full time",
+          "action": "continue"
+        },
+        {
+          "text": "Employed part time",
+          "action": "continue"
+        },
+        {
+          "text": "Not currently employed",
+          "action": "terminate"
+        },
+        {
+          "text": "Retired",
+          "action": "terminate"
+        },
+        {
+          "text": "Full-time student",
+          "action": "terminate"
+        },
+        {
+          "text": "Prefer not to say",
+          "action": "terminate"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "type": "single",
+      "text": "Which industry do you mainly work in?",
+      "criteria": [
+        "C4"
+      ],
+      "randomize": true,
+      "articulation": false,
+      "options": [
+        {
+          "text": "Healthcare",
+          "action": "continue"
+        },
+        {
+          "text": "Retail or hospitality",
+          "action": "continue"
+        },
+        {
+          "text": "Software or technology",
+          "action": "continue"
+        },
+        {
+          "text": "Education",
+          "action": "continue"
+        },
+        {
+          "text": "Market research or UX research",
+          "action": "terminate"
+        },
+        {
+          "text": "Advertising or a marketing agency",
+          "action": "terminate"
+        },
+        {
+          "text": "Another industry",
+          "action": "continue"
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "type": "multi",
+      "text": "Which of these have you used at work in the past month? Select all that apply.",
+      "criteria": [
+        "C2"
+      ],
+      "randomize": true,
+      "articulation": false,
+      "options": [
+        {
+          "text": "Google Sheets",
+          "action": "continue"
+        },
+        {
+          "text": "Asana",
+          "action": "qualify"
+        },
+        {
+          "text": "Trello",
+          "action": "qualify"
+        },
+        {
+          "text": "Zoom",
+          "action": "continue"
+        },
+        {
+          "text": "Expensify",
+          "action": "continue"
+        },
+        {
+          "text": "Confluence",
+          "action": "continue"
+        },
+        {
+          "text": "None of these",
+          "action": "terminate"
+        }
+      ]
+    },
+    {
+      "id": "Q4",
+      "type": "single",
+      "text": "How many people work at your organization, across all locations?",
+      "criteria": [],
+      "randomize": false,
+      "articulation": false,
+      "options": [
+        {
+          "text": "1 to 49 employees",
+          "action": "continue"
+        },
+        {
+          "text": "50 to 999 employees",
+          "action": "continue"
+        },
+        {
+          "text": "1,000 or more employees",
+          "action": "continue"
+        },
+        {
+          "text": "Don't know",
+          "action": "terminate"
+        }
+      ]
+    },
+    {
+      "id": "Q5",
+      "type": "single",
+      "text": "When your team adds a new piece of software, what is your role in that decision?",
+      "criteria": [
+        "C3"
+      ],
+      "randomize": true,
+      "articulation": false,
+      "options": [
+        {
+          "text": "I make the final decision",
+          "action": "qualify"
+        },
+        {
+          "text": "I recommend options to the person who decides",
+          "action": "qualify"
+        },
+        {
+          "text": "I am asked for feedback after it is chosen",
+          "action": "terminate"
+        },
+        {
+          "text": "I am not involved",
+          "action": "terminate"
+        },
+        {
+          "text": "The decision is made by another department",
+          "action": "terminate"
+        }
+      ]
+    },
+    {
+      "id": "Q6",
+      "type": "open",
+      "text": "Tell us about the last time you had to keep a group project on track at work. What did you do?",
+      "criteria": [],
+      "randomize": false,
+      "articulation": true,
+      "options": []
+    }
+  ]
+}

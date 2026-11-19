@@ -694,7 +694,7 @@ class CountsExtrasTest(unittest.TestCase):
 
 class SaturationTest(unittest.TestCase):
     def test_log_by_hand(self):
-        out = run_json("saturation", FIXTURES / "saturation.csv", "--base", 4, "--run", 2)
+        out = run_json("saturation", FIXTURES / "saturation.csv", "--base", 4, "--run", 2, "--step", 2)
         self.assertEqual(out["base_codes"], 4)
         self.assertEqual([(b["batch"], b["rows"], b["new_codes"], b["codes_so_far"], b["new_pct_of_base"]) for b in out["batches"]], [
             ("base", "1-4", ["A", "B", "C", "D"], 4, None),
@@ -702,6 +702,23 @@ class SaturationTest(unittest.TestCase):
             ("run 2", "7-8", [], 5, 0.0),  # OTHER is not a new code
         ])
         self.assertEqual((out["reached_at_run"], out["reached_after_rows"], out["rows_not_evaluated"]), (2, 8, 1))
+
+    def test_rolling_runs_by_default(self):
+        # Guest et al. 2020 move the run forward one answer at a time; fixtures/README.md section 12
+        out = run_json("saturation", FIXTURES / "saturation.csv", "--base", 4, "--run", 2)
+        self.assertEqual(out["step"], 1)
+        self.assertEqual([(b["rows"], b["new_codes"], b["new_pct_of_base"]) for b in out["batches"][1:]], [
+            ("5-6", ["E"], 25.0), ("6-7", [], 0.0), ("7-8", [], 0.0), ("8-9", ["F"], 25.0),
+        ])
+        self.assertEqual((out["reached_at_run"], out["reached_after_rows"], out["saturation_point"]), (2, 7, 5))
+
+    def test_uncoded_rows_are_not_saturation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "sat.csv"
+            path.write_text("id,codes\n1,A;B\n2,C\n3,\n4,\n", encoding="utf-8")
+            done = run("saturation", path, "--base", 2, "--run", 1)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("2 row(s) have no code", done.stderr)
 
     def test_threshold_and_short_file(self):
         out = run_json("saturation", FIXTURES / "saturation.csv", "--base", 4, "--run", 2, "--threshold", 25)
@@ -725,16 +742,343 @@ class SampleExtrasTest(unittest.TestCase):
         self.assertEqual(out["ids"], run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 6, "--stratify-col", "plan", "--seed", 3)["ids"])
 
     def test_top_up_of_rare_codes(self):
-        out = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 4, "--seed", 2, "--top-up-min", 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            main, audit = pathlib.Path(tmp) / "s.csv", pathlib.Path(tmp) / "audit.csv"
+            out = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 4, "--seed", 2, "--top-up-min", 2,
+                           "--out", main, "--top-up-out", audit)
+            with open(main, newline="", encoding="utf-8") as handle:
+                main_ids = [r["id"] for r in csv.DictReader(handle)]
+            with open(audit, newline="", encoding="utf-8") as handle:
+                audit_rows = list(csv.DictReader(handle))
         with open(FIXTURES / "coded.csv", newline="", encoding="utf-8") as handle:
             codes = {r["id"]: r["codes"].split(";") for r in csv.DictReader(handle)}
         available = {"PRICE": 7, "SUPPORT": 4, "SPEED": 4, "UX": 3, "UNCODABLE": 2, "OTHER": 1}
+        both = out["ids"] + out["top_up_ids"]
         for code, total in available.items():
-            self.assertGreaterEqual(sum(1 for i in out["ids"] if code in codes[i]), min(2, total), code)
+            self.assertGreaterEqual(sum(1 for i in both if code in codes[i]), min(2, total), code)
         self.assertEqual(out["requested"], 4)
-        self.assertEqual(out["sampled"], 4 + sum(out["topped_up"].values()))
-        self.assertEqual(out["columns"], ["id", "answer"])  # still blind
+        # the random sample stays as drawn; the audit rows go to their own file
+        self.assertEqual((out["sampled"], main_ids), (4, out["ids"]))
+        self.assertEqual(len(out["top_up_ids"]), sum(out["topped_up"].values()))
+        self.assertEqual([r["id"] for r in audit_rows], out["top_up_ids"])
+        self.assertFalse(set(main_ids) & set(out["top_up_ids"]))
+        self.assertEqual(list(audit_rows[0]), ["id", "answer"])  # still blind
         self.assertEqual(run("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 4, "--top-up-min", 2, "--codes-col", "nope").returncode, 2)
+
+    def test_top_up_needs_its_own_file(self):
+        done = run("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 4, "--top-up-min", 2)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("--top-up-out", done.stderr)
+
+
+def write(path, text):
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+class ReviewFixesTest(unittest.TestCase):
+    """Regression tests for the 2026-11 review findings; each failed before its fix."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = pathlib.Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_validate_source_finds_missing_respondents(self):
+        coded = write(self.dir / "one.csv", "id,plan,answer,codes\n1,free,Too expensive for what it does,PRICE\n")
+        out = run_json("validate", coded, "--codebook", FIXTURES / "codebook.csv", "--text-col", "answer", "--source", FIXTURES / "coded.csv")
+        self.assertFalse(out["ok"])
+        self.assertTrue(any("19 of 20 source row(s) are missing" in e for e in out["errors"]))
+
+    def test_validate_source_finds_changed_answer_text(self):
+        rows = (FIXTURES / "coded.csv").read_text(encoding="utf-8").replace("Too expensive for what it does", "Too expensive")
+        coded = write(self.dir / "c.csv", rows)
+        out = run_json("validate", coded, "--codebook", FIXTURES / "codebook.csv", "--text-col", "answer", "--source", FIXTURES / "coded.csv")
+        self.assertTrue(any("differs from the source" in e and "'1'" in e for e in out["errors"]))
+        same = run_json("validate", FIXTURES / "coded.csv", "--codebook", FIXTURES / "codebook.csv", "--text-col", "answer", "--source", FIXTURES / "coded.csv")
+        self.assertTrue(same["ok"])
+
+    def second_coder_file(self, swap):
+        with open(FIXTURES / "coded.csv", newline="", encoding="utf-8") as handle:
+            rows = [r for r in csv.DictReader(handle) if r["id"] in ("1", "2", "4", "5")]
+        if swap:  # codes stay, the answers attached to ids 1 and 2 trade places
+            rows[0]["answer"], rows[1]["answer"] = rows[1]["answer"], rows[0]["answer"]
+        path = self.dir / ("swapped.csv" if swap else "second.csv")
+        with open(path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["id", "answer", "codes"], extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+        return path
+
+    def test_agreement_rejects_answers_that_differ_between_coders(self):
+        done = run("agreement", FIXTURES / "coded.csv", self.second_coder_file(swap=True), "--allow-unmatched", "--text-col", "answer", "--bootstrap", 0)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("different answer text", done.stderr)
+
+    def test_agreement_on_the_sample_manifest(self):
+        second = self.second_coder_file(swap=False)
+        sample = write(self.dir / "sample.csv", "id,answer\n1,Too expensive for what it does\n2,Support took three days to reply\n4,The app is slow and the price went up\n5,ok\n")
+        done = run("agreement", FIXTURES / "coded.csv", second, "--sample", sample, "--text-col", "answer", "--bootstrap", 0)
+        self.assertEqual(done.returncode, 2)  # row 5 of the sample has other text in the coded files
+        self.assertIn("different answer text", done.stderr)
+        with open(FIXTURES / "coded.csv", newline="", encoding="utf-8") as handle:
+            answer5 = next(r["answer"] for r in csv.DictReader(handle) if r["id"] == "5")
+        sample = write(self.dir / "sample.csv", "id,answer\n1,x\n".replace("1,x", "") + "".join(
+            f'{i},"{t}"\n' for i, t in (("1", "Too expensive for what it does"), ("2", "Support took three days to reply"),
+                                       ("4", "The app is slow and the price went up"), ("5", answer5))))
+        out = run_json("agreement", FIXTURES / "coded.csv", second, "--sample", sample, "--text-col", "answer", "--bootstrap", 0)
+        self.assertEqual(out["overall"]["units"], 4)
+        missing = write(self.dir / "more.csv", sample.read_text(encoding="utf-8") + "6,anything\n")
+        done = run("agreement", FIXTURES / "coded.csv", second, "--sample", missing, "--text-col", "answer", "--bootstrap", 0)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("sampled id(s) are not coded", done.stderr)
+
+    def test_sample_sizes_follow_the_written_rules(self):
+        out = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 100, "--all-if-fewer")
+        self.assertEqual(out["sampled"], 17)  # "100 answered rows, all if fewer"
+        out = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--fraction", 0.2, "--at-least", 30)
+        self.assertEqual(out["sampled"], 17)  # "20%, at least 30 (all rows if fewer)"
+        out = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--fraction", 0.2, "--at-least", 5)
+        self.assertEqual(out["sampled"], 5)  # 0.2 * 17 = 3, raised to 5
+        self.assertEqual(run("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 100).returncode, 2)
+
+    def test_shuffle_writes_a_seeded_random_order(self):
+        plain = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 17)
+        mixed = run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 17, "--shuffle", "--seed", 4)
+        self.assertEqual(sorted(plain["ids"]), sorted(mixed["ids"]))
+        self.assertNotEqual(plain["ids"], mixed["ids"])
+        self.assertEqual(mixed["ids"], run_json("sample", FIXTURES / "coded.csv", "--text-col", "answer", "--n", 17, "--shuffle", "--seed", 4)["ids"])
+
+    def test_outputs_never_overwrite_inputs(self):
+        coded = write(self.dir / "c.csv", (FIXTURES / "coded.csv").read_text(encoding="utf-8"))
+        before = coded.read_text(encoding="utf-8")
+        for args in (
+            ("sample", coded, "--text-col", "answer", "--n", 2, "--out", coded),
+            ("merge", coded, "--adjudicated", FIXTURES / "adjudicated.csv", "--out", coded),
+            ("agreement", coded, coded, "--disagreements", coded, "--bootstrap", 0),
+        ):
+            done = run(*args)
+            self.assertEqual(done.returncode, 2, args[0])
+            self.assertIn("is also an input file", done.stderr)
+        self.assertEqual(coded.read_text(encoding="utf-8"), before)
+
+    def test_quotes_may_be_trimmed_at_the_ends(self):
+        quotes = write(self.dir / "q.csv", 'id,code,quote\n1,PRICE,...expensive for what it…\n1,PRICE,"[...] for what it does"\n')
+        out = run_json("validate", FIXTURES / "coded.csv", "--codebook", FIXTURES / "codebook.csv", "--text-col", "answer", "--quotes", quotes)
+        self.assertEqual(out["errors"], [])
+        joined = write(self.dir / "j.csv", "id,code,quote\n1,PRICE,Too expensive ... what it does\n")
+        out = run_json("validate", FIXTURES / "coded.csv", "--codebook", FIXTURES / "codebook.csv", "--text-col", "answer", "--quotes", joined)
+        self.assertEqual(len(out["errors"]), 1)  # an ellipsis inside a quote is still not word for word
+
+    def test_semicolon_files_are_read(self):
+        # a European Excel export: columns separated by ';', so the codes inside a cell use '|'
+        with open(FIXTURES / "coded.csv", newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+        semi = self.dir / "semi.csv"
+        with open(semi, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle, delimiter=";")
+            for row in rows:
+                writer.writerow(row[:-1] + [row[-1].replace(";", "|")])
+        comma = run_json("counts", FIXTURES / "coded.csv", "--text-col", "answer")
+        out = run_json("counts", semi, "--text-col", "answer", "--delimiter", "|")
+        self.assertEqual(out["answered"], 17)
+        self.assertEqual(out["codes"], comma["codes"])
+        explicit = run_json("counts", semi, "--text-col", "answer", "--csv-delimiter", ";", "--code-sep", "|")
+        self.assertEqual(explicit["codes"], comma["codes"])
+
+    def test_comma_inside_a_code_is_an_error(self):
+        coded = write(self.dir / "c.csv", 'id,answer,codes\n1,a,"PRICE, SPEED"\n2,b,PRICE\n')
+        done = run("counts", coded, "--text-col", "answer", "--min-base", 1)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("contains a comma", done.stderr)
+
+    def test_merge_batches_into_a_file_without_codes(self):
+        responses = write(self.dir / "r.csv", "id,answer\n1,Too pricey\n2,Slow\n3,\n")
+        b1 = write(self.dir / "b1.csv", "id,codes\n1,PRICE\n")
+        b2 = write(self.dir / "b2.csv", "id,codes\n2,SPEED\n3,NO_ANSWER\n")
+        out_path = self.dir / "coded.csv"
+        out = run_json("merge", responses, "--adjudicated", b1, "--adjudicated", b2, "--final-col", "codes", "--out", out_path)
+        self.assertTrue(out["codes_column_added"])
+        self.assertEqual(out["rows_without_codes"], 0)
+        with open(out_path, newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual([(r["id"], r["answer"], r["codes"]) for r in rows], [("1", "Too pricey", "PRICE"), ("2", "Slow", "SPEED"), ("3", "", "NO_ANSWER")])
+
+    def test_counts_names_no_missing_skill(self):
+        out = run_json("counts", FIXTURES / "coded.csv", "--text-col", "answer")
+        self.assertFalse(any("survey-crosstabs" in note for note in out["notes"]))
+
+
+
+class SecondReviewFixesTest(unittest.TestCase):
+    """Regression tests for the second (Gemini) review of 2026-11-19; each failed before its fix."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = pathlib.Path(self.tmp.name)
+        self.codebook = write(self.dir / "cb.csv", "code,label,definition,include,exclude,example_quote\nPRICE,Price,d,i,e,a\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_comma_inside_a_quoted_header_does_not_decide_the_delimiter(self):
+        question = "If you could change one thing, what would it be?"
+        semi = write(self.dir / "semi.csv", f'id;"{question}"\n1;cheaper\n2;faster\n')
+        out = run_json("sample", semi, "--text-col", question, "--n", 2)
+        self.assertEqual(sorted(out["ids"]), ["1", "2"])
+
+    def test_forced_csv_delimiter_leaves_comma_files_readable(self):
+        semi = write(self.dir / "semi.csv", "id;answer\n1;cheaper\n2;faster\n")
+        earlier = write(self.dir / "earlier.csv", "id,answer\n1,cheaper\n")
+        out = run_json("sample", semi, "--csv-delimiter", ";", "--text-col", "answer", "--n", 1, "--exclude", earlier)
+        self.assertEqual(out["ids"], ["2"])
+
+    def test_disagreements_keep_a_custom_id_column(self):
+        a = write(self.dir / "a.csv", "rid,answer,codes\n1,a,PRICE\n2,b,SPEED\n")
+        b = write(self.dir / "b.csv", "rid,answer,codes\n1,a,PRICE\n2,b,PRICE\n")
+        dis = self.dir / "dis.csv"
+        run_json("agreement", a, b, "--id-col", "rid", "--text-col", "answer", "--bootstrap", 0, "--disagreements", dis)
+        with open(dis, newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual(rows[0]["rid"], "2")
+        rows[0]["final_codes"] = "SPEED"
+        with open(dis, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+        out = run_json("merge", a, "--id-col", "rid", "--adjudicated", dis, "--out", self.dir / "m.csv")
+        self.assertEqual(out["confirmed"], ["2"])
+
+    def test_agreement_text_col_typo_is_an_error_and_missing_columns_are_named(self):
+        a = write(self.dir / "a.csv", "id,answer,codes\n1,a,PRICE\n2,b,SPEED\n")
+        b = write(self.dir / "b.csv", "id,codes\n1,PRICE\n2,PRICE\n")
+        done = run("agreement", a, b, "--text-col", "answers", "--bootstrap", 0)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("no file has an answer column named 'answers'", done.stderr)
+        out = run_json("agreement", a, b, "--text-col", "answer", "--bootstrap", 0)
+        self.assertTrue(any("b.csv" in note and "could not be checked" in note for note in out["notes"]))
+
+    def test_saturation_reads_text_col_and_codebook_and_skips_blanks(self):
+        rows = "".join(f"{i},x,C{i}\n" for i in range(1, 6)) + "".join(f"{i},,\n" for i in range(6, 12)) + "12,x,C1\n13,x,C2\n14,x,C3\n"
+        sat = write(self.dir / "sat.csv", "id,answer,codes\n" + rows)
+        out = run_json("saturation", sat, "--text-col", "answer", "--base", 5, "--run", 3)
+        self.assertEqual(out["blank_answers_skipped"], 6)
+        self.assertEqual([b["rows"] for b in out["batches"]], ["1-5", "6-8"])
+        self.assertEqual(out["reached_at_run"], 1)
+        bad = write(self.dir / "bad.csv", "id,codes\n" + "".join(f"{i},C{i}\n" for i in range(1, 6)) + "6,other\n7,\"PRICE, SPEED\"\n8,C1\n")
+        done = run("saturation", bad, "--base", 5, "--run", 3)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("reserved code must be written 'OTHER'", done.stderr)
+        self.assertIn("contains a comma", done.stderr)
+        done = run("saturation", sat, "--text-col", "answer", "--base", 5, "--run", 3, "--codebook", self.codebook)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("unknown code 'C1'", done.stderr)
+
+    def test_saturation_refuses_a_nan_threshold(self):
+        done = run("saturation", FIXTURES / "saturation.csv", "--base", 4, "--run", 2, "--threshold", "nan")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("--threshold must not be negative", done.stderr)
+
+    def test_gold_with_three_coders_prints_precision_recall_f1(self):
+        gold = write(self.dir / "gold.csv", "id,codes\n1,A\n2,B\n3,A\n4,B\n")
+        one = write(self.dir / "one.csv", "id,codes\n1,A\n2,A\n3,A\n4,B\n")
+        two = write(self.dir / "two.csv", "id,codes\n1,A\n2,B\n3,B\n4,B\n")
+        done = run("agreement", "--gold", gold, one, two, "--bootstrap", 0)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("Against the reference coder A: coder B", done.stdout)
+        self.assertIn("Against the reference coder A: coder C", done.stdout)
+        self.assertNotIn("Against the reference coder B", done.stdout)
+
+    def test_share_of_mentions_withheld_on_a_small_respondent_base(self):
+        coded = write(self.dir / "m.csv", "id,codes\n" + "".join(f"{i},A;B\n" for i in range(1, 21)))
+        out = run_json("counts", coded, "--mentions")
+        self.assertEqual(out["code_assignments"], 40)  # 40 assignments, but only 20 respondents
+        self.assertTrue(all(line["pct_of_mentions"] is None for line in out["codes"]))
+
+    def test_code_on_every_row_is_not_reported_as_not_tested(self):
+        a = write(self.dir / "a.csv", "id,codes\n1,A\n2,A;B\n3,A\n")
+        b = write(self.dir / "b.csv", "id,codes\n1,A\n2,A\n3,A;B\n")
+        c = write(self.dir / "c.csv", "id,codes\n1,A\n2,A\n3,A;B\n")
+        two = run("agreement", a, b, "--bootstrap", 0).stdout
+        line = next(l for l in two.splitlines() if l.startswith("A ") and "undefined" in l and "-" in l)
+        self.assertIn("on every row", line)
+        self.assertNotIn("not tested", line)
+        multi = run("agreement", a, b, c, "--bootstrap", 0).stdout
+        line = next(l for l in multi.splitlines() if l.startswith("A "))
+        self.assertIn("on every row", line)
+        self.assertIn("every coder gave this code to every row", multi)
+
+    def test_validate_source_with_duplicate_ids_and_an_ids_only_check(self):
+        coded = write(self.dir / "c.csv", "id,answer,codes\n1,a,PRICE\n2,b,PRICE\n")
+        dup = write(self.dir / "dup.csv", "id,answer\n1,a\n1,a\n2,b\n")
+        out = run_json("validate", coded, "--codebook", self.codebook, "--text-col", "answer", "--source", dup)
+        self.assertFalse(out["ok"])
+        self.assertTrue(any("more than once in the source" in e for e in out["errors"]))
+        other = write(self.dir / "other.csv", "id,answer\n1,zzz\n2,b\n")
+        done = run("validate", coded, "--codebook", self.codebook, "--source", other)
+        self.assertIn("ids only", done.stdout)
+        self.assertNotIn("ids and answer text", done.stdout)
+        done = run("validate", coded, "--codebook", self.codebook, "--source", other, "--source-text-col", "answer")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("--source-text-col needs --text-col", done.stderr)
+
+    def test_segment_table_prints_intervals(self):
+        rows = "".join(f"{i},{'a' if i <= 30 else 'b'},x,{'PRICE' if i % 2 else 'SPEED'}\n" for i in range(1, 41))
+        coded = write(self.dir / "seg.csv", "id,plan,answer,codes\n" + rows)
+        out = run("counts", coded, "--text-col", "answer", "--segment-col", "plan").stdout
+        self.assertIn("95% interval", out.split("By plan")[1].splitlines()[0])
+        price = next(l for l in out.split("By plan")[1].splitlines() if l.startswith("PRICE"))
+        self.assertIn("15 (50.0%, 33.2 to 66.8)", price)  # Wilson 15/30
+        self.assertIn("5 (--)", price)  # segment b, base 10
+
+    def test_codebook_codes_may_not_hold_spaces_commas_or_the_separator(self):
+        bad = write(self.dir / "bad.csv", 'code,label,definition,include,exclude,example_quote\n"PRICE, COST",P,d,i,e,a\nSLOW SUPPORT,S,d,i,e,b\nA;B,X,d,i,e,c\n')
+        coded = write(self.dir / "c.csv", "id,answer,codes\n1,a,OTHER\n")
+        out = run_json("validate", coded, "--codebook", bad, "--text-col", "answer")
+        found = [e for e in out["errors"] if "contains a space, a comma or the code separator" in e]
+        self.assertEqual(len(found), 3)
+
+    def test_io_and_empty_separator_errors_exit_2(self):
+        coded = write(self.dir / "c.csv", "id,answer,codes\n1,a,PRICE\n")
+        for args in (
+            ("merge", coded, "--adjudicated", coded, "--final-col", "codes", "--delimiter", "", "--out", self.dir / "x.csv"),
+            ("sample", coded, "--text-col", "answer", "--n", 1, "--out", self.dir / "missing" / "o.csv"),
+            ("sample", self.dir, "--text-col", "answer", "--n", 1),
+        ):
+            done = run(*args)
+            self.assertEqual(done.returncode, 2, done.stderr)
+            self.assertNotIn("Traceback", done.stderr)
+
+    def test_merge_refuses_empty_ids(self):
+        coded = write(self.dir / "c.csv", "id,answer,codes\n,a,PRICE\n2,b,PRICE\n")
+        adj = write(self.dir / "adj.csv", "id,final_codes\n,SPEED\n")
+        done = run("merge", coded, "--adjudicated", adj, "--out", self.dir / "m.csv")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("empty id", done.stderr)
+
+    def test_kappa_interval_crossing_mchugh_090_is_flagged(self):
+        self.assertFalse(oec.crosses([0.82, 0.95], oec.landis_koch))
+        self.assertTrue(oec.kappa_crosses_band([0.82, 0.95]))
+        out = run_json("agreement", FIXTURES / "agree_a.csv", FIXTURES / "agree_b.csv", "--bootstrap", 200)
+        self.assertIn("pooled_kappa_ci_crosses_band", out["overall"])
+
+    def test_example_quote_may_be_trimmed(self):
+        codebook = write(self.dir / "cb.csv", "code,label,definition,include,exclude,example_quote\nPRICE,Price,d,i,e,Too expensive...\n")
+        coded = write(self.dir / "c.csv", "id,answer,codes\n1,Too expensive for me,PRICE\n")
+        out = run_json("validate", coded, "--codebook", codebook, "--text-col", "answer")
+        self.assertEqual(out["warnings"], [])
+
+    def test_coder_info_and_sentiment_validation(self):
+        done = run("agreement", FIXTURES / "agree_a.csv", FIXTURES / "agree_b.csv", "--bootstrap", 0,
+                   "--coder-info", "a,human,EXTRA", "--coder-info", "b,human")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("a human coder takes no model", done.stderr)
+        coded = write(self.dir / "s.csv", "id,answer,codes,sent\n1,asdf,UNCODABLE,positive\n2,good,PRICE,positive\n")
+        done = run("counts", coded, "--text-col", "answer", "--sentiment-col", "sent", "--min-base", 1)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("an uncodable answer", done.stderr)
 
 
 if __name__ == "__main__":

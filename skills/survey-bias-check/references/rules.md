@@ -10,7 +10,7 @@ Severity: **high** = likely to distort answers, **medium** = often a problem, **
 
 - Wording rules: SB001 to SB008, SB021, SB026 (run on each question stem and each grid row)
 - Question rules: SB017 to SB020, SB023 (run on the stem together with its options)
-- Answer-option rules: SB009 to SB014, SB022, SB027
+- Answer-option rules: SB009 to SB014, SB022, SB027, SB028
 - Questionnaire rules: SB015, SB016, SB024, SB025
 - Context flags
 - What no rule checks
@@ -54,7 +54,7 @@ Detects: always, never, everyone, everybody, nobody, no one, every time, all the
 single. "Ever" and "all" are not flagged.
 
 - Before: Do you always read the release notes? (Yes / No)
-- After: Of the last 5 releases, for how many did you read the release notes? (0 / 1-2 / 3-4 / 5)
+- After: Of the last 5 releases, for how many did you read the release notes? Enter a number from 0 to 5.
 
 Ignore when: the absolute is the point of the question ("Have you never used ...?" as a screener).
 
@@ -66,7 +66,8 @@ buy/pay/use/subscribe/renew/...". "How would you rate/describe" and "likely to r
 
 - Before: If we added a team plan, would you pay $20 per month for it?
 - After: In the past 12 months, did your team pay for a shared plan of any similar tool? (Yes / No / Not
-  sure). If intent must be asked, report it as an upper bound.
+  sure). If intent must be asked, report it as stated intent in its own units, not as a forecast; check it
+  against behaviour (past purchases, a trial) before forecasting what people will buy.
 
 Ignore when: the study is about intent by design (concept test, pricing study) and the report treats the
 numbers as stated intent.
@@ -92,7 +93,7 @@ and "often" unless it follows "how". Detects in options: two or more of often, s
 occasionally, frequently, regularly, seldom, usually, "hardly ever".
 
 - Before: How often do you use the mobile app? (Often / Sometimes / Rarely / Never)
-- After: In the past 7 days, on how many days did you use the mobile app? (0 / 1-2 / 3-5 / 6-7)
+- After: In the past 7 days, on how many days did you use the mobile app? Enter a number from 0 to 7.
 
 Ignore when: a perception is wanted, not a count, or the scale belongs to a validated instrument.
 A missing reference period is SB017.
@@ -116,8 +117,8 @@ Detects: a stem of more than 20 words (`--max-words`).
 - Before: Thinking about the last time you contacted our support team by email or by chat about a billing
   problem, how long did it take before you received a first reply that addressed your question?
 - After: (intro line) The next question is about the last time you contacted support about billing.
-  (question) How long did it take to get a first reply? (Less than 1 hour / 1-4 hours / 5-24 hours / More
-  than 24 hours)
+  (question) How long did it take to get a first reply? (Less than 1 hour / 1 to under 5 hours / 5 to under
+  24 hours / 24 hours or more)
 
 Ignore when: the extra words are a definition or a reference period that the question needs.
 
@@ -128,8 +129,10 @@ smoking, gambling, arrests, abortion, sexual activity, self-harm, debt, lying, b
 over-report (voting, giving to charity, attending religious services).
 
 - Before: Have you ever cheated on your taxes? (Yes / No)
-- After: no wording fix is enough. Use the `sensitive-questions` skill for neutral framing, anonymity
-  wording and indirect methods; at minimum make the question optional and self-completed.
+- After: no wording fix is enough. At minimum make the question optional and self-completed, frame it
+  neutrally ("Some people ... , others ..."), and say truthfully who can see the answer. When the estimate
+  matters, an indirect method (a list experiment or randomized response) is a design decision outside this
+  check.
 
 Ignore when: the topic is the declared subject of an anonymous study built for it. Rules miss: any topic
 outside the list (exercise, recycling, reading, income comparisons).
@@ -169,7 +172,7 @@ question. **experience**: "how satisfied" in the same situation, unless the stem
 general". An earlier yes/no or select-all question that shares a content word counts as a filter.
 
 - Before: How often do you exercise? (Often / Sometimes)
-- After: In the past 7 days, on how many days did you exercise? (0 / 1-2 / 3-4 / 5-7)
+- After: In the past 7 days, on how many days did you exercise? Enter a number from 0 to 7.
 
 Ignore when: the sample is defined by the behaviour (customers who just bought). Rules miss: assumptions in
 open questions and in any other wording ("Who treated your headache?").
@@ -204,8 +207,8 @@ Runs on questions that ask for a number. Detects: "on average", "average", "perc
 percentage", "what percent/share", "in total", "per year", "annually".
 
 - Before: What is your average monthly spend on fitness as a percentage of your income?
-- After: In the past 30 days, about how much did you spend on fitness? (ranges). Ask income separately, in
-  ranges, and compute the share yourself.
+- After: In the past 30 days, about how much did you spend on fitness? (an open amount). Ask income
+  separately, in ranges because it is sensitive, and compute the share yourself.
 
 Ignore when: respondents know the figure without calculating (an annual salary).
 
@@ -217,6 +220,13 @@ Detects: one option that merges two different opt-outs: "None / Other", "Don't k
 "N/A or other". "Don't know / Not sure" is one answer and is not flagged.
 
 - After: separate options: Other (please specify) / None of these / Prefer not to say.
+
+### SB028 duplicate option (high)
+
+Detects: the same option text twice in one question (case, spaces and end punctuation ignored).
+
+- Before: Did the update fix the problem? (Yes / Yes / No)
+- After: Yes / No / Not sure (check which option the copy replaced; usually a transcription slip).
 
 ### SB027 even-point bipolar scale (info)
 
@@ -241,20 +251,28 @@ label must be a recognised ladder step, so mixed lists are left alone.
 
 Rules miss: scales whose labels are not in the word lists, and uneven spacing ("Excellent / Good / OK").
 
-### SB010 numeric ranges (high)
+### SB010 numeric ranges (high; medium for continuous_gap)
 
-Detects, after sorting the ranges: **overlap** (a range starts at or below the end of the one before),
-**gap** (a range starts more than one step above the end of the one before) and **reversed** bounds. The
-step is 1, or 0.1 / 0.01 when the options use decimals. "Under N" excludes N; "N or more" and "N+" include
-it; "Over N" excludes it.
+Detects, after sorting the ranges by their start and comparing each with the furthest end seen so far:
+**overlap** (a range starts at or below that end), **gap** (a range starts more than one step above it) and
+**reversed** bounds. The step is 1, or 0.1 / 0.01 when the options use decimals or the stem asks for cents.
+"Under N" excludes N; "N or more" and "N+" include it; "Over N" excludes it; "N to under M" includes N and
+excludes M. Negative bounds are read. Up to a third of the options (at least one) may be words the parser
+cannot read ("It varies", "Never"); the rest are still checked.
+
+**continuous_gap** (medium): for a continuous measure (hours, minutes, weights, distances, or a "how long"
+question in days, weeks, months or years), ranges that meet at whole numbers ("5-6 hours / 7-8 hours")
+leave the values in between (6.5 hours) without an option. Counts, ages in years and money are treated as
+whole units.
 
 - Before: Under $25,000 / $25,000-$50,000 / $50,000-$100,000 / $100,000-$150,000
 - After: Under $25,000 / $25,000-$49,999 / $50,000-$99,999 / $100,000-$149,999 / $150,000 or more
 - Before: Less than 1 hour / 1-4 hours / 6-24 hours / More than 24 hours
-- After: Less than 1 hour / 1-4 hours / 5-24 hours / More than 24 hours
+- After: Less than 1 hour / 1 to under 5 hours / 5 to under 24 hours / 24 hours or more, or ask for the
+  number of hours.
 
 Rules miss: a missing open-ended top or bottom range (check by reading: can everyone answer?), ranges with
-mixed units ("6 months to 1 year"), and ranges written in words.
+mixed units ("6 months to 1 year"; skipped), and ranges written in words.
 
 ### SB011 missing answer option (medium or low)
 
@@ -274,7 +292,8 @@ Ignore when: the list is complete by construction (plans, months), or the questi
 ### SB012 inconsistent scales (medium)
 
 - **direction**: a rating scale that runs negative-to-positive when most scales in the questionnaire run
-  positive-to-negative, or the reverse.
+  positive-to-negative, or the reverse. When the two directions are split evenly, the scales that differ
+  from the first one are reported and the message says the split is even.
 - **length**: the same kind of scale (agreement, satisfaction, ...) with a different number of points than
   the others. "Don't know" and similar options are not counted as points.
 
@@ -309,9 +328,13 @@ Ignore when: the items are a validated instrument, or a tracker needs the old wo
 ### SB015 survey length (medium above 20 minutes, low above 10)
 
 The estimate is always printed. Points: single choice or scale 1; grid 1 per row; select-all 1 per two
-options; `[number]` questions 2; open questions 3; plus 1 for every three sentences in a stem. Minutes =
-points / 8. Every question is counted, so skip logic makes the real time shorter; intro pages are not
-counted. Replace the estimate with pilot timings when they exist.
+options; `[number]` questions 2; open questions 3 (Versta charges 3 per expected phrase or sentence; the
+script assumes one, so raise it by hand when a question asks for a paragraph); plus 1 for every three
+sentences in a stem; the introduction 1 per three sentences, rounded up. Minutes = points / 8, times 1.5 by
+phone; `minutes_rounded` rounds up to the next half minute for the report. Every question is counted
+unless `--route-skip` names the questions a respondent on the longest route never sees (Versta counts the
+longer of two exclusive paths). Replace the estimate with pilot timings when they exist. The 10- and
+20-minute thresholds are the median ideal and maximum lengths reported by one web panel's respondents.
 
 ### SB016 sensitive question handling (medium or low)
 
@@ -355,7 +378,12 @@ bare questions carries no question types. The limits are conventions, not resear
   by 1.5. Lists and grids must be read aloud and held in memory.
 - `--audience expert`: skips SB007, for respondents who use the terms at work.
 - `--keep Q7,Q9`: findings on these questions (and their grid rows) are printed as "keep as is" and left out
-  of the counts. Use it for validated instruments and tracked questions.
+  of the counts. Use it for validated instruments and tracked questions. An exact ID ("Q7" in JSON, a tag in
+  `qsf-convert` Markdown) is matched first; otherwise a leading Q is dropped.
+- `--route-skip Q5,Q6`: leaves these questions out of the length estimate only.
+- `--language en|other`: by default each stem is checked for English (mostly Latin letters and English
+  function words other languages do not share); `en` runs the wording rules on everything, `other` on
+  nothing.
 
 ## What no rule checks
 
@@ -380,8 +408,9 @@ Review these by reading the questionnaire:
 
 ## QAS-99 crosswalk
 
-QAS-99 (Willis & Lessler 1999) has 27 yes/no appraisal codes in seven steps, plus an open eighth step. The
-code numbers below follow Roberts et al. 2026 (see sources.md); the short descriptions are ours.
+QAS-99 (Willis & Lessler 1999) has 26 specific yes/no appraisal codes in seven steps and one "other" code in
+step 8: 27 decisions. Step 2 has two codes. The code numbers below follow Roberts et al. 2026 (see
+sources.md); the short descriptions are ours.
 
 | Code | About | Covered by |
 |---|---|---|
@@ -390,7 +419,6 @@ code numbers below follow Roberts et al. 2026 (see sources.md); the short descri
 | 1c | Question hard to read as written | agent judgment |
 | 2a | Conflicting or inaccurate introductions and instructions | SB024 (introduction only), agent judgment |
 | 2b | Complicated instructions | SB026 on stems, agent judgment for instructions |
-| 2c | Third instruction code (not named in the source read) | agent judgment |
 | 3a | Lengthy, awkward or complex wording | SB005, SB008, SB026 |
 | 3b | Undefined technical terms | SB007 |
 | 3c | Vague wording | SB006, agent judgment |
@@ -409,7 +437,7 @@ code numbers below follow Roberts et al. 2026 (see sources.md); the short descri
 | 7b | Question and answer categories do not match | SB019 |
 | 7c | Technical terms in categories | agent judgment |
 | 7d | Vague categories | SB006 options, SB020 |
-| 7e | Overlapping categories | SB010 overlap, SB022 |
+| 7e | Overlapping categories | SB010 overlap, SB022, SB028 |
 | 7f | Missing categories | SB010 gap, SB011, SB018 |
 | 7g | Illogical order of categories | SB012 direction (partly), agent judgment |
 | 8 | Other problems | agent judgment |
@@ -425,7 +453,7 @@ accuracy estimate for real questionnaires.
 | Fixture | Questions | Hand-listed problems | Found | Missed | Extra |
 |---|---|---|---|---|---|
 | `flawed.input.md` | 14 | 27 and 1 note | 27 and 1 note | 0 | 0 |
-| `gaps.input.md` | 13 | 17 and 1 note | 17 and 1 note | 0 | 0 |
+| `gaps.input.md` | 14 | 18 and 1 note | 18 and 1 note | 0 | 0 |
 | `mini.input.json` | 4 | 8 | 8 | 0 | 0 |
 | `unnumbered.input.txt` | 3 | 1 | 1 | 0 | 0 |
 | `clean.input.md` | 12 | 0 | 0 | - | 0 |
@@ -434,14 +462,7 @@ accuracy estimate for real questionnaires.
 False alarms on the two clean fixtures: 0 of 22 questions. The unit tests add a list of 29 single questions that sit
 next to a rule and must stay clean, plus negative cases for each of SB017 to SB027; all stay clean.
 
-A third pass ran two further unseen questionnaires written by a reviewer (16 questions, not kept as
-fixtures). On the flawed one, 9 of 11 planted problems were found at first; both misses (a short "which do
-you use" list with no "Other" or "None", and an amount ladder with no zero end) now have rules and unit
-tests, so 11 of 11 are found. On the clean one, 2 low candidates were raised at first; one was a false alarm
-(a numeric-entry opener read as an open question, now fixed) and one remains by design (SB018 on "how
-satisfied" with no filter question, to be dismissed when everyone surveyed uses the thing). The fixture
-rows above did not change. During
-development the rules were also run on two unseen, realistic questionnaires (22 questions, not kept as
-fixtures): after fixing the false alarms they exposed,
-7 candidates remained, of which the author judged 4 real, 2 debatable and 1 to dismiss (a deliberate
-hypothetical in an established question). That is a sample of two, read by one person.
+Unseen questionnaires (four, 38 questions, not kept as fixtures) were also run during development; the
+misses and false alarms they exposed became rules and unit tests. That is a handful of surveys read by one
+person each, not an accuracy estimate. A unit test in the respondent-view format of `survey-from-decision`
+(answer-box tags, routing lines, a closing line) checks that none of them is read as question text.

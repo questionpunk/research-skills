@@ -1,0 +1,9 @@
+pid,task,Mental Demand,Physical Demand,Temporal Demand,Performance,Effort,Frustration
+N1,t1,55,10,40,30,60,35
+N2,t1,70,20,65,45,75,50
+N3,t1,40,5,30,20,45,25
+N4,t1,60,15,50,35,55,40
+N5,t2,30,5,20,15,35,10
+N6,t2,45,10,35,25,40,20
+N7,t2,25,5,15,10,30,15
+N8,t2,35,10,25,20,40,25

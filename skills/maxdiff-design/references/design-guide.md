@@ -80,22 +80,28 @@ A version is one respondent's full questionnaire: its own sets, in its own order
 - **Online, tool can assign versions:** generate more, up to Sawtooth's default of 300 [S1], and assign
   them at random or in rotation. Pair counts and positions even out across versions.
 - **Paper:** at least 4 [S1].
-- **One version:** when the aim is to compare respondents with each other (segmentation), because different
-  versions add differences between respondents that are not preference [S7]; or when the tool allows nothing
-  else. Every respondent then sees the same context for each item; say so in the write-up.
+- **Comparing or clustering respondents (segmentation):** practitioners disagree. Displayr prefers one
+  version, because different versions add differences between respondents that are not preference [S7];
+  Sawtooth fields many versions and scores each respondent with HB [S1]. Ask which analysis is planned and
+  record the choice. With one version every respondent sees the same context for each item; say so in the
+  write-up. One version is also the answer when the tool allows nothing else.
 
 Versions do not need equal numbers of respondents, and none needs a minimum sample [S2].
 
-Generating hundreds of versions takes a while (about half a minute for 300 versions of 20 items on a
-laptop); `--restarts 3` shortens it at a small cost in pair balance.
+Generating hundreds of versions takes a while. Measured on a laptop for 300 versions: about 35 seconds for
+20 items (4 per set) and about 2 minutes for 30 items (5 per set); `--restarts 3` cut the 30-item run to
+under 40 seconds at a small cost in pair balance. Above about 20 items with hundreds of versions, use
+`--restarts 3` or run the command in the background so a tool time-out does not stop it.
 
 ## Sample size
 
 - 300 respondents in total and 200 in every subgroup you will report separately [S5]; [S4] gives 200 as
   the floor.
 - Above about 30 items, raise these in proportion (double at 60 items) [S5].
-- Sparse design (an item seen once or less per respondent), pooled analysis only: each item should be
-  seen 500 to 1000 times in every group you report [S1]. Exposures of one item in a group
+- Sparse design (each item under 2 times per respondent, where Sawtooth's tools warn; [S1] writes the rule
+  for designs that show an item once or less), pooled analysis only: each item should be seen 500 to 1000
+  times in every group you report [S1]. These are item exposures, not respondents. The sibling skills
+  `survey-sample-size` and `maxdiff-analysis` use this same rule and the 300/200 floors above. Exposures of one item in a group
   = respondents x sets x k / K. Example: 40 items, 5 per set, 8 sets gives 1 exposure per respondent, so
   500 to 1000 respondents per group.
 
@@ -159,7 +165,8 @@ q x q + q sets of q (affine plane, q prime) [S6] [S10].
 | 6 | 3 | 20 (all subsets) | 10 | 4 |
 
 Each row satisfies b k = v r and lambda (v - 1) = r (k - 1) [S6]; for example 13 x 4 = 13 x 4 and
-1 x 12 = 4 x 3. When the default number of sets is not the exact one, the script prints a note such as
+1 x 12 = 4 x 3. Not every row suits MaxDiff as it is: (7, 4, 7) shows more than half the items in a set
+(prefer (7, 3, 7)), and (25, 5, 30) and (6, 3, 20) show each item 6 and 10 times, above the usual 3 to 5. When the default number of sets is not the exact one, the script prints a note such as
 "an exact BIBD exists with --sets 13".
 
 ## Fielding the design
@@ -173,5 +180,7 @@ Each row satisfies b k = v r and lambda (v - 1) = r (k - 1) [S6]; for example 13
 - If the survey tool draws its own sets and cannot import a design, pass it the three numbers (items,
   items per set, sets) and export the sets each respondent saw. Then run `--check` on that export.
 - Other layouts: `--wide` writes `version,set,item1..itemk` (the form Sawtooth and Displayr use), and
-  `--item-id` adds 1-based item numbers. `--check` reads the long and the wide form, with labels or numbers.
+  `--item-id` adds 1-based item numbers. `--check` reads the long and the wide form, with labels or numbers,
+  comma, semicolon or tab separated. The sibling skill `maxdiff-analysis` reads only the long form, so keep
+  that file for the analysis.
 - Test one version yourself on a phone before launch, and time it.

@@ -1,0 +1,77 @@
+{
+ "_source": "Hand-listed mistakes planted in bad.md (fixtures/README.md); each must be found.",
+ "findings": [
+  [
+   "SC01",
+   "C3"
+  ],
+  [
+   "SC02",
+   "Q4"
+  ],
+  [
+   "SC03",
+   "Q3"
+  ],
+  [
+   "SC04",
+   "Q4"
+  ],
+  [
+   "SC08",
+   "Q2"
+  ],
+  [
+   "SC10",
+   "Q4"
+  ],
+  [
+   "SC11",
+   "Q2"
+  ],
+  [
+   "SC11",
+   "title"
+  ],
+  [
+   "SC13",
+   "Q4"
+  ],
+  [
+   "SC14",
+   "Q3"
+  ],
+  [
+   "SC14",
+   "Q3"
+  ],
+  [
+   "SC15",
+   "screener"
+  ],
+  [
+   "SC16",
+   "Q4"
+  ],
+  [
+   "SC17",
+   "quota Team size"
+  ],
+  [
+   "SC18",
+   "quota Team size"
+  ],
+  [
+   "SC19",
+   "Q2"
+  ],
+  [
+   "SC21",
+   "Q2"
+  ],
+  [
+   "SC22",
+   "C2"
+  ]
+ ]
+}

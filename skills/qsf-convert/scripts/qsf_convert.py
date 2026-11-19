@@ -19,9 +19,12 @@ Exit codes: 0 done, 1 bad input or (validate) structural errors, 2 internal erro
 import argparse
 import hashlib
 import html
+import html.entities
 import json
+import os
 import re
 import sys
+import tempfile
 
 # Markdown type tag -> (QuestionType, Selector, SubSelector). Every triple was seen in real exports
 # (references/sources.md, "Question types").
@@ -44,7 +47,7 @@ TYPES = {
 }
 # Other multiple-choice layouts read as the vertical type, with a warning.
 MC_LAYOUTS = {"SAHR": "single", "SACOL": "single", "SB": "single", "MAHR": "multi", "MACOL": "multi", "MSB": "multi"}
-LOGIC_SOURCES = ("single", "multi", "dropdown")  # choices addressed as q://QIDn/SelectableChoice/k
+LOGIC_SOURCES = ("single", "multi", "dropdown", "nps")  # choices addressed as q://QIDn/SelectableChoice/k
 OPTION_TYPES = ("single", "multi", "dropdown", "rank", "slider", "form", "sum")
 MATRIX_TYPES = ("matrix", "matrix-multi", "matrix-text")
 CODE_TYPES = ("single", "multi", "dropdown")  # {code:n} on options; on a Likert matrix it goes on the columns
@@ -69,13 +72,41 @@ FIXED_DATE = "2026-01-01 00:00:00"
 NO_DATE = "0000-00-00 00:00:00"
 TRASH_NAME = "Trash / Unused Questions"
 KEPT_TAGS = ("strong", "b", "em", "i", "u")  # plain emphasis stays as inline HTML in the Markdown
+# HTML element names (HTML Living Standard element index, plus a few obsolete ones Qualtrics editors still write).
+# A "<" passes through to Qualtrics as markup only when it opens one of these, a namespaced or custom tag, or a
+# comment; any other "<" (an option such as "<None>", "x<y") is written as &lt;.
+HTML_ELEMENTS = frozenset(
+    "a abbr address area article aside audio b base bdi bdo big blockquote body br button canvas caption center "
+    "cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure "
+    "font footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link "
+    "main map mark menu meta meter nav noscript object ol optgroup option output p param picture pre progress q rp "
+    "rt ruby s samp script search section select slot small source span strike strong style sub summary sup svg "
+    "table tbody td template textarea tfoot th thead time title tr track tt u ul var video wbr".split()
+)
+HTML_TAG_RE = re.compile(r"<(?:!--|/?([A-Za-z][A-Za-z0-9]*(?:[:-][A-Za-z0-9]+)*)(?=[\s/>])(?:[^<>\"']|\"[^\"]*\"|'[^']*')*>)")
+ENTITY_RE = re.compile(r"&(#\d+;?|#[xX][0-9a-fA-F]+;?|[A-Za-z][A-Za-z0-9]*;?)")
+
+
+def opens_tag(text, pos):
+    """True when text[pos] is a "<" that starts HTML markup (a known, namespaced or custom element, or a comment)."""
+    m = HTML_TAG_RE.match(text, pos)
+    if not m:
+        return False
+    name = (m.group(1) or "").lower()
+    return not name or name in HTML_ELEMENTS or ":" in name or "-" in name
+
+
+def starts_entity(text, pos):
+    """True when text[pos] is an "&" that a browser reads as a character reference (&amp;, &#60;, &#x3c;)."""
+    m = re.compile(r"&(#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);").match(text, pos)
+    return bool(m) and (m.group(1).startswith("#") or m.group(1) + ";" in html.entities.html5)
 TAG_RE = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
 ENTRY_KEYS = [
     "SurveyID", "SurveyName", "SurveyDescription", "SurveyOwnerID", "SurveyBrandID", "DivisionID",
     "SurveyLanguage", "SurveyActiveResponseSet", "SurveyStatus", "SurveyStartDate", "SurveyExpirationDate",
     "SurveyCreationDate", "CreatorID", "LastModified", "LastAccessed", "LastActivated", "Deleted",
 ]
-USUAL_ELEMENTS = ["SO", "SCO", "STAT", "QC", "RS"]  # in every sampled export, next to BL and FL
+USUAL_ELEMENTS = ["SO", "SCO", "STAT", "QC", "RS"]  # SO, STAT, QC, RS in 55 of 55 sampled exports; SCO in 54
 # Payload keys to-md reads or that carry nothing a respondent sees.
 KNOWN_KEYS = {
     "QuestionText", "QuestionText_Unsafe", "DataExportTag", "QuestionType", "Selector", "SubSelector",
@@ -86,6 +117,30 @@ KNOWN_KEYS = {
 }
 
 
+# The survey options and scoring element to-qsf writes. A .qsf read by to-md is compared with these, so
+# settings a rebuilt survey would lose (an access restriction, scoring) are named in the report.
+SURVEY_OPTIONS = {
+    "BackButton": "false", "SaveAndContinue": "true", "SurveyProtection": "PublicSurvey",
+    "BallotBoxStuffingPrevention": "false", "NoIndex": "Yes", "SecureResponseFiles": "true", "SurveyExpiration": "None",
+    "SurveyTermination": "DefaultMessage", "Header": "", "Footer": "", "ProgressBarDisplay": "None",
+    "PartialData": "+1 week", "ValidationMessage": "", "PreviousButton": " \u2190 ", "NextButton": " \u2192 ",
+    "SkinLibrary": "", "SkinType": "templated", "Skin": {"brandingId": None, "templateId": "*base", "overrides": None},
+    "NewScoring": 1,
+}
+SCORING = {
+    "ScoringCategories": [], "ScoringCategoryGroups": [], "ScoringSummaryCategory": None,
+    "ScoringSummaryAfterQuestions": 0, "ScoringSummaryAfterSurvey": 0, "DefaultScoringCategory": None,
+    "AutoScoringCategory": None,
+}
+# Options that change who can answer or what is kept; a rebuilt survey must have them set again before fielding.
+ACCESS_OPTIONS = (
+    "SurveyProtection", "BallotBoxStuffingPrevention", "SurveyExpiration", "SurveyStartDate", "SurveyExpirationDate",
+    "Password", "PartialData", "SecureResponseFiles", "RecaptchaV3", "RelevantID", "AnonymizeResponse",
+    "NoIndex", "SurveyTermination", "EOSRedirectURL", "EOSMessage",
+)
+MARK_RE = r"(?<!\\)\{(?:text|exclusive|code:-?\d+|var:%s)\}" % TAG_RE
+
+
 class ConvertError(Exception):
     """Bad input: reported to the user, exit code 1."""
 
@@ -94,30 +149,74 @@ class ConvertError(Exception):
 
 
 def md_to_html(text):
-    """Markdown text of a question or option -> the HTML Qualtrics stores."""
-    out = re.sub(r"&(?!#?\w+;)", "&amp;", text)
-    out = re.sub(r"<(?![A-Za-z/!])", "&lt;", out)
+    """Markdown text of a question or option -> the HTML Qualtrics stores. An "&" that starts no character
+    reference and a "<" that opens no HTML tag are escaped; tags and references pass through."""
+    out = "".join("&amp;" if ch == "&" and not starts_entity(text, i) else ch for i, ch in enumerate(text))
+    out = "".join("&lt;" if ch == "<" and not opens_tag(out, i) else ch for i, ch in enumerate(out))
     return out.replace("\n", "<br>")
+
+
+def decode_entities(text):
+    """html.unescape, except a decoded "<" or "&" that would read as a tag or a reference again stays escaped,
+    so the Markdown turns back into the same HTML."""
+    pieces, marks, last = [], [], 0
+    for m in ENTITY_RE.finditer(text):
+        pieces.append(text[last:m.start()])
+        decoded = html.unescape(m.group(0))
+        start = sum(len(piece) for piece in pieces)
+        marks += [start + i for i, ch in enumerate(decoded) if ch in "<&"]
+        pieces.append(decoded)
+        last = m.end()
+    pieces.append(text[last:])
+    out = list("".join(pieces))
+    joined = "".join(out)
+    for pos in reversed(marks):
+        if out[pos] == "<" and opens_tag(joined, pos):
+            out[pos] = "&lt;"
+        elif out[pos] == "&" and starts_entity(joined, pos):
+            out[pos] = "&amp;"
+    return "".join(out)
 
 
 def html_to_md(source, keep_html=False):
     """Qualtrics HTML -> (Markdown text, names of the tags that were dropped)."""
     out = source if isinstance(source, str) else ""
     out = re.sub(r"<!--.*?-->", "", out, flags=re.S)
+    out = out.replace("<!--", "&lt;!--")  # an unclosed comment would hide the rest of the Markdown file
     out = re.sub(r"\s+", " ", out)
-    out = re.sub(r"<br\s*/?>", "\n", out, flags=re.I)
-    out = re.sub(r"</(p|div)>", "\n\n", out, flags=re.I)
-    out = re.sub(r"<(p|div)>", "", out, flags=re.I)
+    out = re.sub(r"<br\b[^>]*>", "\n", out, flags=re.I)
     dropped = []
     if not keep_html:
-        other = r"<(?!/?(?:%s)>)/?([A-Za-z][A-Za-z0-9]*)\b[^>]*>" % "|".join(KEPT_TAGS)
-        dropped = sorted({m.lower() for m in re.findall(other, out, flags=re.I)})
+        hidden = re.findall(r"<(style|script)\b[^>]*>.*?</\1\s*>", out, flags=re.I | re.S)
+        dropped += [name.lower() for name in hidden]
+        out = re.sub(r"<(style|script)\b[^>]*>.*?</\1\s*>", "", out, flags=re.I | re.S)  # their content is not text
+    # <p> and <div> become paragraph breaks. With --keep-html one that carries attributes is kept whole, its
+    # closing tag included, so the HTML stays balanced.
+    stack, parts, last = [], [], 0
+    for m in re.finditer(r"<(/?)(p|div)\b([^>]*)>", out, flags=re.I):
+        parts.append(out[last:m.start()])
+        last = m.end()
+        if not m.group(1):
+            keep = keep_html and bool(m.group(3).strip(" /"))
+            stack.append(keep)
+            parts.append(m.group(0) if keep else "")
+            if m.group(3).strip(" /") and not keep_html:
+                dropped.append(m.group(2).lower())
+        else:
+            keep = stack.pop() if stack else False
+            parts.append(m.group(0) if keep else "\n\n")
+    out = "".join(parts) + out[last:]
+    if not keep_html:
+        # Emphasis keeps its tag but loses its attributes, so the closing tag still has an opener.
+        styled = re.findall(r"<(%s)\s[^>]*>" % "|".join(KEPT_TAGS), out, flags=re.I)
+        dropped += [name.lower() for name in styled]
+        out = re.sub(r"<(%s)\s[^>]*>" % "|".join(KEPT_TAGS), lambda m: f"<{m.group(1)}>", out, flags=re.I)
+        other = r"<(?!/?(?:%s)>)/?([A-Za-z][A-Za-z0-9:-]*)\b[^>]*>" % "|".join(KEPT_TAGS)
+        dropped += [m.lower() for m in re.findall(other, out, flags=re.I)]
         out = re.sub(other, "", out, flags=re.I)
-    # Decode entities, except the two that would turn back into markup on the way to QSF.
-    out = re.sub(r"&lt;(?=[A-Za-z/!])", "\x01", out)
-    out = re.sub(r"&amp;(?=#?\w+;)", "\x02", out)
-    out = html.unescape(out).replace("\xa0", " ")
-    out = out.replace("\x01", "&lt;").replace("\x02", "&amp;")
+    dropped = sorted(set(dropped))
+    # Decode entities, except one that would turn back into markup on the way to QSF.
+    out = decode_entities(out).replace("\xa0", " ")
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in out.split("\n")]
     out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     return out, dropped
@@ -241,9 +340,9 @@ def parse_markdown(text):
             )
         elif line.startswith("- "):
             body = line[2:].strip()
-            m = re.search(rf"(?:\s*\{{(?:text|exclusive|code:-?\d+|var:{TAG_RE})\}})+$", body)
+            m = re.search(rf"(?:\s*{MARK_RE})+$", body)
             attrs = dict(re.findall(r"\{(\w+):?([^}]*)\}", m.group(0))) if m else {}
-            label = body[: m.start()].strip() if m else body
+            label = (body[: m.start()].strip() if m else body).replace("\\{", "{")  # "\{text}" is literal text
             if not label:
                 raise ConvertError(f"line {no}: option has no text")
             option = {
@@ -314,6 +413,10 @@ def questions_of(survey):
 
 
 def find_choice(q, label, line, what):
+    if q["type"] == "nps":  # NPS choices are keyed by the score itself, "0" to "10"
+        if label not in NPS_POINTS:
+            raise ConvertError(f'line {line}: {what}: an [nps] question has the options "0" to "10", not {label!r}')
+        return int(label)
     hits = [i for i, option in enumerate(q["options"]) if option["text"] == label]
     if len(hits) != 1:
         problem = "has no option" if not hits else "has more than one option"
@@ -331,6 +434,10 @@ def check_model(survey):
         where = f"line {q['line']}: question {q['tag']}"
         if q["tag"] in by_tag:
             raise ConvertError(f"{where}: tag already used on line {by_tag[q['tag']]['line']}; tags must be unique")
+        clash = [t for t in by_tag if t.lower() == q["tag"].lower()]
+        if clash:
+            raise ConvertError(f"{where}: tag differs from {clash[0]!r} only in upper and lower case; data exports and "
+                               "statistics packages treat them as the same name")
         by_tag[q["tag"]] = q
         lines = q.pop("text_lines")
         q["text"] = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
@@ -354,7 +461,9 @@ def check_model(survey):
                 raise ConvertError(f"line {option['line']}: {{var:name}} only applies to matrix rows")
         for group, key, what in ((coded, "code", "{code:n}"), (q["rows"], "var", "{var:name}")):
             given = [o[key] for o in group if o[key] is not None]
-            if given and (len(given) != len(group) or len(set(given)) != len(given)):
+            # codes are numbers ({code:01} and {code:1} are the same value); export tags ignore case
+            distinct = {int(g) for g in given} if key == "code" else {g.lower() for g in given}
+            if given and (len(given) != len(group) or len(distinct) != len(given)):
                 raise ConvertError(f"{where}: give {what} to every {'row' if key == 'var' else 'option or column'}, each one different, or to none")
         if q["force"] and kind == "sum":
             raise ConvertError(f"{where}: a [sum] question cannot be '{q['force']}' (no export evidences that shape); use '> total:'")
@@ -389,6 +498,7 @@ def check_model(survey):
                         f"line {skip['line']}: skip target {skip['dest']!r} must be a later question in the same block "
                         "(Qualtrics skip logic only moves forward inside a block); otherwise use 'end of block'"
                     )
+    order = [q["tag"] for q in questions_of(survey)]
     for q in questions_of(survey):
         for cond in q["show"]["conds"] if q["show"] else []:
             line = q["show"]["line"]
@@ -397,6 +507,11 @@ def check_model(survey):
                 raise ConvertError(f"line {line}: display rule names question {cond['tag']!r}, which does not exist")
             if source is q:
                 raise ConvertError(f"line {line}: a display rule cannot depend on its own question")
+            if order.index(cond["tag"]) > order.index(q["tag"]):
+                raise ConvertError(
+                    f"line {line}: the display rule of {q['tag']} (question {order.index(q['tag']) + 1}) tests "
+                    f"{cond['tag']} (question {order.index(cond['tag']) + 1}), which comes later, so it could never be true"
+                )
             if source["type"] not in LOGIC_SOURCES:
                 raise ConvertError(f"line {line}: display rules can only test {', '.join(LOGIC_SOURCES)} questions, not [{source['type']}]")
             cond["key"] = find_choice(source, cond["choice"], line, "display rule")
@@ -549,13 +664,27 @@ def build_qsf(survey, source_text):
     questions = questions_of(survey)
     by_tag = {q["tag"]: q for q in questions}
     qids = {q["tag"]: f"QID{n}" for n, q in enumerate(questions, 1)}
-    order = list(qids)
+    page = {}  # tag -> (block index, page number inside the block)
+    for b, block in enumerate(survey["blocks"]):
+        number = 0
+        for item in block["items"]:
+            if item["kind"] == "break":
+                number += 1
+            else:
+                page[item["tag"]] = (b, number)
     for q in questions:
         if q["type"] in SINGLE_EXPORT_TYPES:
             warnings.append(f"{q['tag']}: the [{q['type']}] shape was seen in one real export only; check this question after import")
+        if q["type"] == "nps" and q["skips"]:
+            warnings.append(f"{q['tag']}: skip logic on an [nps] question uses the multiple-choice locator; no export with it was seen, so check it after import")
         for cond in q["show"]["conds"] if q["show"] else []:
-            if order.index(cond["tag"]) > order.index(q["tag"]):
-                warnings.append(f"{q['tag']}: its display rule tests {cond['tag']}, which comes later in the survey, so it can never be true")
+            if by_tag[cond["tag"]]["type"] == "nps":
+                warnings.append(f"{q['tag']}: its display rule tests the [nps] question {cond['tag']} with the multiple-choice locator; no export with it was seen, so check it after import")
+            if page[cond["tag"]] == page[q["tag"]]:
+                warnings.append(
+                    f"{q['tag']}: its display rule tests {cond['tag']} on the same page; Qualtrics evaluates display logic "
+                    "when the page loads unless 'In page' is set, so put a page break (---) between them"
+                )
 
     def element(code, primary, secondary, tertiary, payload):
         return {
@@ -592,19 +721,8 @@ def build_qsf(survey, source_text):
         else:
             blocks.append({"Type": "Standard", "SubType": "", "Description": block["name"], "ID": block_id, "BlockElements": elements})
         flow.append({"Type": "Block" if index == 0 else "Standard", "ID": block_id, "FlowID": f"FL_{len(flow) + 2}", "Autofill": []})
-    options = {
-        "BackButton": "false", "SaveAndContinue": "true", "SurveyProtection": "PublicSurvey",
-        "BallotBoxStuffingPrevention": "false", "NoIndex": "Yes", "SecureResponseFiles": "true", "SurveyExpiration": "None",
-        "SurveyTermination": "DefaultMessage", "Header": "", "Footer": "", "ProgressBarDisplay": "None",
-        "PartialData": "+1 week", "ValidationMessage": "", "PreviousButton": " \u2190 ", "NextButton": " \u2192 ",
-        "SkinLibrary": "", "SkinType": "templated", "Skin": {"brandingId": None, "templateId": "*base", "overrides": None},
-        "NewScoring": 1,
-    }
-    scoring = {
-        "ScoringCategories": [], "ScoringCategoryGroups": [], "ScoringSummaryCategory": None,
-        "ScoringSummaryAfterQuestions": 0, "ScoringSummaryAfterSurvey": 0, "DefaultScoringCategory": None,
-        "AutoScoringCategory": None,
-    }
+    options = json.loads(json.dumps(SURVEY_OPTIONS))
+    scoring = json.loads(json.dumps(SCORING))
     elements = [
         element("BL", "Survey Blocks", None, None, blocks),
         element("FL", "Survey Flow", None, None, {"Type": "Root", "FlowID": "FL_1", "Flow": flow, "Properties": {"Count": len(flow) + 1}}),
@@ -657,8 +775,26 @@ def ordered(mapping, order):
     if not isinstance(mapping, dict):
         return [], 0
     keys = [str(key) for key in order] if isinstance(order, list) and order else list(mapping)
+    keys = list(dict.fromkeys(keys))  # a key listed twice is shown once
     shown = [(key, mapping[key]) for key in keys if key in mapping]
     return shown, len(mapping) - len(shown)
+
+
+def order_problems(mapping, order):
+    """(keys listed twice, keys of the mapping the order leaves out, order keys the mapping lacks)."""
+    if isinstance(mapping, list):
+        keys = [str(i) for i in range(len(mapping))]
+    elif isinstance(mapping, dict):
+        keys = [str(k) for k in mapping]
+    else:
+        keys = []
+    listed = [str(k) for k in order] if isinstance(order, list) else []
+    if not listed:
+        return [], [], []
+    repeated = sorted({k for k in listed if listed.count(k) > 1}, key=lambda k: (len(k), k))
+    omitted = [k for k in keys if k not in listed]
+    unknown = [k for k in dict.fromkeys(listed) if k not in keys]
+    return repeated, omitted, unknown
 
 
 def classify(payload):
@@ -688,17 +824,25 @@ def classify(payload):
 
 
 def logic_text(logic):
-    """Qualtrics logic as one readable line, from the Description each expression carries."""
-    parts = []
+    """Qualtrics logic as one readable line, from the Description each expression carries. Condition groups
+    after the first are bracketed, with the join between groups (the group's Type, And or Or) in front."""
+    parts, groups = [], 0
     for key, group in (logic.items() if isinstance(logic, dict) else []):
         if not isinstance(group, dict):
             continue
+        groups += 1
+        later = groups > 1
+        if later:
+            join = str(group.get("Type"))
+            parts.append(f"{join.upper()} (" if join in ("And", "Or") else "(")
         for sub, expr in group.items():
             if isinstance(expr, dict):
                 text = plain(expr.get("Description")) or " ".join(
                     str(expr[k]) for k in ("Conjuction", "LeftOperand", "Operator", "RightOperand") if expr.get(k) not in (None, "")
                 )
                 parts.append(text)
+        if later:
+            parts.append(")")
     return " ".join(part for part in parts if part) or "a condition the export does not spell out"
 
 
@@ -752,6 +896,7 @@ class Reader:
         self.report = None
         self.tags = {}
         self.options = {}
+        self.written = {}  # tag -> [(label, text entry, exclusive)] as written, checked against the reparsed Markdown
 
     def warn(self, text):
         self.warnings.append(text)
@@ -787,12 +932,13 @@ class Reader:
             return None
         out = []
         for field in node["EmbeddedData"]:
-            if not isinstance(field, dict) or not re.fullmatch(FIELD_RE, str(field.get("Field"))) or field.get("VariableType") not in (None, "String"):
+            name = field.get("Field") if isinstance(field, dict) else None
+            if not isinstance(name, str) or name != name.strip() or not re.fullmatch(FIELD_RE, name) or field.get("VariableType") not in (None, "String"):
                 return None
             value = field.get("Value")
             if field.get("Type") == "Recipient" and value in (None, ""):
                 out.append((field["Field"], None))
-            elif field.get("Type") == "Custom" and isinstance(value, str) and value == value.strip() and "\n" not in value:
+            elif field.get("Type") == "Custom" and isinstance(value, str) and value == value.strip() and len(value.splitlines()) <= 1:
                 out.append((field["Field"], value))
             else:
                 return None
@@ -803,6 +949,13 @@ class Reader:
         if dropped:
             self.warn(f"{where}: HTML formatting removed from the {what} ({', '.join('<' + tag + '>' for tag in dropped)}); use --keep-html to keep it")
         return out
+
+    def no_comment(self, text, where, what):
+        """A plain-text name holding "<!--" would open a Markdown comment that never closes."""
+        if "<!--" not in text:
+            return text
+        self.warn(f"{where}: '<!--' in the {what} written as '<! --' so it does not start a comment")
+        return text.replace("<!--", "<! --")
 
     def one_line(self, source, where, what):
         out = self.text(source, where, what)
@@ -939,6 +1092,13 @@ class Reader:
             m = re.fullmatch(r"q://(QID\d+)/SelectableChoice/(\w+)", str(expr.get("LeftOperand")))
             if not m or m.group(1) == qid:
                 return None
+            order = list(self.tags)
+            if m.group(1) in order and qid in order and order.index(m.group(1)) > order.index(qid):
+                self.warn(
+                    f"{qid} ({self.tags[qid]}): its display logic tests {self.tags[m.group(1)]} (question "
+                    f"{order.index(m.group(1)) + 1}), which comes after it (question {order.index(qid) + 1}), so it could never be true"
+                )
+                return None
             label = self.choice_label(m.group(1), m.group(2))
             if label is None:
                 return None
@@ -984,26 +1144,45 @@ class Reader:
         self.warn(f"{where}: {what} codes repeat or are not whole numbers, so they are not represented; a rebuilt survey codes them 1, 2, 3 in the order shown")
         return None
 
+    def order_report(self, mapping, order, where, order_name, what):
+        """Name each choice an order list repeats or leaves out; the Markdown shows each listed choice once."""
+        repeated, omitted, _ = order_problems(mapping, order)
+        if isinstance(mapping, list):
+            mapping = {str(i): entry for i, entry in enumerate(mapping)}
+        label = lambda key: plain(mapping.get(key, {}).get("Display") if isinstance(mapping.get(key), dict) else "")  # noqa: E731
+        if repeated:
+            self.warn(f"{where}: {order_name} lists {what} {', '.join(repeated)} more than once; each is written once")
+        if omitted:
+            names = ", ".join(f"{key} ({label(key)!r})" for key in omitted)
+            self.warn(f"{where}: {what}(s) missing from {order_name} were left out: {names}")
+
     def option_lines(self, entries, where, what, attrs, codes=None, names=None):
         lines = []
         extra = set()
+        self.last_written = []
         for key, choice in entries:
             choice = choice if isinstance(choice, dict) else {}
             label = self.one_line(choice.get("Display"), where, what)
             if not label:
                 label = "(blank)"
                 self.warn(f"{where}: {what} {key} has no text; written as (blank)")
+            written = label
+            label = re.sub(r"\{(?=(?:text|exclusive|code:-?\d+|var:%s)\})" % TAG_RE, r"\\{", label)  # literal, not a mark
             line = "- " + label
+            has_text = has_exclusive = False
             if str(choice.get("TextEntry")).lower() in ("true", "on", "1"):
                 if "text" in attrs:
                     line += " {text}"
+                    has_text = True
                 else:
                     extra.add("TextEntry")
             if choice.get("ExclusiveAnswer") in (True, "true"):
                 if "exclusive" in attrs:
                     line += " {exclusive}"
+                    has_exclusive = True
                 else:
                     extra.add("ExclusiveAnswer")
+            self.last_written.append((written, has_text, has_exclusive))
             extra.update(k for k, v in choice.items() if k not in ("Display", "TextEntry", "ExclusiveAnswer") and v not in (None, "", [], {}, False))
             if codes:
                 line += f" {{code:{codes[key]}}}"
@@ -1043,13 +1222,15 @@ class Reader:
         config = payload.get("Configuration") if isinstance(payload.get("Configuration"), dict) else {}
         rules = []
         coded = False
+        shown_keys = None
         if kind in OPTION_TYPES:
             shown, hidden = ordered(payload.get("Choices"), payload.get("ChoiceOrder"))
-            if hidden:
-                self.warn(f"{where}: {hidden} choice(s) missing from ChoiceOrder were left out")
+            shown_keys = [key for key, _ in shown]
+            self.order_report(payload.get("Choices"), payload.get("ChoiceOrder"), where, "ChoiceOrder", "choice")
             codes = self.codes(payload, shown, where, "choice") if kind in CODE_TYPES and shown else None
             coded = kind in CODE_TYPES
             options = self.option_lines(shown, where, "choice", ("text", "exclusive") if kind == "multi" else ("text",) if kind == "single" else (), codes)
+            self.written.setdefault(tag, {})["options"] = self.last_written or [("(blank)", False, False)]
             if not options:
                 options = ["- (blank)"]
                 self.warn(f"{where}: no choices in the export; written with one (blank) option")
@@ -1057,14 +1238,20 @@ class Reader:
         if kind in MATRIX_TYPES:
             rows, hidden_rows = ordered(payload.get("Choices"), payload.get("ChoiceOrder"))
             columns, hidden_columns = ordered(payload.get("Answers"), payload.get("AnswerOrder"))
-            if hidden_rows or hidden_columns:
-                self.warn(f"{where}: {hidden_rows} row(s) and {hidden_columns} column(s) missing from the order lists were left out")
+            self.order_report(payload.get("Choices"), payload.get("ChoiceOrder"), where, "ChoiceOrder", "row")
+            self.order_report(payload.get("Answers"), payload.get("AnswerOrder"), where, "AnswerOrder", "column")
             codes = None
             recode = payload.get("RecodeValues")
             if kind != "matrix-text" and columns:
-                if not isinstance(recode, dict) or {str(k) for k in recode} <= {key for key, _ in columns}:
-                    codes = self.codes(payload if isinstance(recode, dict) else {}, columns, where, "column")
-                    coded = True
+                column_keys = {key for key, _ in columns}
+                recode = {str(k): v for k, v in recode.items()} if isinstance(recode, dict) else {}
+                stale = sorted(k for k, v in recode.items() if k not in column_keys and str(k) != str(v))
+                if stale:
+                    self.warn(f"{where}: recode values for columns not in the question ignored ({', '.join(stale)})")
+                codes = self.codes({"RecodeValues": {k: v for k, v in recode.items() if k in column_keys}}, columns, where, "column")
+                coded = True
+            elif kind == "matrix-text" and [key for key, _ in columns] != [str(i) for i in range(1, len(columns) + 1)]:
+                self.warn(f"{where}: column ids are not 1..n in the export; a rebuilt survey renumbers them, which changes exported column names")
             names = payload.get("ChoiceDataExportTags")
             if isinstance(names, dict) and names:
                 wanted = [str(names.get(key) or "") for key, _ in rows]
@@ -1075,23 +1262,27 @@ class Reader:
                     names = None
             else:
                 names = None
-                if [key for key, _ in rows] != [str(i) for i in range(1, len(rows) + 1)] and sorted(key for key, _ in rows) != [str(i) for i in range(1, len(rows) + 1)]:
+                if [key for key, _ in rows] != [str(i) for i in range(1, len(rows) + 1)]:
                     self.warn(f"{where}: row ids are not 1..n in the export; a rebuilt survey renumbers them, which changes exported column names")
             lines += ["", "Rows:"] + (self.option_lines(rows, where, "row", (), None, names) or ["- (blank)"])
+            self.written.setdefault(tag, {})["rows"] = self.last_written or [("(blank)", False, False)]
             lines += ["", "Columns:"] + (self.option_lines(columns, where, "column", (), codes) or ["- (blank)"])
+            self.written[tag]["columns"] = self.last_written or [("(blank)", False, False)]
         if kind == "nps":
             shown, _ = ordered(payload.get("Choices"), payload.get("ChoiceOrder"))
             if [plain(c.get("Display")) if isinstance(c, dict) else "" for _, c in shown] != NPS_POINTS:
                 self.warn(f"{where}: the NPS scale is not the usual 0 to 10; Markdown always writes 0 to 10")
             labels = payload.get("ColumnLabels") if isinstance(payload.get("ColumnLabels"), list) else []
             texts = [self.one_line(l.get("Display"), where, "label").replace("|", "/") for l in labels if isinstance(l, dict)]
-            if len(texts) == 2 and texts != NPS_LABELS:
+            if len(texts) == 2 and all(texts) and texts != NPS_LABELS:
                 rules.append("> labels: " + " | ".join(texts))
+            elif len(texts) == 2 and any(texts) and not all(texts):
+                self.warn(f"{where}: NPS labels not represented: one of the two is blank (Markdown takes two)")
             elif texts and len(texts) != 2:
                 self.warn(f"{where}: {len(texts)} NPS labels not represented (Markdown takes two)")
         if kind == "slider":
             low, high = config.get("CSSliderMin"), config.get("CSSliderMax")
-            if isinstance(low, int) and isinstance(high, int) and not isinstance(low, bool) and low < high:
+            if isinstance(low, int) and isinstance(high, int) and not isinstance(low, bool) and not isinstance(high, bool) and low < high:
                 if (low, high) != SLIDER_RANGE:
                     rules.append(f"> range: {low} to {high}")
             else:
@@ -1128,18 +1319,18 @@ class Reader:
                 detail = logic_text(payload["DisplayLogic"])
                 rules.append(comment(f"unsupported display logic on {tag}: {detail}"))
                 self.warn(f"{where}: display logic not represented: {detail}")
-        self.other_settings(payload, where, config, coded, kind)
+        self.other_settings(payload, where, config, coded, kind, shown_keys)
         if rules:
             lines += [""] + rules
         return lines
 
-    def other_settings(self, payload, where, config, coded, kind):
+    def other_settings(self, payload, where, config, coded, kind, shown_keys=None):
         recode = payload.get("RecodeValues")
         if coded:
             pass  # carried as {code:n}, or already reported by codes()
         elif isinstance(recode, dict) and any(str(k) != str(v) for k, v in recode.items()):
             self.warn(f"{where}: recode values not represented; a rebuilt survey codes choices 1, 2, 3 in the order shown")
-        elif kind not in MATRIX_TYPES and isinstance(payload.get("Choices"), dict) and list(payload["Choices"]) != [str(i) for i in range(1, len(payload["Choices"]) + 1)]:
+        elif kind not in MATRIX_TYPES and shown_keys is not None and isinstance(payload.get("Choices"), dict) and shown_keys != [str(i) for i in range(1, len(shown_keys) + 1)]:
             self.warn(f"{where}: choice codes are not 1..n in the export; a rebuilt survey renumbers them, which changes the exported values")
         if isinstance(payload.get("Language"), dict) and payload["Language"]:
             self.warn(f"{where}: translations not represented ({', '.join(sorted(payload['Language']))})")
@@ -1159,11 +1350,40 @@ class Reader:
         if extra:
             self.warn(f"{where}: settings not represented: {', '.join(extra)}")
 
+    def survey_settings(self):
+        """Name each survey option and scoring setting a rebuilt survey would not keep, with its value."""
+        def show(value):
+            return json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else repr(value)
+
+        options = [e.get("Payload") for e in self.elements if e.get("Element") == "SO" and isinstance(e.get("Payload"), dict)]
+        options = options[0] if options else {}
+        access, other = [], []
+        for key in sorted(options):
+            if key in SURVEY_OPTIONS and options[key] == SURVEY_OPTIONS[key]:
+                continue
+            if options[key] in (None, "", [], {}) and key not in SURVEY_OPTIONS:
+                continue
+            rebuilt = f"rebuilt: {show(SURVEY_OPTIONS[key])}" if key in SURVEY_OPTIONS else "rebuilt: not set"
+            (access if key in ACCESS_OPTIONS else other).append(f"{key} = {show(options[key])} ({rebuilt})")
+        if access:
+            self.warn("survey access and data settings a rebuilt survey would NOT keep; set them again in Qualtrics "
+                      "before fielding: " + "; ".join(access))
+        if other:
+            self.warn("other survey options a rebuilt survey would not keep (to-qsf writes defaults): " + "; ".join(other))
+        scoring = [e.get("Payload") for e in self.elements if e.get("Element") == "SCO" and isinstance(e.get("Payload"), dict)]
+        scoring = scoring[0] if scoring else {}
+        lost = [key for key in sorted(scoring) if scoring[key] not in (None, "", [], {}, 0, False) and scoring[key] != SCORING.get(key)]
+        if lost:
+            categories = scoring.get("ScoringCategories")
+            count = f" ({len(categories)} scoring categor{'y' if len(categories) == 1 else 'ies'})" if isinstance(categories, list) and categories else ""
+            self.warn(f"scoring is not represented{count}: {', '.join(lost)}; a rebuilt survey has no scoring")
+
     # ---- whole file
 
     def markdown(self):
         entry = self.data["SurveyEntry"]
         title = re.sub(r"\s+", " ", str(entry.get("SurveyName") or "")).strip() or "Untitled survey"
+        title = self.no_comment(title, "survey", "name")
         sequence = self.plan()
         self.assign_tags(sequence)
         if str(entry.get("SurveyLanguage") or "EN") != "EN":
@@ -1179,7 +1399,8 @@ class Reader:
                 continue
             block = item
             counts["blocks"] += 1
-            name = re.sub(r"\s+", " ", str(block.get("Description") or block["ID"])).strip()
+            name = re.sub(r"\s+", " ", str(block.get("Description") or "")).strip() or str(block["ID"])
+            name = self.no_comment(name, f"block {name!r}", "name")
             out += ["", f"## {name}"]
             options = block.get("Options") if isinstance(block.get("Options"), dict) else {}
             if options.get("RandomizeQuestions") not in (None, "", "false", False):
@@ -1236,7 +1457,7 @@ class Reader:
         extra = sorted({str(e.get("Element")) for e in self.elements} - {"BL", "FL", "SQ", "SO", "SCO", "PROJ", "STAT", "QC", "RS", "PL"})
         if extra:
             self.warn(f"survey-level elements not represented: {', '.join(extra)} (notes, quotas and similar)")
-        self.warn("survey options (back button, progress bar, look and feel, end-of-survey message) are not represented; to-qsf writes defaults")
+        self.survey_settings()
         written = {qid.split("#")[0] for qid in done if qid.split("#")[0] not in self.lost}
         real = [qid for qid in self.questions if "#" not in qid]
         label = lambda qid: self.tags.get(qid) or self.questions[qid].get("DataExportTag")  # noqa: E731
@@ -1301,11 +1522,13 @@ def validate_qsf(data):
             if key not in payload:
                 errors.append(f"SQ {qid}: Payload.{key} is missing")
         for mapping, order in (("Choices", "ChoiceOrder"), ("Answers", "AnswerOrder")):
-            entries = payload.get(mapping)
-            keys = {str(i) for i in range(len(entries))} if isinstance(entries, list) else {str(k) for k in entries} if isinstance(entries, dict) else set()
-            stray = [str(k) for k in payload.get(order) or [] if str(k) not in keys] if isinstance(payload.get(order), list) else []
+            repeated, omitted, stray = order_problems(payload.get(mapping), payload.get(order))
             if stray:
                 warnings.append(f"SQ {qid}: {order} names {mapping} keys that do not exist: {', '.join(stray)}")
+            if repeated:
+                warnings.append(f"SQ {qid}: {order} lists {mapping} keys more than once: {', '.join(repeated)}")
+            if omitted:
+                warnings.append(f"SQ {qid}: {order} leaves out {mapping} keys, which the survey will not show: {', '.join(omitted)}")
         logic = payload.get("DisplayLogic")
         for group in logic.values() if isinstance(logic, dict) else []:
             for key, expr in group.items() if isinstance(group, dict) else []:
@@ -1326,8 +1549,9 @@ def validate_qsf(data):
                 warnings.append(f"{what} on {owner} names question {m.group(1)}, which the file does not define")
             return
         entries = questions[m.group(1)].get("Choices")
-        if isinstance(entries, dict) and m.group(2) not in {str(k) for k in entries}:
-            warnings.append(f"{what} on {owner} names choice {m.group(2)} of {m.group(1)}, which does not exist")
+        keys = {str(i) for i in range(len(entries))} if isinstance(entries, list) else {str(k) for k in entries} if isinstance(entries, dict) else None
+        if keys is not None and m.group(2) not in keys:
+            errors.append(f"{what} on {owner} names choice {m.group(2)} of {m.group(1)}, which does not exist")
 
     for qid, payload in questions.items():
         logic = payload.get("DisplayLogic")
@@ -1377,6 +1601,28 @@ def validate_qsf(data):
         for qid in questions:
             if qid not in placed:
                 warnings.append(f"question {qid} is in no block, so the survey would not show it")
+    survey_order = []  # question IDs in the order the flow shows them
+    if len(by_code.get("FL", [])) == 1 and isinstance(by_code["FL"][0]["Payload"], dict):
+        def collect(node):
+            if node.get("Type") in ("Block", "Standard") and node.get("ID") in blocks:
+                for e in blocks[node["ID"]].get("BlockElements") or []:
+                    if isinstance(e, dict) and e.get("Type") == "Question" and e.get("QuestionID") not in survey_order:
+                        survey_order.append(e.get("QuestionID"))
+            for child in node.get("Flow") or []:
+                if isinstance(child, dict):
+                    collect(child)
+        collect(by_code["FL"][0]["Payload"])
+    tag_of = lambda q: questions[q].get("DataExportTag") if q in questions else q  # noqa: E731
+    for qid, payload in questions.items():
+        logic = payload.get("DisplayLogic")
+        for group in logic.values() if isinstance(logic, dict) else []:
+            for expr in group.values() if isinstance(group, dict) else []:
+                source = expr.get("QuestionID") if isinstance(expr, dict) and expr.get("LogicType") == "Question" else None
+                if source in survey_order and qid in survey_order and survey_order.index(source) > survey_order.index(qid):
+                    warnings.append(
+                        f"display logic on {qid} ({tag_of(qid)}, question {survey_order.index(qid) + 1}) tests {source} "
+                        f"({tag_of(source)}, question {survey_order.index(source) + 1}), which comes later, so it can never be true"
+                    )
     if len(by_code.get("FL", [])) == 1 and isinstance(by_code["FL"][0]["Payload"], dict):
         root = by_code["FL"][0]["Payload"]
         used, flow_ids = set(), []
@@ -1431,6 +1677,9 @@ def txt_limits(survey):
         if item["value"] and (":" in item["value"] or "]]" in item["value"]):
             add(None, f"the value of embedded data field {item['field']!r} (it contains ':' or ']]')")
     for q in questions_of(survey):
+        texts = [q["text"]] + [o["text"] for o in q["options"] + q["rows"] + q["columns"]]
+        if any(line.lstrip().startswith("[[") for text in texts for line in text.split("\n")):
+            add(q["tag"], "a line of text starting with '[[' (TXT would read it as a tag)", True)
         if q["type"] not in TXT_TAGS:
             add(q["tag"], f"question type [{q['type']}] (no TXT tag for it)", True)
         if q["force"]:
@@ -1497,9 +1746,12 @@ def build_txt(survey):
 
 CODEBOOK_COLUMNS = ["variable", "question_id", "block", "type", "label", "values", "note"]
 NAMING_NOTE = (
-    "Variables with a suffix (tag_1, tag_1_TEXT) follow the usual Qualtrics export naming; row export tags set "
-    "in the survey are used where the file has them. Check the names against a real data export before relying on them."
+    "Variables with a suffix (tag_1, tag_1_TEXT, tag_1_2, tag_NPS_GROUP) follow the usual Qualtrics export naming; row "
+    "export tags set in the survey are used where the file has them. Response metadata columns (such as StartDate, "
+    "EndDate, Progress, Duration, Finished and ResponseId) are not listed. Check the names against a real data export "
+    "before relying on them."
 )
+NPS_GROUP_VALUES = "1=Detractor (0 to 6); 2=Passive (7 or 8); 3=Promoter (9 or 10)"
 
 
 def codebook_rows(data):
@@ -1544,17 +1796,27 @@ def codebook_rows(data):
             elif qtype == "MC":
                 row(tag, label, values(shown, recode))
                 text_boxes()
+                if selector == "NPS":
+                    row(f"{tag}_NPS_GROUP", f"{label} - NPS group", NPS_GROUP_VALUES, "added to the data export for an NPS question")
             elif qtype == "TE" and selector == "FORM":
                 for key, choice in shown:
                     row(f"{tag}_{key}", f"{label} - {plain(choice.get('Display') if isinstance(choice, dict) else '')}", "(open text)")
             elif qtype == "TE":
                 row(tag, label, "(open text)")
             elif qtype == "Matrix" and answers:
-                note = {"MultipleAnswer": "several answers per row: one column per value, named <variable>_<value>"}.get(sub, "")
-                if selector == "TE":
-                    note = "text boxes: one column per row and column, named <variable>_<column>"
                 for key, choice in shown:
-                    row(str(names.get(key) or f"{tag}_{key}"), f"{label} - {plain(choice.get('Display') if isinstance(choice, dict) else '')}", values(answers, recode), note)
+                    base = str(names.get(key) or f"{tag}_{key}")
+                    statement = f"{label} - {plain(choice.get('Display') if isinstance(choice, dict) else '')}"
+                    if selector == "TE" or sub == "MultipleAnswer":
+                        # one variable per row and column: a text box, or a box that is ticked or not
+                        for akey, answer in answers:
+                            heading = plain(answer.get("Display") if isinstance(answer, dict) else "")
+                            if selector == "TE":
+                                row(f"{base}_{akey}", f"{statement} - {heading}", "(open text)")
+                            else:
+                                row(f"{base}_{recode.get(akey, akey)}", f"{statement} - {heading}", "1=selected")
+                    else:
+                        row(base, statement, values(answers, recode))
             elif qtype in ("Slider", "RO", "CS"):
                 kind_note = {"Slider": "(number)", "RO": f"(rank 1 to {len(shown)})", "CS": "(number)"}[qtype]
                 for key, choice in shown:
@@ -1564,10 +1826,31 @@ def codebook_rows(data):
                     column = payload["AdditionalQuestions"][key]
                     if isinstance(column, dict):
                         column_answers, _ = ordered(column.get("Answers"), column.get("AnswerOrder"))
-                        row(str(column.get("DataExportTag") or f"{tag}#{key}"), f"{label} - {plain(column.get('QuestionText'))}",
-                            values(column_answers, column.get("RecodeValues")), f"side by side: one column per row ({len(shown)} rows)")
+                        base = str(column.get("DataExportTag") or f"{tag}#{key}")
+                        for rkey, choice in shown:
+                            row(f"{base}_{rkey}", f"{label} - {plain(column.get('QuestionText'))} - "
+                                f"{plain(choice.get('Display') if isinstance(choice, dict) else '')}",
+                                values(column_answers, column.get("RecodeValues")), "side by side: one variable per column and row")
             else:
                 row(tag, label, "", "variables of this question type are not listed")
+
+    def flow_fields(node):
+        if not isinstance(node, dict):
+            return
+        if node.get("Type") == "EmbeddedData":
+            for field in node.get("EmbeddedData") or []:
+                if isinstance(field, dict) and field.get("Field") and field["Field"] not in [r["variable"] for r in rows]:
+                    value = field.get("Value")
+                    rows.append({
+                        "variable": str(field["Field"]), "question_id": "", "block": "(survey flow)", "type": "EmbeddedData",
+                        "label": str(field.get("Description") or field["Field"]),
+                        "values": f"set to {value!r}" if isinstance(value, str) and value else "(set from the link or contact)",
+                        "note": "embedded data",
+                    })
+        for child in node.get("Flow") or []:
+            flow_fields(child)
+
+    flow_fields(reader.flow)
     return rows
 
 
@@ -1593,6 +1876,12 @@ NOT_TESTED = "Import into a new test survey first and preview it."
 
 
 def read_file(path):
+    if path == "-":
+        data = sys.stdin.buffer.read()
+        try:
+            return data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise ConvertError("standard input is not UTF-8 text; re-save it as UTF-8") from None
     try:
         with open(path, encoding="utf-8-sig") as handle:
             return handle.read()
@@ -1602,14 +1891,40 @@ def read_file(path):
         raise ConvertError(f"{path} is not UTF-8 text; re-save it as UTF-8") from None
 
 
-def write_out(path, text, source):
+def same_file(a, b):
+    """True when two paths name one file (a relative path, a symbolic link or a hard link to it included)."""
+    if a in (None, "-") or b in (None, "-"):
+        return False
+    try:
+        if os.path.exists(a) and os.path.exists(b):
+            return os.path.samefile(a, b)
+    except OSError:
+        pass
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+def write_out(path, text, source, chosen_by_script=False, force=False):
+    """Write text to path through a temporary file and a rename, so a failed write never leaves half a file.
+    Never writes over the input. A path the script chose itself (the extension switched to match the format)
+    is not written over when it exists, unless force is set."""
     if path is None:
         sys.stdout.write(text)
         return
-    if path == source:
-        raise ConvertError("the output path is the input file; choose another name")
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text)
+    if same_file(path, source):
+        raise ConvertError(f"the output path {path} is the input file; choose another name")
+    if chosen_by_script and os.path.exists(path) and not force:
+        raise ConvertError(f"{path} already exists and was not the name you gave; pass --force to replace it, or choose another -o")
+    folder = os.path.dirname(os.path.abspath(path))
+    temp = None
+    try:
+        handle, temp = tempfile.mkstemp(prefix=".qsf-convert-", dir=folder)
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as out:
+            out.write(text)
+        os.replace(temp, path)
+    except OSError as error:
+        if temp and os.path.exists(temp):
+            os.unlink(temp)
+        raise ConvertError(f"cannot write {path}: {error.strerror}") from None
 
 
 def report_lines(report):
@@ -1635,7 +1950,8 @@ def emit(args, result, output, lines):
     """Write the converted file, then print the readable report (stderr when the file goes to stdout) or JSON."""
     path = result.get("output_file")
     if output is not None and path is not None:
-        write_out(path, output, args.input)
+        write_out(path, output, args.input, chosen_by_script=path != getattr(args, "output", path),
+                  force=getattr(args, "force", False))
     if args.json:
         if output is not None and path is None:
             result["output"] = output
@@ -1729,7 +2045,18 @@ def cmd_to_md(args):
     data = load_qsf(read_file(args.input))
     reader = Reader(data, keep_html=args.keep_html)
     text, counts = reader.markdown()
-    parse_markdown(text)  # the Markdown written must read back; a failure here is a bug, not bad input
+    if not counts["blocks"]:
+        found = "; ".join(w for w in reader.warnings if "not in the survey flow" in w)
+        raise ConvertError("the survey flow shows no block, so there is nothing to write as Markdown" + (f" ({found})" if found else ""))
+    try:
+        survey = parse_markdown(text)  # the Markdown written must read back; a failure here is a bug, not bad input
+    except ConvertError as error:
+        raise RuntimeError(f"the Markdown written does not read back ({error})") from None
+    for q in questions_of(survey):  # and read back as the same options, write-ins and exclusive marks
+        for part, want in reader.written.get(q["tag"], {}).items():
+            got = [(o["text"], o["text_entry"], o["exclusive"]) for o in q[part]]
+            if got != want:
+                raise RuntimeError(f"the Markdown for {q['tag']} reads back with different {part}: {got!r} instead of {want!r}")
     result = {
         "direction": "to-md", "input": args.input, "output_file": args.output, "summary": counts,
         "report": reader.report, "warnings": reader.warnings,
@@ -1790,26 +2117,28 @@ def main(argv=None):
         ("to-qsf", "qsf", "survey Markdown -> .qsf (same as to-qualtrics --format qsf)"),
     ):
         build = sub.add_parser(name, help=text)
-        build.add_argument("input", help="Markdown file in the format of references/markdown-format.md")
+        build.add_argument("input", help="Markdown file in the format of references/markdown-format.md; - reads standard input")
         build.add_argument("-o", "--output", help="write the file here (default: stdout); with --format auto the extension follows the format chosen")
         build.add_argument("--format", choices=("qsf", "txt", "auto"), default=default, help=f"output format (default: {default})")
         build.add_argument("--pretty", action="store_true", help="indent the .qsf JSON (exports are one line)")
         build.add_argument("--json", action="store_true", help="print a JSON report (with the file, if no -o)")
+        build.add_argument("--force", action="store_true",
+                           help="replace an existing file whose name the script chose (the extension switched to the format)")
         build.set_defaults(run=cmd_to_qualtrics)
     to_md = sub.add_parser("to-md", help=".qsf -> survey Markdown, with a report of what Markdown cannot hold")
-    to_md.add_argument("input", help="a .qsf exported from Qualtrics")
+    to_md.add_argument("input", help="a .qsf exported from Qualtrics; - reads standard input")
     to_md.add_argument("-o", "--output", help="write the Markdown here (default: stdout)")
     to_md.add_argument("--keep-html", action="store_true", help="keep HTML tags in texts instead of removing them")
     to_md.add_argument("--json", action="store_true", help="print a JSON report (with the Markdown, if no -o)")
     to_md.set_defaults(run=cmd_to_md)
     book = sub.add_parser("codebook", help=".qsf -> codebook (variable, label, values) as CSV or a Markdown table")
-    book.add_argument("input", help="a .qsf exported from Qualtrics")
+    book.add_argument("input", help="a .qsf exported from Qualtrics; - reads standard input")
     book.add_argument("-o", "--output", help="write the codebook here (default: stdout)")
     book.add_argument("--format", choices=("csv", "md"), default="csv", help="csv (default) or md")
     book.add_argument("--json", action="store_true", help="print the rows as JSON")
     book.set_defaults(run=cmd_codebook)
     check = sub.add_parser("validate", help="structural check of a .qsf (exit 1 on errors)")
-    check.add_argument("input", help="a .qsf file")
+    check.add_argument("input", help="a .qsf file; - reads standard input")
     check.add_argument("--strict", action="store_true", help="also exit 1 on warnings (use for generated files)")
     check.add_argument("--json", action="store_true", help="print a JSON report")
     check.set_defaults(run=cmd_validate)

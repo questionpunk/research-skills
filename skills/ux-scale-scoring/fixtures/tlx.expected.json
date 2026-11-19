@@ -1,0 +1,5 @@
+{
+  "_source": "Synthetic; raw TLX = mean of the six 0-100 subscale ratings (Hart 2006). Worked in fixtures/README.md section 4.",
+  "scores": [38.333333, 54.166667, 27.5, 42.5, 19.166667, 29.166667, 16.666667, 25.833333],
+  "t1": {"mean": 40.625, "sd": 11.021339}, "t2": {"mean": 22.708333, "sd": 5.788518}, "overall_mean": 31.666667
+}

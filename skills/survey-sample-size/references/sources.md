@@ -5,7 +5,8 @@ Checked on 2026-11-12. Each entry says how it was checked: **primary** (the sour
 Worked examples that reproduce the numbers are in [`../fixtures/README.md`](../fixtures/README.md).
 
 Notation: z is the standard normal quantile (1.96 for 95% confidence or a two-sided alpha of 0.05; 1.645
-for a one-sided alpha of 0.05; 0.8416 for 80% power; 1.2816 for 90% power), p a proportion, q = 1 − p,
+for a one-sided alpha of 0.05; 0.8416 for 80% power; 1.2816 for 90% power). The script computes with the
+exact quantile (`statistics.NormalDist`) and prints it to six decimals (1.959964). p is a proportion, q = 1 − p,
 e the margin of error (half the width of the confidence interval), N the population size.
 
 ## Formulas
@@ -27,6 +28,16 @@ e the margin of error (half the width of the confidence interval), N the populat
   "Binomial proportion confidence interval", which cites Wilson 1927, Agresti and Coull 1998 and Brown, Cai
   and DasGupta 2001). The cut-off of 10 and the note at expected cell counts under 5 for two proportions
   are textbook conventions.
+- Planning in the small-count region. When the n from Cochran's formula would leave fewer than 10 expected
+  responses in the smaller category, the +/- formula claims precision the data cannot give (p = 0.001,
+  ±5 points: Cochran says 2 responses, whose Wilson interval for 0 of 2 runs from 0% to 66%). The script
+  then returns the smallest n whose Wilson interval at p reaches no more than e from p on either side
+  (75 for that example). Brown, Cai and DasGupta (2001) show the Wald interval's coverage collapses for p
+  near 0 or 1 and recommend Wilson there. The "both sides within e" criterion is this script's choice.
+- In every mode the n returned is the first whole n that the reverse command (`--n`) calls sufficient:
+  the script checks n − 1 and n with the same margin function the reverse command uses.
+- Census. When `--n` equals `--population`, every member responded: the script reports the percentage as
+  exact, with no sampling error (Cochran 1977, ch. 2: the finite population correction is 0 at n = N).
 - Source: Israel 1992 (primary; it reproduces Cochran 1963 and gives the 385 and 323 examples). The
   reverse formula is the same equation solved for e.
 - The correction matters little when the sample is a small fraction of the population. The usual cut-off
@@ -45,8 +56,11 @@ e the margin of error (half the width of the confidence interval), N the populat
 
 - Weighting (Kish): deff = 1 + CV²(w) = n Σw² / (Σw)²; effective sample size n_eff = (Σw)² / Σw² = n / deff.
 - Clustering (Kish): deff = 1 + (m − 1) ρ, with m the average cluster size and ρ the intraclass correlation.
-- The script multiplies the required n by deff (after any finite population correction) and divides a given
-  n by deff before computing a margin of error.
+- The script multiplies Cochran's n0 by deff and then applies the finite population correction to that,
+  n = m / (1 + (m − 1)/N) with m = n0 × deff, and divides a given n by deff before computing a margin of
+  error. With these two steps the planned n and the reverse margin are exact inverses: solving
+  e = z √(p q deff / n) √((N − n)/(N − 1)) for n gives n = m N / (N − 1 + m). Example: N = 500, deff 2,
+  ±5 points: **304** (304 gives ±4.98 points; 303 gives ±5.003).
 - Source: Kish 1965 (secondary: the formulas as reproduced in the Wikipedia article "Design effect").
 
 ### Two proportions, n per group (`compare --p1 --p2`)
@@ -79,9 +93,12 @@ e the margin of error (half the width of the confidence interval), N the populat
   required n is at most the given n. Published check: n = 50 per group, p1 = 0.5, 90% power gives
   p2 = 0.8026 (R documentation for `power.prop.test`).
 - Power for a given n and difference: the same equation solved for power,
-  Φ[(|p1 − p2| √n − z_α s0) / s1], where s0 and s1 are the two square-root terms of the n formula. Only the
-  rejection region on the side of the assumed difference is counted. Published check: n = 50, 0.50 vs 0.75
-  gives power 0.740 (R documentation). With the continuity correction the script first undoes it:
+  Φ[(|p1 − p2| √n − z_α s0) / s1] + Φ[(−|p1 − p2| √n − z_α s0) / s1] for a two-sided test, where s0 and
+  s1 are the two square-root terms of the n formula. The second term is the chance of a significant result
+  in the wrong direction: R's `power.prop.test` adds it with `strict = TRUE` and leaves it out by default
+  (primary: R documentation, argument `strict`). It is negligible unless the difference is tiny (100 per
+  group, 0.5 vs 0.5001: 0.050 with it, 0.025 without). The required n is solved with the usual one-tail
+  approximation. Published check: n = 50, 0.50 vs 0.75 gives power 0.740 (R documentation). With the continuity correction the script first undoes it:
   n = (n′ − c)² / n′, c = (1 + 1/r) / (2 |p1 − p2|), which is the correction formula solved for n.
 - Unequal groups, r = n2/n1 (`--ratio`, or `--n` with `--n2`): the variance of the difference is
   p̄ q̄ (1/n1 + 1/n2) under the null and p1 q1/n1 + p2 q2/n2 under the alternative, so
@@ -111,7 +128,8 @@ e the margin of error (half the width of the confidence interval), N the populat
   better is known, not targets.
 - With unequal groups (r = n2/n1): n1 = (1 + 1/r)(z_α + z_β)² / d² + z_α² / (2(1 + r)). The correction
   term spreads Guenther's z_α²/2 on the total across the two groups; it equals z_α²/4 when r = 1.
-- Power for a given n: Φ[d √((n1 − correction) / (1 + 1/r)) − z_α]. Cross-check against exact noncentral-t
+- Power for a given n: Φ[d √((n1 − correction) / (1 + 1/r)) − z_α], plus the same with −d for a two-sided
+  test. Cross-check against exact noncentral-t
   software: n1 = 28, n2 = 35, d = 0.5 gives 0.493 here and 0.4925 in the pwr vignette (`pwr.t2n.test`).
 - Power is for the difference assumed before fielding. Computing it afterwards from the observed difference
   ("post-hoc" or "observed" power) adds nothing: it is a function of the p-value. The script prints this
@@ -127,7 +145,27 @@ e the margin of error (half the width of the confidence interval), N the populat
 - Published examples: n = 441, 30% vs 26% gives ±0.0698; n = 735, 31% vs 25% gives ±0.054 (Franklin 2007).
 - The n at which a given gap exceeds its margin is the same equation solved for n: z² [(p1 + p2) −
   (p1 − p2)²] / (p1 − p2)² + 1.
+
+### Net Promoter Score (`nps`)
+
+- Score each respondent +1 (promoter, 9–10), 0 (passive) or −1 (detractor, 0–6). The NPS is the mean and
+  its variance is Var = p_pro + p_det − (p_pro − p_det)² (Rocks 2016, section 1.4; primary through the
+  sibling skill `nps-analysis`, which read the preprint in full).
+- Margin: n0 = z² Var / e², then the design effect and finite population correction as for a proportion.
+  40% promoters and 20% detractors: Var = 0.56, so ±5 NPS points at 95% needs **861**, against 385 for a
+  single percentage. Reverse: e = z √(Var deff / n).
+- Two independent scores: n per group = (z_α + z_β)² (Var1 + Var2) / d², d the NPS difference as a
+  proportion. Lewis and Sauro (2021c, primary) give the same formula and subtract 3 when the analysis uses
+  the adjusted-Wald test, which adds 3; the script keeps the 3. Their example: d = 0.10, Var1 + Var2 = 2,
+  α = 0.05 two-sided, 80% power: 1,568 per group after −3 with z rounded to 2.802; the script gives 1,570.
+- Default variance 0.67: MeasuringU's realistic maximum (adjusted variances 0.40 to 0.76 in 18 data sets;
+  Lewis and Sauro 2021c). The absolute maximum is 1 (half promoters, half detractors).
+- Under 30 responses the normal approximation is poor (Rocks 2016, Table 1); the script says to use the
+  adjusted-Wald interval of `nps-analysis` instead.
 - Two different samples (two waves, two segments) are independent: use `compare`.
+- `nps --table` (this skill's choice of rows): n at ±3, 5, 7 and 10 NPS points with `--margin`; the margin
+  at half, one, two and four times `--n` (as `proportion`); n per group (and power at `--n`) for 5, 10, 15
+  and 20 point differences with `--diff`. Each row uses the formula above.
 
 ### Subgroups (`subgroups`)
 
@@ -170,7 +208,9 @@ e the margin of error (half the width of the confidence interval), N the populat
 ### MaxDiff (`maxdiff`)
 
 - Show **4 or 5** items per set, and no more than half of the items. Sawtooth, Lighthouse Studio manual
-  (primary).
+  (primary). Default **4** (3 for 6 or 7 items), the same default as the `maxdiff-design` skill, so that
+  a hand-off between the two sizes the same design; pass the design's `--per-set` and `--sets` when it
+  exists.
 - Sets per respondent: enough for each item to appear **3** to 5 times; the minimum for individual-level
   (HB) scores is **3K/k** sets, K = items, k = items per set. The software warns under **2** times per
   respondent. Lighthouse Studio manual (primary).
@@ -179,6 +219,15 @@ e the margin of error (half the width of the confidence interval), N the populat
   times". Lighthouse Studio manual (primary).
 - "Most MaxDiff surveys will have at least **200** respondents", or 200 per subgroup compared. Sawtooth
   MaxDiff calculator and design guidelines (primary).
+- The rule the script uses, shared with `maxdiff-design` and `maxdiff-analysis`: "at least 300 respondents
+  in total" and "at least 200 for every separately reportable subgroup", raised for more than about 30
+  items (the post doubles both at 60 items). Sawtooth, "MaxDiff Sample Size Calculation Best Practices"
+  (blog, primary as quoted by the `maxdiff-design` skill). The 200 above is the lower figure the same
+  company gives elsewhere. Scaling by K/30 above 30 items is this script's reading of the doubling example.
+- The 500/1000 rule counts **item exposures**, not respondents, and is written for sparse designs analysed
+  with pooled models. The script applies it only when each item is shown fewer than 2 times per respondent
+  (where Sawtooth's software warns and individual-level estimates are not supported); otherwise the
+  respondent floors above decide.
 
 ## Qualitative studies: saturation (ranges, not formulas)
 
@@ -216,7 +265,10 @@ Guest, Namey and Chen 2020 (primary), as implemented:
   next run adds 1 (under 5%), so saturation is reached at interview 6, reported as "6+2".
 - "Saturation should initially be assessed after six interviews" (4 + 2). A run length of 3 or the 0%
   threshold is the stricter choice.
-- Input to the script: for each interview, in order, the number of codes first seen in that interview.
+- Input to the script: for each interview, in order, the number of codes first seen in that interview. An
+  empty entry stops the run with the interview's number (an interview with no new codes is 0, not blank);
+  a file may be one column, or name its column `new_codes` (or `--column`); comma, semicolon and tab files
+  and a UTF-8 byte-order mark are read.
 
 ## Why other calculators give slightly different numbers
 
@@ -229,8 +281,9 @@ All figures below were recomputed with this script or by hand (fixtures N and R)
 | 0.50 vs 0.60 | 388 | 385 | 388 | 390.1 → 390; rounded up 391 |
 | 0.70 vs 0.55 | 163 (176 with `--continuity`) | 160 | 162 | 150.4 → 150; rounded up 151 |
 
-- The pooled, unpooled and arcsine results agree within about 2%. They are three approximations to the same
-  test; none is "the" answer, and exact methods differ from all three by a similar amount.
+- In these three examples the pooled, unpooled and arcsine results agree within about 2%. That is not a
+  general bound: far from 0.5 they can differ by more (0.05 vs 0.50: 15 pooled, 12 unpooled, 13 arcsine
+  per group). They are three approximations to the same test; none is "the" answer.
 - The baseline-variance formula gives a visibly different n when the two proportions are far from 0.5 on the
   same side, because it ignores the second proportion in the null variance.
 - R's `power.prop.test` uses the pooled formula and matches the default (it reports the unrounded n).
@@ -251,9 +304,11 @@ All figures below were recomputed with this script or by hand (fixtures N and R)
 - **Margins of error for opt-in samples.** AAPOR (2012): "it is impossible to develop statistically valid
   margins of sampling error from nonprobability surveys" such as opt-in online panels. Later AAPOR guidance
   allows model-based precision measures when the model is described. Many commercial reports still quote
-  the simple-random-sample margin as a rough guide. The script labels it that way.
-- **Order of FPC and design effect.** The script applies the finite population correction first and the
-  design effect second. Some texts inflate by the design effect first; the two differ only when both matter.
+  the simple-random-sample margin as a rough guide. With `--opt-in` the script relabels its statement as a
+  simple-random-sample benchmark and says no design-based margin applies to the actual sample.
+- **Order of FPC and design effect.** Some texts apply the finite population correction first and the
+  design effect second. That n is not the inverse of the margin formula (N = 500, deff 2, ±5 points: 435,
+  which the margin formula says gives ±2.4 points), so the script inflates by the design effect first.
 - **Conjoint.** Johnson's rule is for aggregate models. For hierarchical Bayes, and for anything beyond a
   ballpark, Sawtooth recommends simulating the design with random respondents and checking standard errors
   (main effects below 0.05, interactions below 0.1).
@@ -316,6 +371,14 @@ Also cited:
   https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
 - Franklin, C. H. (2007). *The "Margin of Error" for Differences in Polls*. University of Wisconsin, Madison.
   https://abcnews.com/images/PollingUnit/MOEFranklin.pdf
+- Rocks, B. (2016). Interval estimation for the "Net Promoter Score". *The American Statistician*, 70(4),
+  365–372. Preprint: https://arxiv.org/abs/1601.07235
+- Lewis, J. R., and Sauro, J. (2021b). How to statistically compare two Net Promoter Scores. MeasuringU.
+  https://measuringu.com/nps-significance-test/ ; (2021c). Sample sizes for comparing Net Promoter Scores.
+  https://measuringu.com/nps-sig-test-sample-size/ (page read: formula n = s² Z² / d² − 3 and the
+  1,568 example)
+- Sawtooth Software. "MaxDiff Sample Size Calculation Best Practices".
+  https://sawtoothsoftware.com/resources/blog/posts/maxdiff-sample-size
 - Champely, S. *pwr: Basic Functions for Power Analysis*, vignette.
   https://cran.r-project.org/web/packages/pwr/vignettes/pwr-vignette.html
 - Miller, E. Sample Size Calculator. https://www.evanmiller.org/ab-testing/sample-size.html
@@ -343,7 +406,9 @@ Also cited:
 - Rounding n to the nearest whole number instead of up.
 - Planning completes but not invitations: response rate, incidence and completion rate multiply.
 - Reading an expected subgroup count as a guarantee. Without a quota it falls short about half the time.
-- Treating the conjoint and MaxDiff rules as power calculations, or the 500 minimum as a target.
+- Treating the conjoint and MaxDiff rules as power calculations, or the 500 minimum as a target. The 500
+  counts exposures (MaxDiff) or representations per level (conjoint), not respondents.
+- Sizing an NPS like a single percentage: its variance is larger, so ±5 points takes about twice the n.
 - Treating qualitative saturation ranges as statistical sample sizes, or reporting percentages from 12
   interviews.
 - Several planned comparisons at α = 0.05 each without adjusting α.

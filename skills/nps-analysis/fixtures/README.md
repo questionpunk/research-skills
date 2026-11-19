@@ -112,7 +112,8 @@ Holm: sort ascending and multiply by 3, 2, 1, keeping the running maximum → 0.
   **+100**.
 - `single_response.input.csv` (one score of 9): NPS = +100. Adjusted Wald: P' = 1.75,
   D' = 0.75, n' = 4. NPS' = 0.25. Var = 0.625 − 0.0625 = 0.5625. SE = √(0.5625/4) = 0.375, margin 0.734986
-  → **−48.50 to +98.50**.
+  → −48.50 to +98.50. Every answer is a promoter, and a population of only promoters (+100) gives this
+  sample with certainty, so the upper limit is moved to **+100**: **−48.50 to +100**.
 - `empty_segment.input.csv`: finance has two rows, a blank and `n/a`, so n = 0: no score, left out of the
   tests. sales: 10, 9, 0, 7 → (2 − 1)/4 = **+25.0**. support: 10, 6, 8 → (1 − 1)/3 = **0.0**.
 - `dirty.input.csv`: 12 rows; excluded are one blank, one `N/A` (not a number), one `7.5` (not a whole
@@ -125,7 +126,8 @@ Holm: sort ascending and multiply by 3, 2, 1, keeping the running maximum → 0.
 - `scale_1_10_large.input.csv`: 200 answers cycling 1 to 10, no 0, lowest score 1: refused without
   `--scale` (strong evidence of a 1–10 scale).
 - `dates.input.csv`: ISO dates bucketed with `--period-grain quarter`: three rows in 2026-Q1, three in
-  2026-Q2, and `15/07/2026` excluded as a bad period (counted, never dropped silently).
+  2026-Q2, and `15/07/2026` left out of the period table as a bad period (counted, never dropped
+  silently). Its score (8) still counts in the overall result, so overall n = 7.
 
 ## 7. Counts input and the benchmark test (published example)
 

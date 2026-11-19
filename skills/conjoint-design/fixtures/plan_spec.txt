@@ -1,0 +1,6 @@
+# Synthetic spec: a meal-kit subscription (fixtures/README.md)
+Brand: FreshBox | GreenPlate | HomeChef
+Meals per week: 2 | 3 | 4
+Delivery: Weekly | Every two weeks
+Price per week: $40 | $50 | $60 | $70
+prohibit: Meals per week=4 & Price per week=$40

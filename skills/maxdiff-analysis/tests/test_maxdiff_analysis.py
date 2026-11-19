@@ -147,18 +147,15 @@ class CountingTest(unittest.TestCase):
         rows = {row["item"]: row for row in block["items"]}
         for item, expected in {"A": 1 / 6, "B": -3 / 2, "C": 1 / 6, "D": 7 / 6}.items():
             self.assertAlmostEqual(rows[item]["difference"], expected, places=12)
-        # ent has one respondent (no resampling variation); smb replicates are r1+r1, r1+r2 or r2+r2,
-        # so the B difference can only be -1 - 1/3, -1 - 1/2 or -1 - 2/3.
-        low, high = rows["B"]["difference_ci"]
-        self.assertAlmostEqual(low, -5 / 3, places=12)
-        self.assertAlmostEqual(high, -4 / 3, places=12)
-        self.assertTrue(rows["B"]["excludes_zero"])
-        self.assertFalse(rows["A"]["excludes_zero"])
+        # ent has one respondent: a bootstrap cannot resample one person, so ent has no intervals and the
+        # differences with it get none either (a zero-width interval would mark every gap as real).
+        self.assertIsNone(rows["B"]["difference_ci"])
+        self.assertIsNone(rows["B"]["excludes_zero"])
+        self.assertTrue(any("Segment ent: Only 1 respondent" in w for w in report["warnings"]))
         pairs = report["segments"]["ent"]["adjacent_pairs"]
         self.assertEqual([(p["higher"], p["lower"]) for p in pairs], [("A", "D"), ("D", "C"), ("C", "B")])
         self.assertAlmostEqual(pairs[0]["difference"], 1 / 3, places=12)
-        self.assertEqual(pairs[0]["difference_ci"], [pairs[0]["difference"]] * 2)
-        self.assertEqual(pairs[0]["prob_higher_above"], 1.0)
+        self.assertIsNone(pairs[0]["difference_ci"])
         overall = report["overall"]["adjacent_pairs"]
         self.assertAlmostEqual(overall[0]["difference"], 5 / 9, places=12)
         self.assertEqual(overall[0]["metric"], "bw_score")
@@ -270,7 +267,11 @@ class ClosedFormLogitTest(unittest.TestCase):
         report = analyse(FIXTURES / "logit_pairs.input.csv", "--bootstrap", 0, "--model", "marginal")
         coded = report["overall"]["logit"]["reference_coded"]
         self.assertAlmostEqual(coded["A"]["utility"], math.log(3), places=8)
-        self.assertAlmostEqual(coded["A"]["se"], math.sqrt((1 / 15 + 1 / 5) / 2), places=8)
+        # The doubled information is not real (the worst choice repeats the best one), so the model SE and
+        # the chi-square test are withheld for this composite likelihood.
+        self.assertIsNone(coded["A"]["se"])
+        self.assertIsNone(report["overall"]["logit"]["lr_chi_square"])
+        self.assertIsNone(report["overall"]["items"][0]["utility_se"])
 
     def test_marginal_model_on_synthetic_data_is_close_to_sequential(self):
         sequential = by_item(analyse(FIXTURES / "synthetic.input.csv", "--bootstrap", 0)["overall"])
@@ -485,7 +486,7 @@ class BadInputTest(unittest.TestCase):
             analyse(self._write("respondent,set,item,best,worst\n"))
 
     def test_all_sets_invalid(self):
-        path = self._write("respondent,set,item,best,worst\nr1,1,A,TRUE,FALSE\nr1,1,B,FALSE,TRUE\n")
+        path = self._write("respondent,set,item,best,worst\nr1,1,A,yes,no\nr1,1,B,no,yes\n")
         with self.assertRaises(mda.InputError) as caught:
             analyse(path)
         self.assertIn("invalid_value: 1", str(caught.exception))
@@ -526,7 +527,7 @@ class BadInputTest(unittest.TestCase):
             "respondent,version,set,best,worst\nr1,1,1,1,3\nr1,1,2,1,4\nr1,1,3,first,3\nr1,1,4,2,2\n", "responses.csv"
         )
         report = analyse(responses, "--design", FIXTURES / "counts_design.csv", "--choice-coding", "position",
-                         "--no-logit", "--bootstrap", 0)
+                         "--no-logit", "--bootstrap", 0, "--allow-exclusions")
         self.assertEqual(report["input"]["excluded_by_reason"], {
             "invalid_value": 1, "choice_not_shown": 1, "best_equals_worst": 1,
         })
@@ -584,7 +585,8 @@ class BadInputTest(unittest.TestCase):
             analyse(path, "--bootstrap", 0, "--share-scale", "probability")
         self.assertIn("--items-per-set", str(caught.exception))
         report = analyse(path, "--bootstrap", 0, "--share-scale", "probability", "--items-per-set", 3)
-        self.assertEqual(report["input"]["items_per_set"], 3)
+        self.assertEqual(report["input"]["items_per_set"], "2-3")  # the data's set sizes, not the option
+        self.assertIn("a = 3", report["method"]["shares"])
         self.assertTrue(any("Sets show 2 to 3 items" in w for w in report["warnings"]))
 
     def test_bad_option_values(self):
@@ -631,6 +633,162 @@ class NumericHelpersTest(unittest.TestCase):
         self.assertAlmostEqual(probability[0], 100 * 0.4 / (111 / 140))
         self.assertAlmostEqual(probability[1], 100 * 0.25 / (111 / 140))
         self.assertAlmostEqual(sum(probability), 100.0)
+
+
+class ReviewRegressionTest(unittest.TestCase):
+    """Defects found in the 2026-11 review; each test failed before its fix."""
+
+    def _write(self, text, name="input.csv"):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = pathlib.Path(folder) / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_numbered_columns_out_of_order_keep_their_positions(self):
+        path = self._write("respondent,set,item2,item1,item3,best,worst\nr,1,B,A,C,1,3\n")
+        report = analyse(path, "--choice-coding", "position", "--no-logit", "--bootstrap", 0)
+        self.assertEqual(by_item(report["overall"])["A"]["best"], 1)
+        self.assertEqual(by_item(report["overall"])["B"]["best"], 0)
+        self.assertEqual(by_item(report["overall"])["C"]["worst"], 1)
+
+    def test_two_columns_for_one_position_are_rejected(self):
+        path = self._write("respondent,set,item1,item_1,item2,best,worst\nr,1,A,B,C,A,C\n")
+        with self.assertRaises(mda.InputError):
+            analyse(path, "--no-logit", "--bootstrap", 0)
+
+    def test_unpaired_or_repeated_task_columns_are_rejected(self):
+        text = (FIXTURES / "counts_by_respondent.input.csv").read_text().splitlines()
+        cut = "\n".join(",".join(line.split(",")[:10]) for line in text) + "\n"
+        with self.assertRaises(mda.InputError) as caught:
+            analyse(self._write(cut), "--design", FIXTURES / "counts_design.csv", "--no-logit", "--bootstrap", 0)
+        self.assertIn("b4", str(caught.exception))
+        path = self._write("respondent,version,b1,b01,w1\nr,1,A,A,C\n")
+        with self.assertRaises(mda.InputError):
+            analyse(path, "--design", FIXTURES / "counts_design.csv", "--no-logit", "--bootstrap", 0)
+
+    def test_blocks_never_shown_together_are_not_called_separation(self):
+        path = self._write("respondent,set,item1,item2,best,worst\n"
+                           "r1,1,A,B,A,B\nr2,1,A,B,B,A\nr1,2,C,D,C,D\nr2,2,C,D,D,C\n")
+        with self.assertRaises(mda.EstimationError) as caught:
+            analyse(path, "--bootstrap", 0)
+        self.assertIn("never shown in a set together", str(caught.exception))
+        self.assertNotIn("separation", str(caught.exception))
+        report = analyse(path, "--bootstrap", 0, "--no-logit")
+        self.assertEqual(report["overall"]["item_groups"], [["A", "B"], ["C", "D"]])
+        self.assertTrue(any("one overall ranking is not supported" in w for w in report["warnings"]))
+
+    def test_label_with_superscript_digit_sorts(self):
+        path = self._write("respondent,set,item,best,worst\nr,1,2\u00b2,1,0\nr,1,b,0,1\n")
+        report = analyse(path, "--no-logit", "--bootstrap", 0)
+        self.assertEqual(report["input"]["n_items"], 2)
+
+    def test_semicolon_responses_and_a_comma_design(self):
+        responses = self._write("respondent;version;set;best;worst\nr1;1;1;1;3\nr1;1;2;1;3\n", "r.csv")
+        report = analyse(responses, "--design", FIXTURES / "counts_design.csv", "--choice-coding", "position",
+                         "--no-logit", "--bootstrap", 0)
+        self.assertEqual(report["input"]["sets_valid"], 2)
+
+    def test_design_keeps_its_own_column_names(self):
+        responses = self._write("respondent,version,task,best,worst\nr1,1,1,1,3\nr1,1,2,1,3\n", "r.csv")
+        report = analyse(responses, "--design", FIXTURES / "counts_design.csv", "--set-col", "task",
+                         "--choice-coding", "position", "--no-logit", "--bootstrap", 0)
+        self.assertEqual(report["input"]["sets_valid"], 2)
+
+    def test_one_respondent_gets_no_zero_width_intervals(self):
+        report = analyse(FIXTURES / "logit_pairs.input.csv", "--bootstrap", 50, "--no-logit")
+        self.assertGreater(report["overall"]["n_respondents"], 1)
+        path = self._write("respondent,set,item,best,worst\nr,1,A,1,0\nr,1,B,0,1\nr,1,C,0,0\n"
+                           "r,2,A,0,1\nr,2,B,1,0\nr,2,C,0,0\n")
+        report = analyse(path, "--bootstrap", 50, "--no-logit")
+        self.assertTrue(all(row["bw_score_ci"] is None for row in report["overall"]["items"]))
+        self.assertTrue(all(pair["difference_ci"] is None for pair in report["overall"]["adjacent_pairs"]))
+        self.assertTrue(any("Only 1 respondent" in w for w in report["warnings"]))
+
+    def test_probability_scale_does_not_overflow(self):
+        values = mda.shares([800.0, -800.0], "probability", 4)
+        self.assertAlmostEqual(sum(values), 100.0)
+        self.assertAlmostEqual(values[0], 100.0)
+
+    def test_items_per_set_zero_is_rejected(self):
+        with self.assertRaises(mda.InputError):
+            analyse(FIXTURES / "logit_pairs.input.csv", "--bootstrap", 0, "--share-scale", "probability",
+                    "--items-per-set", 0)
+
+    def test_nan_position_is_an_invalid_value(self):
+        responses = self._write("respondent,version,set,best,worst\nr1,1,1,NaN,3\nr1,1,2,1,3\nr1,1,3,1,2\n", "r.csv")
+        report = analyse(responses, "--design", FIXTURES / "counts_design.csv", "--choice-coding", "position",
+                         "--no-logit", "--bootstrap", 0)
+        self.assertEqual(report["input"]["excluded_by_reason"], {"invalid_value": 1})
+
+    def test_nul_bytes_and_blank_duplicate_headers_are_clear_errors(self):
+        with self.assertRaises(mda.InputError) as caught:
+            analyse(self._write("respondent,set,item,best,worst\x00\nr,1,A,1,0\n"))
+        self.assertIn("NUL", str(caught.exception))
+        with self.assertRaises(mda.InputError) as caught:
+            analyse(self._write("respondent,set,item,best,worst,,\nr,1,A,1,0,,\n"))
+        self.assertIn("(blank)", str(caught.exception))
+
+    def test_best_worst_columns_are_not_mistaken_for_task_columns(self):
+        # B1/W1 here are demographic columns; the missing --set-col must not switch to the respondent shape.
+        path = self._write("respondent,task,B1,W1,item1,item2,item3,best,worst\nr,1,x,y,A,B,C,A,C\n")
+        with self.assertRaises(mda.InputError) as caught:
+            analyse(path, "--no-logit", "--bootstrap", 0)
+        self.assertIn("missing column(s) set", str(caught.exception))
+
+    def test_conflicting_shown_item_options_are_rejected(self):
+        for extra in (["--shown-col", "x", "--shown-cols", "a,b"], ["--design", FIXTURES / "counts_design.csv",
+                                                                     "--shown-cols", "item1,item2"]):
+            with self.subTest(extra), self.assertRaises(mda.InputError):
+                analyse(FIXTURES / "counts_wide.input.csv", *extra, "--no-logit", "--bootstrap", 0)
+
+    def test_most_sets_excluded_stops_with_a_coding_hint(self):
+        path = self._write("respondent,set,item1,item2,item3,best,worst\n"
+                           "r1,1,A,B,C,1,3\nr1,2,B,C,D,2,1\nr1,3,A,C,D,3,2\n")
+        with self.assertRaises(mda.InputError) as caught:
+            analyse(path, "--no-logit", "--bootstrap", 0)
+        self.assertIn("--choice-coding position", str(caught.exception))
+        report = analyse(path, "--no-logit", "--bootstrap", 0, "--choice-coding", "position")
+        self.assertEqual(report["input"]["sets_valid"], 3)
+
+    def test_true_false_and_decimal_flags_are_read(self):
+        path = self._write("respondent,set,item,best,worst\nr,1,A,TRUE,FALSE\nr,1,B,false,true\n"
+                           "r,2,A,0.0,1.0\nr,2,B,1.0,0.0\n")
+        report = analyse(path, "--no-logit", "--bootstrap", 0)
+        self.assertEqual(report["input"]["sets_valid"], 2)
+        self.assertTrue(any("read as 1 and 0" in n for n in report["input"]["notes"]))
+
+    def test_text_report_names_anchoring_and_the_overall_base(self):
+        result = subprocess.run([sys.executable, str(SCRIPT), str(FIXTURES / "counts.input.csv"), "--no-logit",
+                                 "--bootstrap", "0"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Anchoring: not supported", result.stdout)
+        self.assertIn("Hierarchical Bayes:", result.stdout)
+        self.assertRegex(result.stdout, r"All respondents \(n=\d+\)  \[below minimum base\]")
+
+    def test_reversed_pair_is_not_called_not_separated(self):
+        group = {"items": [], "logit": {"status": "skipped"}, "adjacent_pairs": [
+            {"higher": "A", "lower": "B", "metric": "bw_score", "difference": -0.2,
+             "difference_ci": [-0.3, -0.1], "verdict": "reversed", "prob_higher_above": 0.0}]}
+        text = mda.render_table({**group, "items": [{"rank": 1, "item": "A", "shown": 1, "best": 0, "worst": 0,
+                                                     "bw_score": 0, "bw_score_ci": None, "utility": None,
+                                                     "utility_ci": None, "utility_se": None, "share": None,
+                                                     "share_ci": None}]})
+        self.assertIn("reversed", text)
+        self.assertNotIn("not separated", text)
+        report = analyse(FIXTURES / "synthetic.input.csv", "--bootstrap", 50)
+        self.assertTrue(all(pair["verdict"] in ("separated", "not separated", "reversed")
+                            for pair in report["overall"]["adjacent_pairs"]))
+
+    def test_rarely_shown_item_gets_no_counting_interval(self):
+        lines = ["respondent,set,item,best,worst"]
+        for r in range(30):
+            lines += [f"r{r},1,A,1,0", f"r{r},1,B,0,1", f"r{r},1,C,0,0"]
+        lines += ["r0,2,A,0,0", "r0,2,X,1,0", "r0,2,B,0,1"]
+        report = analyse(self._write("\n".join(lines) + "\n"), "--no-logit", "--bootstrap", 200)
+        self.assertIsNone(by_item(report["overall"])["X"]["bw_score_ci"])
+        self.assertIsNotNone(by_item(report["overall"])["A"]["bw_score_ci"])
+        self.assertTrue(any("counting-score" in w and "X" in w for w in report["warnings"]))
 
 
 if __name__ == "__main__":

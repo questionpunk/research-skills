@@ -18,7 +18,9 @@ Usage:
 """
 import argparse
 import csv
+import io
 import json
+import os
 import math
 import re
 import sys
@@ -36,7 +38,7 @@ CATEGORY_LABELS = {
 DEFAULT_BENCHMARK = 40.0
 # Ellis: "I need at least 30 responses" (sources.md, "How many responses").
 DEFAULT_MIN_BASE = 30
-# Real Startup Book: under a 10% response rate the score is probably overstated (sources.md).
+# Real Startup Book's rule of thumb for a low response rate (sources.md, "Who to survey").
 LOW_RESPONSE_RATE = 10.0
 # A numeric answer column with this many distinct values is a rating scale, not the four coded options.
 RATING_SCALE_POINTS = 5
@@ -53,6 +55,10 @@ MULTIPLE_COMPARISON_NOTE = (
     "{n} segment intervals were read at {conf:g}% each. With that many, some will clear or miss the "
     "benchmark by chance: treat a segment result as a lead to confirm on the next wave."
 )
+MULTIPLE_COMPARISON_NOTE_NO_BENCHMARK = (
+    "{n} segment intervals were read at {conf:g}% each. With that many, some will look higher or lower than "
+    "the rest by chance: treat a segment result as a lead to confirm on the next wave."
+)
 YES = {"yes", "y", "true", "1", "match"}
 NO = {"no", "n", "false", "0", "no match"}
 ANSWER_HEADER_HINTS = ("disappoint", "no longer use", "pmf")
@@ -63,11 +69,18 @@ class InputError(Exception):
 
 
 def normalize(label):
-    """Lower-case, unify dashes and apostrophes, collapse whitespace."""
+    """Lower-case, unify dashes and apostrophes, collapse whitespace, drop trailing punctuation."""
     text = label.strip().lower()
     text = re.sub(r"[‐-―−]", "-", text)
     text = re.sub(r"[‘’ʼ`]", "'", text)
-    return re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return re.sub(r"[\s.!,;:]+$", "", text)
+
+
+# The N/A option as Ellis and Superhuman word it ("N/A - I no longer use [product]"), not any text that
+# happens to contain "no longer use" (the question itself does).
+MIXED_NA_RE = re.compile(r"^not disappointed\b.*\b(no longer use|don't use|do not use)\b")
+NA_OPTION_RE = re.compile(r"^(n/?a|not applicable)(\b|$)|^(i )?(no longer use|don't use|do not use)\b")
 
 
 def builtin_category(norm):
@@ -79,20 +92,24 @@ def builtin_category(norm):
     if norm in ("somewhat disappointed", "somewhat"):
         return "somewhat"
     if norm == "not" or norm.startswith("not disappointed"):
+        # "Not disappointed - I no longer use it" mixes two options: unknown, so the user maps it.
+        if MIXED_NA_RE.search(norm):
+            return None
         return "not"
-    if (
-        norm in ("n/a", "na")
-        or norm.startswith(("n/a ", "n/a-", "n/a:", "n/a,", "na -", "na:", "not applicable"))
-        or "no longer use" in norm
-    ):
+    if NA_OPTION_RE.search(norm):
         return "na"
     return None
 
 
+def is_question_text(norm, header):
+    """A second header row: the cell repeats the column header or holds the question itself."""
+    return norm == normalize(header) or norm.rstrip().endswith("?") or norm.startswith("how would you feel")
+
+
 def nonstandard_reason(norm):
     """A label from another scale (for example "Mildly disappointed"). None when it is not one."""
-    if builtin_category(norm) is not None:
-        return None
+    if builtin_category(norm) is not None or MIXED_NA_RE.search(norm):
+        return None  # a mixed "not disappointed / no longer use" label is unknown: ask, then --map
     if "disappoint" in norm or norm in ("neutral", "extremely", "mildly", "slightly", "moderately"):
         return "a different disappointment scale"
     return None
@@ -110,7 +127,7 @@ def parse_counts(text, option):
             raise InputError(f'{option}: unknown key "{key}". Use very, somewhat, not, na, blank.')
         if key in counts:
             raise InputError(f'{option}: "{key}" is given twice.')
-        if not value.isdigit():
+        if not re.fullmatch(r"[0-9]+", value):
             raise InputError(f'{option}: "{key}={value}" is not a whole number of respondents.')
         counts[key] = int(value)
     missing = [key for key in ("very", "somewhat", "not") if key not in counts]
@@ -230,20 +247,60 @@ def detect_answer_column(fieldnames):
     )
 
 
-def read_rows(path, delimiter):
+DELIMITER_NAME = {";": "semicolons", "\t": "tabs", "|": "pipes"}
+
+
+def read_rows(path, delimiter, explicit, notes):
+    """Read the CSV. Stops on duplicate column names and on rows wider or narrower than the header, which
+    a dict would otherwise resolve silently. A header with no comma but semicolons, tabs or pipes is read
+    with that delimiter unless --delimiter was given."""
     try:
         with open(path, newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle, delimiter=delimiter)
-            fieldnames = [name for name in (reader.fieldnames or []) if name is not None]
-            rows = list(reader)
+            text = handle.read()
     except FileNotFoundError:
         raise InputError(f"File not found: {path}")
     except UnicodeDecodeError:
         raise InputError(f"{path} is not UTF-8 text. Re-export the CSV as UTF-8.")
+    except OSError as exc:
+        raise InputError(f"Cannot read {path}: {exc.strerror or exc}")
+    first_line = text.split("\n", 1)[0]
+    # Excel writes "sep=;" as line 1 to name the delimiter; it is not the header.
+    sep_line = re.fullmatch(r"sep=(.)\r?", first_line)
+    if sep_line:
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        if not explicit:
+            delimiter = sep_line.group(1)
+            explicit = True
+        notes.append(f'Line 1 was "{first_line.strip()}" (Excel\'s delimiter line); it was skipped.')
+        first_line = text.split("\n", 1)[0]
+    if not explicit and "," not in first_line:
+        found = [d for d in (";", "\t", "|") if d in first_line]
+        if len(found) == 1:
+            delimiter = found[0]
+            notes.append(f"The file uses {DELIMITER_NAME[delimiter]} as its delimiter; it was read that way.")
+    try:
+        table = [row for row in csv.reader(io.StringIO(text), delimiter=delimiter) if row]
     except csv.Error as exc:
         raise InputError(f"{path} is not a readable CSV: {exc}")
-    if not fieldnames:
+    if not table or not any(cell.strip() for cell in table[0]):
         raise InputError(f"{path} is empty or has no header row.")
+    fieldnames = table[0]
+    seen = Counter(normalize(name) for name in fieldnames)
+    repeated = [name for name in dict.fromkeys(fieldnames) if seen[normalize(name)] > 1]
+    if repeated:
+        raise InputError(
+            f"{path} has more than one column named " + ", ".join(f'"{name}"' for name in repeated)
+            + " (ignoring case and spacing). Exports that repeat a question for several waves need the columns "
+            "renamed first, so the script cannot pick the wrong one."
+        )
+    rows = []
+    for index, row in enumerate(table[1:], start=2):
+        if len(row) != len(fieldnames):
+            raise InputError(
+                f"{path} row {index} has {len(row)} cells but the header has {len(fieldnames)}; a row may be cut "
+                "or shifted, so answers would land in the wrong column."
+            )
+        rows.append(dict(zip(fieldnames, row)))
     if not rows:
         raise InputError(f"{path} has a header but no response rows.")
     return fieldnames, rows
@@ -252,20 +309,28 @@ def read_rows(path, delimiter):
 def classify(rows, answer_col, custom):
     """Sort rows into the four categories. Raises on labels that are unknown or from another scale."""
     labelled = []
-    blank = 0
+    blank_rows = []
+    question_rows = 0
     for row in rows:
         raw = (row.get(answer_col) or "").strip()
         if not raw:
-            blank += 1
+            blank_rows.append(row)
+            continue
+        if is_question_text(normalize(raw), answer_col):
+            question_rows += 1
             continue
         labelled.append((raw, normalize(raw), row))
-    numeric = {raw for raw, _, _ in labelled if raw.isdigit()}
-    rating_scale = numeric if len(numeric) >= RATING_SCALE_POINTS else set()
+    # Whole numbers, also as exported by pandas or R ("3.0"). Ellis has four options, so five or more
+    # distinct codes, or any code above 4, is a rating scale.
+    numeric = {raw: int(float(raw)) for raw, _, _ in labelled if re.fullmatch(r"[0-9]+(\.0+)?", raw)}
+    is_scale = len(set(numeric.values())) >= RATING_SCALE_POINTS or any(v > 4 for v in numeric.values())
+    rating_scale = set(numeric) if is_scale else set()
 
     unknown, nonstandard = Counter(), Counter()
     mapped_nonstandard = set()
     label_map_used = {}
     records = []
+    custom_used = set()
     for raw, norm, row in labelled:
         builtin = builtin_category(norm)
         category = custom.get(norm) or builtin
@@ -275,6 +340,8 @@ def classify(rows, answer_col, custom):
             continue
         if other_scale:
             mapped_nonstandard.add(raw)
+        elif builtin is None:
+            custom_used.add(raw)
         label_map_used[raw] = category
         records.append((category, row))
     if unknown or nonstandard:
@@ -294,7 +361,7 @@ def classify(rows, answer_col, custom):
                 'Map each one with --map "LABEL=very|somewhat|not|na" and run again.'
             )
         raise InputError(f'Column "{answer_col}": ' + " ".join(parts) + " Nothing was scored.")
-    return records, blank, label_map_used, sorted(mapped_nonstandard)
+    return records, blank_rows, label_map_used, sorted(mapped_nonstandard), sorted(custom_used), question_rows
 
 
 def tally(records):
@@ -313,10 +380,16 @@ def analyse(args):
         raise InputError("--core-benefit needs --benefit-col.")
     if not 0 < args.benchmark < 100:
         raise InputError("--benchmark must be between 0 and 100 (a percentage).")
+    if 0 < args.confidence < 1:
+        args.confidence *= 100  # 0.95 means 95%
     if not 50 <= args.confidence < 100:
-        raise InputError("--confidence must be at least 50 and below 100 (a percentage).")
+        raise InputError("--confidence must be a level such as 95 or 0.95, at least 50%.")
     if args.min_base < 1:
         raise InputError("--min-base must be 1 or more.")
+    if args.account_benchmark is not None and not args.account_col:
+        raise InputError("--account-benchmark needs --account-col.")
+    if args.account_benchmark is not None and not 0 < args.account_benchmark < 100:
+        raise InputError("--account-benchmark must be between 0 and 100 (a percentage).")
     if bool(args.input) == bool(args.counts):
         raise InputError("Give a CSV file or --counts very=..,somewhat=..,not=.. (one of the two).")
     segment_cols = args.segment_col or []
@@ -326,9 +399,16 @@ def analyse(args):
         raise InputError("Pass --period-col or --previous-counts, not both.")
     if bool(args.period_col) != bool(args.compare):
         raise InputError('--period-col and --compare "EARLIER,LATER" go together: the order of periods is not guessed.')
+    if args.id_col and not args.period_col:
+        raise InputError("--id-col is used to find people who answered in both waves; it needs --period-col.")
 
     z = z_for(args.confidence)
-    columns = {"answer": None, "segments": [], "benefit": None, "benefit_match": None, "period": None, "account": None}
+    notes = []
+    columns = {
+        "answer": None, "segments": [], "benefit": None, "benefit_match": None, "period": None, "account": None,
+        "id": None,
+    }
+    question_rows = 0
     if args.counts:
         needs_rows = {
             "--answer-col": args.answer_col, "--segment-col": segment_cols, "--benefit-col": args.benefit_col,
@@ -340,12 +420,13 @@ def analyse(args):
             raise InputError(f"{', '.join(used)} need a CSV of respondents; --counts has totals only.")
         given = parse_counts(args.counts, "--counts")
         blank = given.pop("blank")
-        records = [(category, {}) for category in CATEGORIES for _ in range(given[category])]
-        rows_read, label_map_used, mapped_nonstandard = None, {}, []
+        counts = {category: given[category] for category in CATEGORIES}
+        records, all_records = None, None
+        rows_read, label_map_used, mapped_nonstandard, custom_used = None, {}, [], []
         source = "--counts"
     else:
         custom = parse_map(args.map)
-        fieldnames, rows = read_rows(args.input, args.delimiter)
+        fieldnames, rows = read_rows(args.input, args.delimiter or ",", args.delimiter is not None, notes)
         columns["answer"] = (
             find_column(fieldnames, args.answer_col, "Answer") if args.answer_col else detect_answer_column(fieldnames)
         )
@@ -355,15 +436,46 @@ def analyse(args):
             ("benefit_match", args.benefit_match_col, "Benefit-match"),
             ("period", args.period_col, "Period"),
             ("account", args.account_col, "Account"),
+            ("id", args.id_col, "Respondent id"),
         ):
             if name:
                 columns[key] = find_column(fieldnames, name, what)
-        records, blank, label_map_used, mapped_nonstandard = classify(rows, columns["answer"], custom)
+        all_records, blank_rows, label_map_used, mapped_nonstandard, custom_used, question_rows = classify(
+            rows, columns["answer"], custom
+        )
+        records = all_records
         rows_read = len(rows)
         source = args.input
 
-    comparable = not mapped_nonstandard
-    counts = tally(records)
+    # The 40% benchmark belongs to Ellis's question and four options. Labels the script recognises carry
+    # that wording; labels mapped by hand (codes, other words) and typed counts cannot show it, so the
+    # verdict needs --ellis-wording, given once the user has confirmed the question and options.
+    if mapped_nonstandard:
+        comparable, wording = False, "non-standard"
+    elif (custom_used or args.counts) and not args.ellis_wording:
+        comparable, wording = False, "unconfirmed"
+    else:
+        comparable, wording = True, "ellis"
+
+    comparison = None
+    scope = None
+    if columns["period"]:
+        comparison, by_period = period_comparison(all_records, columns["period"], columns["id"], args, z, comparable)
+        later = comparison["later"]["period"]
+        records = by_period[later]
+        blank_rows = [row for row in blank_rows if (row.get(columns["period"]) or "").strip() == later]
+        pooled = tally(all_records)
+        scope = {
+            "period": later,
+            "note": (
+                f'The score, segments, benefits and accounts below are for the later wave, "{later}", only. '
+                f"The file holds {sum(pooled.values())} answers in all."
+            ),
+            "pooled": score_block(pooled["very"], base_of(pooled), z, args.benchmark, args.min_base, comparable),
+        }
+    if records is not None:
+        counts = tally(records)
+        blank = len(blank_rows)
     base = base_of(counts)
     if base == 0:
         raise InputError(
@@ -375,12 +487,22 @@ def analyse(args):
 
     overall = score_block(counts["very"], base, z, args.benchmark, args.min_base, comparable)
     answered = base + counts["na"]
-    flags = []
+    flags = list(notes)
     if mapped_nonstandard:
         flags.append(
             "Non-standard answer wording ("
             + ", ".join(f'"{label}"' for label in mapped_nonstandard)
             + f"): the score is not comparable with the {args.benchmark:g}% benchmark. Use it as your own baseline."
+        )
+    elif wording == "unconfirmed":
+        what = (
+            "The counts were typed in" if args.counts
+            else "Answer labels were mapped by hand (" + ", ".join(f'"{label}"' for label in custom_used) + ")"
+        )
+        flags.append(
+            f"{what}, so the script cannot see the question or its options. No verdict against "
+            f"{args.benchmark:g}% until the user confirms the question was Ellis's (\"How would you feel if you "
+            "could no longer use ...?\") with his four options; then re-run with --ellis-wording."
         )
     if overall["small_base"]:
         flags.append(
@@ -394,6 +516,11 @@ def analyse(args):
         )
     if blank:
         flags.append(f"{blank} rows had no answer to the question and were left out.")
+    if question_rows:
+        flags.append(
+            f"{question_rows} rows repeat the column header or the question text (a second header row) and were "
+            "skipped."
+        )
 
     result = {
         "input": {
@@ -405,6 +532,8 @@ def analyse(args):
             "benefit_match_column": columns["benefit_match"],
             "period_column": columns["period"],
             "account_column": columns["account"],
+            "id_column": columns["id"],
+            "question_text_rows_skipped": question_rows,
         },
         "denominator_rule": (
             "Score = very disappointed / (very + somewhat + not disappointed). "
@@ -419,12 +548,15 @@ def analyse(args):
         "interval_method": "Wilson score interval, no continuity correction",
         "benchmark_pct": args.benchmark,
         "benchmark_comparable": comparable,
+        "wording": wording,
         "min_base": args.min_base,
         "score": overall,
         "pct_with_na_in_base": round(100 * counts["very"] / answered, 1),
-        "verdict_text": verdict_text(overall, args.benchmark, args.confidence),
+        "verdict_text": verdict_text(overall, args.benchmark, args.confidence, wording),
         "flags": flags,
     }
+    if scope:
+        result["scope"] = scope
 
     if args.invited is not None:
         if args.invited < answered:
@@ -440,8 +572,9 @@ def analyse(args):
         }
         if rate < LOW_RESPONSE_RATE:
             flags.append(
-                f"Response rate {rate:.1f}% is under {LOW_RESPONSE_RATE:g}%: people who answer tend to be the "
-                "keener ones, so the score is probably overstated."
+                f"Response rate {rate:.1f}% is under {LOW_RESPONSE_RATE:g}%. The rate alone does not say which way "
+                "the score is biased: compare the people who answered with those invited on activity or tenure, "
+                "if those records exist, before trusting the score."
             )
 
     if columns["segments"]:
@@ -451,10 +584,14 @@ def analyse(args):
         ]
         result["segment_tables"] = tables
         scored = sum(1 for table in tables for seg in table["segments"] if seg["pct"] is not None)
-        result["multiple_comparison_note"] = MULTIPLE_COMPARISON_NOTE.format(n=scored, conf=args.confidence)
+        if scored > 1:
+            note = MULTIPLE_COMPARISON_NOTE if comparable else MULTIPLE_COMPARISON_NOTE_NO_BENCHMARK
+            result["multiple_comparison_note"] = note.format(n=scored, conf=args.confidence)
         if args.focus_segments:
             segments = tables[0]["segments"]
-            wanted = [name.strip() for name in args.focus_segments.split(",") if name.strip()]
+            wanted = list(dict.fromkeys(name.strip() for name in args.focus_segments.split(",") if name.strip()))
+            if not wanted:
+                raise InputError('--focus-segments is empty: name one or more segments, like "Founder,Manager".')
             known = {seg["segment"] for seg in segments}
             missing = [name for name in wanted if name not in known]
             if missing:
@@ -468,6 +605,11 @@ def analyse(args):
                 z, args.benchmark, args.min_base, comparable,
             )
             focus["segments"] = wanted
+            if focus["pct"] is None:
+                focus["direction"] = "no_base"
+            else:
+                diff = focus["very"] / focus["base"] - overall["very"] / overall["base"]
+                focus["direction"] = "higher" if diff > 0 else "lower" if diff < 0 else "same"
             result["focus"] = focus
 
     if columns["benefit"]:
@@ -476,8 +618,8 @@ def analyse(args):
         result["somewhat_split"] = match_split(records, columns["benefit_match"])
     if columns["account"]:
         result["accounts"] = account_block(records, columns["account"], z, args, comparable)
-    if columns["period"]:
-        result["comparison"] = period_comparison(records, columns["period"], args, z, comparable)
+    if comparison:
+        result["comparison"] = comparison
     elif args.previous_counts:
         earlier = parse_counts(args.previous_counts, "--previous-counts")
         result["comparison"] = comparison_block(
@@ -512,14 +654,16 @@ def segment_table(records, segment_col, z, args, comparable=True):
 
 
 def account_block(records, account_col, z, args, comparable):
-    """One vote per account. The vote rule is this skill's convention (sources.md, "B2B and small bases")."""
+    """One vote per account. The vote rule is this skill's convention (sources.md, "Several segment columns,
+    accounts"). The 40% benchmark was set for users, so the account share is descriptive unless the user
+    gives an account-level target with --account-benchmark."""
     by_account = {}
-    no_id = 0
-    for index, (category, row) in enumerate(records):
+    no_id = Counter()
+    for category, row in records:
         name = (row.get(account_col) or "").strip()
         if not name:
-            no_id += 1
-            name = f"\x00row{index}"
+            no_id[category] += 1
+            continue
         by_account.setdefault(name, Counter())[category] += 1
     very = base = outside = 0
     for counted in by_account.values():
@@ -530,22 +674,26 @@ def account_block(records, account_col, z, args, comparable):
         base += 1
         if 2 * counted["very"] > in_base:
             very += 1
-    block = score_block(very, base, z, args.benchmark, args.min_base, comparable)
+    target = args.account_benchmark
+    block = score_block(very, base, z, target if target is not None else args.benchmark, args.min_base, comparable)
+    if base and target is None:
+        block["verdict"] = "descriptive"
     block.update(
         accounts=len(by_account),
         accounts_outside_base=outside,
-        respondents_without_account=no_id,
+        respondents_without_account=sum(no_id.values()),
+        account_benchmark_pct=target,
         vote_rule=(
             "One vote per account: an account counts as very disappointed when more than half of its "
             "current-user respondents answered very disappointed (a tie does not count). Accounts whose "
-            "respondents all answered N/A are outside the base. A respondent with no account id is its own "
-            "account. This rule is the skill's convention, not Ellis's or Vohra's."
+            "respondents all answered N/A are outside the base. Respondents with no account id are left out "
+            "of the account score and counted. This rule is the skill's convention, not Ellis's or Vohra's."
         ),
     )
     return block
 
 
-def period_comparison(records, period_col, args, z, comparable):
+def period_comparison(records, period_col, id_col, args, z, comparable):
     names = [name.strip() for name in args.compare.split(",")]
     if len(names) != 2 or not all(names) or names[0] == names[1]:
         raise InputError('--compare expects two different period names: "EARLIER,LATER".')
@@ -568,7 +716,18 @@ def period_comparison(records, period_col, args, z, comparable):
     )
     block["rows_without_period"] = no_period
     block["other_periods"] = sorted(name for name in by_period if name not in names)
-    return block
+    if id_col:
+        ids = [{(row.get(id_col) or "").strip() for _, row in by_period[name]} - {""} for name in names]
+        shared = len(ids[0] & ids[1])
+        block["respondents_in_both"] = shared
+        if shared:
+            block["verdict"] = "not_independent"
+            block["verdict_text"] = (
+                f"Not compared: {shared} respondent ids answered in both waves. The interval assumes different "
+                "people in each wave (Superhuman never surveyed anyone twice); keep one answer per person, or "
+                "treat the later wave as a new baseline."
+            )
+    return block, by_period
 
 
 def comparison_block(earlier_name, earlier, later_name, later, args, z, comparable):
@@ -680,11 +839,12 @@ def match_split(records, match_col):
     match = no_match = unknown = 0
     bad = Counter()
     for category, row in records:
+        if category != "somewhat":
+            continue  # only the somewhat-disappointed rows are read, so other rows may hold anything
         raw = (row.get(match_col) or "").strip()
         norm = raw.lower()
         if raw and norm not in YES and norm not in NO:
             bad[raw] += 1
-        if category != "somewhat":
             continue
         if not raw:
             unknown += 1
@@ -695,7 +855,7 @@ def match_split(records, match_col):
     if bad:
         listing = "; ".join(f'"{label}" ({count})' for label, count in sorted(bad.items()))
         raise InputError(
-            f'Column "{match_col}" must hold yes/no (or true/false, 1/0). Found: {listing}.'
+            f'Column "{match_col}" must hold yes/no (or true/false, 1/0) on somewhat-disappointed rows. Found: {listing}.'
         )
     return {
         "somewhat": match + no_match + unknown,
@@ -705,9 +865,14 @@ def match_split(records, match_col):
     }
 
 
-def verdict_text(score, benchmark, confidence):
+def verdict_text(score, benchmark, confidence, wording="ellis"):
     span = f"{score['ci_low_pct']:.1f}% to {score['ci_high_pct']:.1f}%"
     b = f"{benchmark:g}%"
+    if score["verdict"] == "not_comparable" and wording == "unconfirmed":
+        return (
+            f"Not compared with the {b} benchmark yet: the question and its options are not confirmed as "
+            f"Ellis's (pass --ellis-wording once they are). {confidence:g}% interval: {span}."
+        )
     if score["verdict"] == "not_comparable":
         return (
             f"Not compared with the {b} benchmark: the answer wording is not Ellis's. "
@@ -734,6 +899,7 @@ VERDICT_SHORT = {
     "cannot_tell": "cannot tell",
     "no_base": "no base",
     "not_comparable": "not compared",
+    "descriptive": "no target",
 }
 
 
@@ -756,6 +922,10 @@ def render(result):
         f"{conf:g}% interval {score['ci_low_pct']:.1f}% to {score['ci_high_pct']:.1f}% (Wilson)"
     )
     out.append(result["verdict_text"])
+    if "scope" in result:
+        pooled = result["scope"]["pooled"]
+        out.append(result["scope"]["note"])
+        out.append(f"  All waves pooled (for reference, not a wave result): {one_line(pooled, conf)}")
     out.append("")
     if result["input"]["rows"] is None:
         out.append("Input: counts given with --counts")
@@ -799,25 +969,40 @@ def render(result):
     if "focus" in result:
         focus = result["focus"]
         out.append("")
-        out.append(
-            f"Focus segments ({', '.join(focus['segments'])}): {one_line(focus, conf)}  "
-            f"[{VERDICT_SHORT[focus['verdict']]}]" + ("  small base" if focus["small_base"] else "")
-        )
-        out.append(
-            "  Narrowing to chosen segments after seeing the data raises the score by construction; "
-            "confirm it on the next wave."
-        )
+        if focus["pct"] is None:
+            out.append(
+                f"Focus segments ({', '.join(focus['segments'])}): no current-user answers (all N/A or blank), "
+                "so no score."
+            )
+        else:
+            out.append(
+                f"Focus segments ({', '.join(focus['segments'])}): {one_line(focus, conf)}  "
+                f"[{VERDICT_SHORT[focus['verdict']]}]" + ("  small base" if focus["small_base"] else "")
+            )
+            out.append(
+                f"  {focus['direction'].capitalize()} than the overall {score['pct']:.1f}%. If these segments were "
+                "picked after seeing their scores, the choice itself pushes the focus score up; confirm it on "
+                "the next wave."
+            )
     if "accounts" in result:
         acc = result["accounts"]
         out.append("")
         out.append(
-            f"Accounts: {acc['accounts']} accounts behind {score['base'] + counts['na']} respondents "
+            f"Accounts: {acc['accounts']} accounts behind {score['base'] + counts['na'] - acc['respondents_without_account']} respondents "
             f"(accounts outside the base: {acc['accounts_outside_base']}; respondents with no account id: {acc['respondents_without_account']})"
         )
-        out.append(
-            f"One vote per account: {one_line(acc, conf)}  [{VERDICT_SHORT[acc['verdict']]}]"
-            + ("  small base" if acc["small_base"] else "")
-        )
+        if acc["pct"] is None:
+            out.append("One vote per account: no account with a current-user answer.")
+        else:
+            target = (
+                f"against the account target {acc['account_benchmark_pct']:g}%"
+                if acc["account_benchmark_pct"] is not None
+                else f"descriptive: the {result['benchmark_pct']:g}% benchmark is for users, not accounts"
+            )
+            out.append(
+                f"One vote per account: {one_line(acc, conf)}  [{VERDICT_SHORT[acc['verdict']]}; {target}]"
+                + ("  small base" if acc["small_base"] else "")
+            )
         out.append("  " + acc["vote_rule"])
     if "comparison" in result:
         cmp_ = result["comparison"]
@@ -873,19 +1058,25 @@ def build_parser():
     parser.add_argument("--compare", metavar="EARLIER,LATER", help="the two period values to compare, earlier first")
     parser.add_argument("--previous-counts", metavar="very=N,somewhat=N,not=N", help="an earlier wave as counts, compared with this input")
     parser.add_argument("--account-col", help="account or company id column (B2B): also score one vote per account")
+    parser.add_argument("--account-benchmark", type=float, help="an account-level target in percent, from the user (default: none, the account share is descriptive)")
+    parser.add_argument("--id-col", help="respondent id column: with --period-col, finds people who answered in both waves")
+    parser.add_argument("--ellis-wording", action="store_true", help="the user confirmed the question and its four options were Ellis's; needed for a benchmark verdict with --counts or hand-mapped labels")
     parser.add_argument("--invited", type=int, help="number of people invited, to report the response rate")
     parser.add_argument("--map", action="append", metavar="LABEL=CATEGORY", help="map an answer label to very, somewhat, not or na; repeat as needed")
     parser.add_argument("--benchmark", type=float, default=DEFAULT_BENCHMARK, help="benchmark in percent (default 40)")
-    parser.add_argument("--confidence", type=float, default=95.0, help="confidence level in percent (default 95)")
+    parser.add_argument("--confidence", type=float, default=95.0, help="confidence level, 95 or 0.95 (default 95)")
     parser.add_argument("--min-base", type=int, default=DEFAULT_MIN_BASE, help="bases under this are flagged as small (default 30)")
-    parser.add_argument("--delimiter", default=",", help="CSV delimiter (default ,)")
+    parser.add_argument("--delimiter", help="CSV delimiter, one character (default: comma; a header with no comma but semicolons, tabs or pipes is read with that delimiter)")
     parser.add_argument("--json", action="store_true", help="print JSON instead of text")
     return parser
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if len(args.delimiter) != 1:
+    names = {"comma": ",", "semicolon": ";", "tab": "\t", "\\t": "\t", "pipe": "|"}
+    if args.delimiter is not None:
+        args.delimiter = names.get(args.delimiter.lower(), args.delimiter)
+    if args.delimiter is not None and len(args.delimiter) != 1:
         print("pmf-survey: --delimiter must be one character", file=sys.stderr)
         return 2
     try:

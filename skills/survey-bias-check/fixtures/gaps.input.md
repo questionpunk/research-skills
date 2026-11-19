@@ -60,3 +60,8 @@ Experts say regular exercise matters. We want to show that our members are healt
 12. What did you dislike?
 
 13. What should we add?
+
+14. Did you renew your membership this year?
+   - Yes
+   - Yes
+   - No

@@ -1,0 +1,3 @@
+Chocolate: Milk | Dark
+Center: Chewy | Soft
+Nuts: No Nuts | Nuts

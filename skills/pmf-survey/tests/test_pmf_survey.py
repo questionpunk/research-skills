@@ -127,7 +127,7 @@ class FixtureTest(unittest.TestCase):
         for label in want["unknown_labels_without_map"]:
             self.assertIn(f'"{label}"', proc.stderr)
         args = [arg for pair in want["map"] for arg in ("--map", pair)]
-        got = run_json(FIXTURES / "coded.input.csv", *args)
+        got = run_json(FIXTURES / "coded.input.csv", *args, "--ellis-wording")
         self.assertEqual(got["counts"], want["counts"])
         self.assert_score(got["score"], want["score"])
 
@@ -355,7 +355,9 @@ class SecondPassTest(unittest.TestCase):
     def test_waves_fixture_cannot_tell(self):
         want = expected("waves")
         got = run_json(FIXTURES / "waves.input.csv", "--period-col", "wave", "--compare", want["compare"])
-        self.assertEqual(got["counts"], want["counts"])
+        self.assertEqual(got["counts"], want["counts"])  # the later wave, not every row
+        self.assertEqual(got["scope"]["period"], "2026-Q2")
+        self.assertEqual((got["scope"]["pooled"]["very"], got["scope"]["pooled"]["base"]), (31, 107))
         cmp_ = got["comparison"]
         self.assert_block(cmp_["earlier"], want["earlier"])
         self.assert_block(cmp_["later"], want["later"])
@@ -400,7 +402,7 @@ class SecondPassTest(unittest.TestCase):
     # --- counts input ---
     def test_counts_input_equals_the_basic_fixture(self):
         want = expected("basic")
-        got = run_json("--counts", "very=16,somewhat=14,not=10,na=8,blank=2")
+        got = run_json("--counts", "very=16,somewhat=14,not=10,na=8,blank=2", "--ellis-wording")
         self.assertEqual(got["counts"], want["counts"])
         from_csv = run_json(FIXTURES / "basic.input.csv")
         self.assertEqual(got["score"], from_csv["score"])
@@ -451,6 +453,7 @@ class SecondPassTest(unittest.TestCase):
         self.assertEqual(got["counts"], want["counts"])
         self.assert_block(got["score"], want["score"])
         self.assert_block(got["accounts"], want["accounts"])
+        self.assertEqual(got["accounts"]["verdict"], "descriptive")
         self.assertIn("skill's convention", got["accounts"]["vote_rule"])
         self.assertIn("One vote per account", run(FIXTURES / "accounts.input.csv", "--account-col", "account").stdout)
 
@@ -482,7 +485,7 @@ class SecondPassTest(unittest.TestCase):
         self.assertEqual(got["score"]["verdict"], "not_comparable")
 
     def test_four_numeric_codes_stay_comparable(self):
-        got = run_json(FIXTURES / "coded.input.csv", "--map", "1=very", "--map", "2=somewhat", "--map", "3=not", "--map", "4=na")
+        got = run_json(FIXTURES / "coded.input.csv", "--map", "1=very", "--map", "2=somewhat", "--map", "3=not", "--map", "4=na", "--ellis-wording")
         self.assertTrue(got["benchmark_comparable"])
 
     # --- response rate and the denominator note ---
@@ -511,3 +514,151 @@ class SecondPassTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewFindingsTest(unittest.TestCase):
+    """Regression tests for the 2026-11-19 review findings. Inputs are synthetic and written per test."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def csv(self, text):
+        path = pathlib.Path(self.tmp.name) / "in.csv"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_hand_mapped_labels_get_no_verdict_until_the_wording_is_confirmed(self):
+        path = self.csv("pmf\n" + "Satisfied\n" * 5)
+        got = run_json(path, "--map", "Satisfied=very")
+        self.assertEqual(got["score"]["verdict"], "not_comparable")
+        self.assertEqual(got["wording"], "unconfirmed")
+        self.assertTrue(any("--ellis-wording" in flag for flag in got["flags"]))
+        self.assertEqual(run_json(path, "--map", "Satisfied=very", "--ellis-wording")["score"]["verdict"], "above")
+
+    def test_typed_counts_get_no_verdict_until_the_wording_is_confirmed(self):
+        got = run_json("--counts", "very=45,somewhat=30,not=25")
+        self.assertEqual(got["score"]["verdict"], "not_comparable")
+        self.assertEqual(run_json("--counts", "very=45,somewhat=30,not=25", "--ellis-wording")["score"]["verdict"], "cannot_tell")
+
+    def test_account_share_is_descriptive_and_missing_ids_are_not_accounts(self):
+        rows = "".join(f"very,a{i}\nnot,a{i}\n" for i in range(6)) + "very,\n"
+        got = run_json(self.csv("pmf,acct\n" + rows), "--account-col", "acct")["accounts"]
+        self.assertEqual(got["verdict"], "descriptive")
+        self.assertEqual((got["accounts"], got["base"], got["respondents_without_account"]), (6, 6, 1))
+        target = run_json(self.csv("pmf,acct\n" + rows), "--account-col", "acct", "--account-benchmark", "50")
+        self.assertEqual(target["accounts"]["verdict"], "below")
+
+    def test_wave_comparison_reports_the_later_wave(self):
+        rows = "w1,very,A\n" * 3 + "w1,not,A\n" * 7 + "w2,very,B\n" * 6 + "w2,not,B\n" * 4 + "w0,very,A\n" * 10
+        got = run_json(self.csv("wave,pmf,seg\n" + rows), "--period-col", "wave", "--compare", "w1,w2", "--segment-col", "seg")
+        self.assertEqual((got["score"]["very"], got["score"]["base"]), (6, 10))
+        self.assertEqual([s["segment"] for s in got["segment_tables"][0]["segments"]], ["B"])
+        self.assertEqual(got["scope"]["pooled"]["base"], 30)
+
+    def test_focus_segment_with_only_na_and_a_lower_focus_score(self):
+        proc = run(self.csv("pmf,group\nvery,A\nna,B\n"), "--segment-col", "group", "--focus-segments", "B")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("no current-user answers", proc.stdout)
+        proc = run(self.csv("pmf,group\nvery,A\nnot,B\nvery,A\nnot,A\n"), "--segment-col", "group", "--focus-segments", "B")
+        self.assertIn("Lower than the overall", proc.stdout)
+        self.assertNotIn("by construction", proc.stdout)
+
+    def test_duplicate_headers_and_ragged_rows_stop(self):
+        proc = run(self.csv("pmf,pmf\nvery,not\n"), "--answer-col", "pmf")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn('more than one column named "pmf"', proc.stderr)
+        proc = run(self.csv("pmf,seg\nvery,A\nnot,B,extra\n"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("row 3 has 3 cells", proc.stderr)
+
+    def test_low_response_rate_does_not_claim_a_direction(self):
+        got = run_json("--counts", "very=5,somewhat=3,not=2", "--invited", "200")
+        flag = next(f for f in got["flags"] if "under 10%" in f)
+        self.assertNotIn("overstated", flag)
+        self.assertIn("does not say which way", flag)
+
+    def test_question_text_row_is_not_counted_as_na(self):
+        got = run_json(self.csv("pmf\nHow would you feel if you could no longer use X?\nvery\nnot\n"))
+        self.assertEqual(got["counts"]["na"], 0)
+        self.assertEqual(got["input"]["question_text_rows_skipped"], 1)
+        self.assertEqual(run_json(self.csv("pmf\nI no longer use X\nvery\n"))["counts"]["na"], 1)
+
+    def test_semicolon_file_and_trailing_punctuation(self):
+        got = run_json(self.csv("id;pmf\n1;Very disappointed.\n2;Not disappointed!\n"))
+        self.assertEqual((got["counts"]["very"], got["counts"]["not"]), (1, 1))
+        self.assertTrue(got["benchmark_comparable"])
+
+    def test_people_in_both_waves_block_the_comparison(self):
+        path = self.csv("id,wave,pmf\nu1,w1,very\nu2,w1,not\nu1,w2,very\nu3,w2,not\n")
+        got = run_json(path, "--period-col", "wave", "--compare", "w1,w2", "--id-col", "id")["comparison"]
+        self.assertEqual(got["verdict"], "not_independent")
+        self.assertEqual(got["respondents_in_both"], 1)
+
+    def test_confidence_as_a_fraction(self):
+        a = run_json("--counts", "very=5,somewhat=3,not=2", "--confidence", "0.95")
+        b = run_json("--counts", "very=5,somewhat=3,not=2")
+        self.assertEqual(a["score"], b["score"])
+
+
+class SecondReviewFindingsTest(unittest.TestCase):
+    """Regression tests for the second (Gemini) review of 2026-11-19. Synthetic inputs, written per test."""
+
+    setUp = ReviewFindingsTest.setUp
+    csv = ReviewFindingsTest.csv
+
+    def test_empty_focus_segments_is_an_input_error(self):
+        proc = run(self.csv("pmf,group\nvery,A\nnot,B\n"), "--segment-col", "group", "--focus-segments", ",")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--focus-segments is empty", proc.stderr)
+
+    def test_float_coded_rating_scale_gets_no_benchmark_verdict(self):
+        maps = [arg for code, cat in (("1.0", "very"), ("2.0", "somewhat"), ("3.0", "not"), ("4.0", "not"), ("5.0", "not"))
+                for arg in ("--map", f"{code}={cat}")]
+        got = run_json(self.csv("pmf\n1.0\n2.0\n3.0\n4.0\n5.0\n"), *maps, "--ellis-wording")
+        self.assertEqual(got["score"]["verdict"], "not_comparable")
+        self.assertEqual(got["wording"], "non-standard")
+
+    def test_code_above_four_is_a_rating_scale_even_with_four_codes_seen(self):
+        maps = [arg for code, cat in (("2", "very"), ("3", "somewhat"), ("4", "not"), ("5", "not"))
+                for arg in ("--map", f"{code}={cat}")]
+        got = run_json(self.csv("pmf\n2\n3\n4\n5\n"), *maps, "--ellis-wording")
+        self.assertEqual(got["wording"], "non-standard")
+
+    def test_mixed_not_disappointed_no_longer_use_label_is_not_scored_as_not(self):
+        proc = run(self.csv("pmf\nVery disappointed\nNot disappointed - I no longer use it\n"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn('Unknown answer labels: "Not disappointed - I no longer use it"', proc.stderr)
+        self.assertEqual(run_json(self.csv("pmf\nvery\nNot disappointed (it isn't really that useful)\n"))["counts"]["not"], 1)
+
+    def test_excel_sep_line_is_skipped(self):
+        got = run_json(self.csv("sep=;\nid;pmf;plan\n1;Very disappointed;Pro\n2;Not disappointed;Pro\n"))
+        self.assertEqual((got["counts"]["very"], got["counts"]["not"]), (1, 1))
+        self.assertTrue(any("sep=;" in flag for flag in got["flags"]))
+
+    def test_directory_path_is_an_input_error(self):
+        proc = run(self.tmp.name)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("Cannot read", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_backslash_t_delimiter_means_tab(self):
+        got = run_json(self.csv("id,x\tpmf\n1,a\tvery\n"), "--delimiter", "\\t", "--answer-col", "pmf")
+        self.assertEqual(got["counts"]["very"], 1)
+
+    def test_single_segment_gets_no_multiple_comparison_note(self):
+        got = run_json(self.csv("pmf,seg\nvery,A\nsomewhat,A\n"), "--segment-col", "seg")
+        self.assertNotIn("multiple_comparison_note", got)
+        got = run_json(self.csv("pmf,seg\nV,A\nsomewhat,B\n"), "--segment-col", "seg", "--map", "V=very")
+        self.assertNotIn("benchmark", got["multiple_comparison_note"])
+
+    def test_non_ascii_digit_count_is_an_input_error(self):
+        proc = run("--counts", "very=²,somewhat=1,not=1")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("not a whole number", proc.stderr)
+
+    def test_benefit_match_reads_only_somewhat_rows(self):
+        got = run_json(self.csv("pmf,m\nvery,n/a\nnot,-\nsomewhat,yes\n"), "--benefit-match-col", "m")
+        self.assertEqual(got["somewhat_split"]["benefit_matches"], 1)
+        proc = run(self.csv("pmf,m\nsomewhat,maybe\n"), "--benefit-match-col", "m")
+        self.assertEqual(proc.returncode, 2)

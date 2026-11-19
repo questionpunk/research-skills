@@ -568,5 +568,154 @@ class BadInputTest(unittest.TestCase):
             self.assert_error(run_cli(handle.name), "cannot read")
 
 
+def cli_json(*args, stdin=None):
+    result = run_cli(*args, "--json", stdin=stdin)
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
+    return json.loads(result.stdout)
+
+
+def kinds(report):
+    return [(f["question"], f["rule"], f["kind"]) for f in report["findings"]]
+
+
+class ReviewFixTest(unittest.TestCase):
+    """Regressions for the 2026-11-19 review findings; each failed on the version reviewed."""
+
+    def test_bom_does_not_turn_the_first_question_into_an_introduction(self):
+        got = cli_json("-", stdin="\ufeff1. Did you attend?\n- Yes\n- No\n2. Did you return?\n- Yes\n- No\n")
+        self.assertEqual((got["questions"], got["has_intro"]), (2, False))
+
+    def test_bom_json_file_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "bom.json"
+            path.write_bytes(b'\xef\xbb\xbf[{"text": "Did you attend?", "options": ["Yes", "No"]}]')
+            self.assertEqual(cli_json(str(path))["questions"], 1)
+
+    def test_wide_range_overlaps_every_range_it_contains_and_invents_no_gap(self):
+        self.assertEqual(sbc.check_ranges(["0-100", "10-20", "30-40"]),
+                         [("overlap", "0-100 / 10-20"), ("overlap", "0-100 / 30-40")])
+
+    def test_cents_in_the_stem_make_whole_dollar_ranges_gapped(self):
+        self.assertEqual(sbc.check_ranges(["$0-$10", "$11-$20"], "How much, in dollars and cents?"),
+                         [("gap", "$0-$10 / $11-$20")])
+        self.assertEqual(sbc.check_ranges(["$0-$10", "$11-$20"], "How much did you spend?"), [])
+
+    def test_continuous_measure_with_integer_adjacent_ranges(self):
+        stem = "How many hours did you sleep last night?"
+        found = one(stem, ["Less than 5 hours", "5-6 hours", "7-8 hours", "More than 8 hours"])
+        self.assertEqual([(f["rule"], f["kind"], f["severity"]) for f in found], [("SB010", "continuous_gap", "medium")])
+        self.assertEqual(one(stem, ["Less than 5 hours", "5 to under 7 hours", "7 to under 9 hours", "9 hours or more"]), [])
+
+    def test_ranges_are_checked_when_one_option_is_in_words(self):
+        found = one("How many times did you visit in the past 30 days?", ["0", "1-5", "5-10", "More than 10", "It varies"])
+        self.assertEqual([(f["rule"], f["kind"]) for f in found], [("SB010", "overlap")])
+
+    def test_negative_bounds_are_parsed(self):
+        found = one("What was the temperature?", ["-10 to -1", "0 to 10", "20 or more"])
+        self.assertEqual([(f["rule"], f["kind"], f["match"]) for f in found], [("SB010", "gap", "0 to 10 / 20 or more")])
+
+    def test_introduction_counts_toward_length(self):
+        intro = " ".join("This is sentence %d." % i for i in range(30))
+        got = cli_json("-", stdin=intro + "\n1. Did you attend?\n- Yes\n- No\n")
+        self.assertEqual((got["length"]["points"], got["length"]["seconds"]), (11.0, 82.5))
+
+    def test_route_skip_leaves_questions_out_of_the_length(self):
+        text = "1. Did you attend?\n- Yes\n- No\n2. Why not?\n3. What did you like?\n"
+        self.assertEqual(cli_json("-", stdin=text)["length"]["points"], 7.0)
+        got = cli_json("-", "--route-skip", "Q2", stdin=text)
+        self.assertEqual((got["length"]["points"], got["length"]["route_skipped"]), (4.0, ["2"]))
+        self.assertEqual(got["length"]["minutes_rounded"], 0.5)
+
+    def test_json_required_must_be_a_real_boolean(self):
+        payload = '[{"text": "What is your income?", "required": "false", "options": ["Under 10", "10 or more"]}]'
+        self.assertNotIn("SB016", rules(cli_json("-", stdin=payload)["findings"]))
+        result = run_cli("-", "--json", stdin='[{"text": "Q?", "required": "maybe"}]')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('"required"', result.stderr)
+
+    def test_json_type_that_is_not_text_is_an_input_error(self):
+        result = run_cli("-", "--json", stdin='[{"text": "Q?", "type": []}]')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('"type" must be text', result.stderr)
+
+    def test_keep_matches_an_exact_q_id(self):
+        payload = '[{"id": "Q7", "text": "How satisfied are you with the app?", "options": ["Yes", "No"]}]'
+        got = cli_json("-", "--keep", "Q7", stdin=payload)
+        self.assertTrue(got["findings"])
+        self.assertEqual({f["status"] for f in got["findings"]}, {"keep as is"})
+
+    def test_short_non_latin_and_german_questions_are_unchecked(self):
+        self.assertEqual(len(cli_json("-", stdin="1. ご意見は？\n")["unchecked"]), 1)
+        got = cli_json("-", stdin="1. Was ist Ihr Alter in Jahren?\n- 18-24\n- 25 oder mehr\n")
+        self.assertEqual(len(got["unchecked"]), 1)
+        self.assertFalse(sbc.is_english("Wie zufrieden sind Sie mit der App insgesamt und was fehlt?"))
+        self.assertTrue(sbc.is_english("The pricing is not clear."))
+
+    def test_language_flag_overrides_detection(self):
+        text = "1. Do you always read the notes?\n- Yes\n- No\n"
+        self.assertEqual(len(cli_json("-", "--language", "other", stdin=text)["unchecked"]), 1)
+        self.assertIn("SB003", rules(cli_json("-", "--language", "en", stdin="1. Always lesen?\n- Ja\n- Nein\n")["findings"]))
+
+    def test_tied_scale_directions_are_not_called_a_majority(self):
+        text = ("1. How satisfied or dissatisfied are you?\n- Very satisfied\n- Neither\n- Very dissatisfied\n"
+                "2. How easy or difficult was it?\n- Very difficult\n- Neither\n- Very easy\n")
+        found = [f for f in lint_text(text)[0] if f["rule"] == "SB012"]
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("most scales", found[0]["why"])
+        self.assertIn("split evenly", found[0]["why"])
+
+    def test_duplicate_option_is_flagged(self):
+        found = one("Did it work?", ["Yes", "Yes"])
+        self.assertEqual([(f["rule"], f["severity"], f["match"]) for f in found], [("SB028", "high", "Yes")])
+
+    def test_lettered_options_without_bullets_are_options(self):
+        got = cli_json("-", stdin="1. What is your age?\n   a) 18-25\n   b) 25-34\n   c) 35 or older\n")
+        self.assertEqual(kinds(got), [("1", "SB010", "overlap")])
+        self.assertIn("lettered lines", got["warnings"][0])
+
+    def test_numbered_options_under_a_question_are_options(self):
+        got = cli_json("-", stdin="1. How satisfied or dissatisfied are you with the app?\n"
+                                  "   1) Very satisfied\n   2) Somewhat satisfied\n   3) Very dissatisfied\n")
+        self.assertEqual(got["questions"], 1)
+        self.assertIn(("1", "SB009", "balance"), kinds(got))
+
+    def test_unmarked_option_lines_are_read_as_options(self):
+        got = cli_json("-", stdin="1. How satisfied or dissatisfied are you with the app?\n"
+                                  "Very satisfied\nSatisfied\nSomewhat satisfied\nDissatisfied\n")
+        self.assertIn(("1", "SB009", "balance"), kinds(got))
+        self.assertTrue(any("unmarked lines" in w for w in got["warnings"]))
+
+    def test_respondent_view_from_survey_from_decision(self):
+        text = ("We are planning the timetable. It takes about 2 minutes. Answers are combined.\n\n"
+                "1. In the last 4 weeks, how many times did you visit the studio? Enter 0 if none.\n"
+                "   [number]\n   (If 0: that is all we need. Thank you.)\n"
+                "2. In the last 3 months, how many times did you want to pause a delivery? Enter 0 if never.\n"
+                "   [number, 0 to 3]\n   (If 0, go to question 4.)\n"
+                "3. Where was your most recent workout?\n   - At home\n   - Outdoors\n   - At a gym\n   - Somewhere else\n"
+                "4. What was the main reason? (optional)\n   [text]\n\nThank you. Your answers help us plan.\n")
+        got = cli_json("-", stdin=text)
+        self.assertEqual(got["findings"], [])
+        self.assertEqual(got["length"]["points_by_type"], {"intro": 1.0, "number": 4.0, "open": 3.0, "single": 1.0})
+        self.assertTrue(any("skip logic" in w for w in got["warnings"]))
+
+    def test_qsf_convert_markdown_is_read_with_tags_types_and_rows(self):
+        text = ("# Pulse\n\n## Main\n\n### welcome [info]\nWelcome. It takes 2 minutes.\n\n"
+                "### used [single] required\nDo you always use it?\n\n- Yes {code:1}\n- No {code:0}\n\n"
+                "> skip: if \"No\" -> end of survey\n\n"
+                "### grid [matrix]\nHow much do you agree or disagree with each statement?\n\nRows:\n- It is fast\n"
+                "- It is stable\n\nColumns:\n- Disagree\n- Neither agree nor disagree\n- Agree\n\n"
+                "### nps [nps]\nHow likely are you to recommend us to a friend or colleague?\n")
+        got = cli_json("-", stdin=text)
+        self.assertEqual((got["questions"], got["has_intro"]), (3, True))
+        self.assertEqual(sorted(kinds(got)), [("grid", "SB014", "grid"), ("used", "SB003", "absolute")])
+        self.assertTrue(any("qsf-convert" in w for w in got["warnings"]))
+        self.assertEqual(got["length"]["points_by_type"], {"grid": 2.0, "intro": 1.0, "single": 2.0})
+
+    def test_hypothetical_advice_does_not_call_intent_an_upper_bound(self):
+        found = one("Would you pay $20 per month for a team plan?", ["Yes", "No"])
+        self.assertNotIn("upper bound", " ".join(f["why"] for f in found))
+
+
 if __name__ == "__main__":
     unittest.main()

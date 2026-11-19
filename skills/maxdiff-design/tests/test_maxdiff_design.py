@@ -413,7 +413,7 @@ class GenerateTest(unittest.TestCase):
                 ([], "give an items file"),
                 (["--items", 2, "--per-set", 2], "at least 3 items"),
                 (["--items", 8, "--per-set", 8], "must be smaller than the number of items"),
-                (["--items", 8, "--per-set", 1], "at least 2"),
+                (["--items", 8, "--per-set", 1], "at least 3"),
                 (["--items", 5], "give --per-set yourself"),
                 (["--items", 8, "--sets", 0], "--sets must be 1 or more"),
                 (["--items", 8, "--versions", 0], "--versions must be 1 or more"),
@@ -460,6 +460,172 @@ class ConstructionTest(unittest.TestCase):
         self.assertEqual(self.module.recommended_sets(10, 4), 8)
         self.assertEqual(self.module.recommended_sets(20, 4, 5), 25)
 
+
+class ReviewRegressionTest(unittest.TestCase):
+    """Defects found in the 2026-11 review; each test failed before its fix."""
+
+    def check_text(self, text, *extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "design.csv"
+            path.write_text(text)
+            return run("--check", path, *extra, "--json")
+
+    def test_a_set_of_one_item_fails(self):
+        result = self.check_text("set,item1\n1,A\n")
+        report = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(report["is_bibd"])
+        self.assertIn("each set offers a choice", statuses(report, "fail"))
+
+    def test_sets_holding_every_item_are_not_an_incomplete_design(self):
+        result = self.check_text("set,item1,item2,item3\n1,A,B,C\n2,B,C,A\n3,C,A,B\n")
+        report = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(report["is_bibd"])
+        self.assertIn("each set offers a choice", statuses(report, "fail"))
+
+    def test_wide_layout_keeps_the_column_number_as_position(self):
+        result = self.check_text("set,item1,item2,item3,item4\n1,A,,B,C\n2,B,,C,A\n3,C,,A,B\n4,D,,A,B\n")
+        report = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual([row["position"] for row in report["design"][:3]], [1, 3, 4])
+        self.assertIn("same shape in every set and version", statuses(report, "fail"))
+
+    def test_trailing_empty_columns_still_read(self):
+        result = self.check_text("set,item1,item2,item3,item4\n" + "".join(
+            f"{s},{','.join(row)},\n" for s, row in enumerate(["ABD", "BCE", "CDF", "DEG", "AEF", "BFG", "ACG"], 1)))
+        self.assertNotIn("same shape in every set and version", statuses(json.loads(result.stdout), "fail"))
+
+    def test_two_columns_for_one_position_or_one_name_are_rejected(self):
+        for text in ("set,item1,item_1,item2\n1,A,B,C\n", "set,Item1,item1,item2\n1,A,B,C\n"):
+            with self.subTest(text):
+                result = self.check_text(text)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("maxdiff-design:", result.stderr)
+
+    def test_semicolon_and_tab_delimited_designs_are_read(self):
+        body = (FIXTURES / "bibd_7_3_1.input.csv").read_text()
+        for delimiter in (";", "\t"):
+            with self.subTest(repr(delimiter)):
+                result = self.check_text(body.replace(",", delimiter))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(json.loads(result.stdout)["is_bibd"])
+
+    def test_search_message_follows_its_own_diagnostics(self):
+        code, report = run_json("--items", 13, "--per-set", 3, "--sets", 26, "--versions", 1)
+        self.assertTrue(report["is_bibd"])
+        self.assertIn("came out as an exact BIBD", report["method_detail"])
+        code, report = run_json("--items", 19, "--per-set", 3, "--sets", 57, "--versions", 1)
+        self.assertIn("not proof none exists", report["method_detail"])
+        self.assertNotIn("no simple exact BIBD", report["method_detail"])
+
+    def test_items_left_out_of_a_version_are_a_headline_warning(self):
+        result = run("--items", 12, "--per-set", 4, "--sets", 2, "--versions", 3)
+        self.assertIn("WARN  every item in every version", result.stdout)
+        self.assertIn("1.00 means two items are always shown together", result.stdout)
+        self.assertIn("with 5 WARN line(s)", result.stdout)
+
+
+class GeminiReviewRegressionTest(unittest.TestCase):
+    """Defects from the second (Gemini) review of 2026-11-19; each test failed before its fix."""
+
+    def check_text(self, text, *extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "design.csv"
+            path.write_text(text, encoding="utf-8")
+            return run("--check", path, *extra, "--json")
+
+    def test_two_per_set_is_a_paired_comparison_and_fails(self):
+        pairs = ["AB", "AC", "AD", "AE", "AF", "BC", "BD", "BE", "BF", "CD", "CE", "CF", "DE", "DF", "EF"]
+        text = "set,item1,item2\n" + "".join(f"{s},{a},{b}\n" for s, (a, b) in enumerate(pairs, 1))
+        result = self.check_text(text)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("items per set", statuses(json.loads(result.stdout), "fail"))
+        generated = run("--items", 8, "--per-set", 2)
+        self.assertEqual(generated.returncode, 2)
+        self.assertIn("at least 3", generated.stderr)
+
+    def test_respondent_column_is_read_as_the_version(self):
+        text = "respondent,set,item1,item2,item3\n1,1,A,B,C\n1,2,D,E,F\n2,1,A,D,E\n2,2,B,C,F\n"
+        result = self.check_text(text)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["parameters"]["versions"], 2)
+        self.assertEqual(report["diagnostics"]["repeats_within_set"], 0)
+        self.assertNotIn("same shape in every set and version", statuses(report, "fail"))
+
+    def test_a_set_number_repeated_in_one_version_of_a_wide_file_is_rejected(self):
+        result = self.check_text("id,set,item1,item2,item3\n7,1,A,B,C\n8,1,D,E,F\n")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("set 1 appears more than once in version 1", result.stderr)
+
+    def test_excel_sep_line_is_read_as_the_delimiter(self):
+        body = (FIXTURES / "bibd_7_3_1.input.csv").read_text().replace(",", ";")
+        result = self.check_text("sep=;\n" + body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["is_bibd"])
+
+    def test_a_set_repeated_inside_a_version_warns(self):
+        fano = ["ABD", "BCE", "CDF", "DEG", "EFA", "FGB", "GAC"]
+        text = "set,item1,item2,item3\n" + "".join(
+            f"{s},{','.join(row)}\n" for s, row in enumerate(fano + fano, 1))
+        report = json.loads(self.check_text(text).stdout)
+        self.assertIn("no set repeated within a version", statuses(report, "warn"))
+        self.assertEqual(report["diagnostics"]["repeated_sets_within_versions"], 7)
+
+    def test_generated_versions_do_not_repeat_a_set(self):
+        for args in ((7, 3, 14), (8, 3, 16), (6, 3, 12), (10, 3, 20)):
+            with self.subTest(args):
+                code, report = run_json("--items", args[0], "--per-set", args[1], "--sets", args[2], "--versions", 3)
+                self.assertEqual(report["diagnostics"]["repeated_sets_within_versions"], 0)
+                self.assertNotIn("no set repeated within a version", statuses(report, "warn"))
+                self.assertEqual(code, 0)
+
+    def test_sample_rules_follow_the_sources(self):
+        # 40 items, 5 per set, 4 sets: half an exposure per respondent; 600 respondents does not make that fine.
+        _code, sparse = run_json("--items", 40, "--per-set", 5, "--sets", 4, "--respondents", 600)
+        self.assertNotIn("acceptable at 600", sparse["sample"]["per_respondent_rule"])
+        self.assertIn("under 1", sparse["sample"]["per_respondent_rule"])
+        # A standard design with 3 exposures is not sparse: the 500/1000 rule does not apply.
+        _code, standard = run_json("--items", 12, "--per-set", 4, "--respondents", 300)
+        self.assertNotIn("under the preferred 1000", standard["sample"]["exposures_verdict"])
+        self.assertIn("300", standard["sample"]["total_verdict"])
+        _code, tiny = run_json("--items", 12, "--per-set", 4, "--respondents", 20)
+        self.assertNotIn("fits any sample size", tiny["sample"]["per_respondent_rule"])
+        self.assertIn("under the 300", tiny["sample"]["total_verdict"])
+        # Above 30 items the 300 floor rises in proportion (600 at 60 items).
+        _code, long_list = run_json("--items", 60, "--per-set", 5, "--sets", 12, "--versions", 2, "--respondents", 500)
+        self.assertIn("600", long_list["sample"]["total_verdict"])
+
+    def test_unicode_digit_item_cell_is_bad_input_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            items = pathlib.Path(tmp) / "items.txt"
+            items.write_text("A\nB\nC\nD\nE\nF\n")
+            result = self.check_text("set,item1,item2,item3\n1,1,\u00b2,3\n", items)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn(result.returncode, (1, 2))
+
+    def test_versions_rule_states_the_segmentation_trade_off(self):
+        _code, report = run_json("--items", 12)
+        self.assertNotIn("so use 1 when", report["versions_rule"])
+        self.assertIn("HB", report["versions_rule"])
+
+    def test_pairs_without_a_correlation_are_reported(self):
+        # A is in every set, so its correlations with the other items are undefined.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "design.csv"
+            path.write_text("set,item1,item2,item3\n1,A,B,C\n2,D,A,E\n3,B,D,A\n4,C,E,A\n")
+            text = run("--check", path).stdout
+        self.assertIn("4 pairs have no correlation", text)
+
+    def test_within_version_position_gap_is_reported(self):
+        # A is first in both sets of version 1, second in version 2 and third in version 3: balanced overall,
+        # but every respondent of version 1 sees A on top.
+        sets = {1: ["ABC", "ADE"], 2: ["BAC", "DAE"], 3: ["BCA", "DEA"]}
+        rows = [f"{v},{s},{p},{item}" for v, pair in sets.items() for s, row in enumerate(pair, 1)
+                for p, item in enumerate(row, 1)]
+        report = json.loads(self.check_text("version,set,position,item\n" + "\n".join(rows) + "\n").stdout)
+        self.assertEqual(report["diagnostics"]["position_frequency"]["overall"]["A"], [2, 2, 2])
+        self.assertEqual(report["diagnostics"]["position_frequency"]["worst_version_spread"], 2)
 
 if __name__ == "__main__":
     unittest.main()

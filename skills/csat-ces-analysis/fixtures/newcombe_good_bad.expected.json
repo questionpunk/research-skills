@@ -1,0 +1,5 @@
+{
+  "_source": "Newcombe (1998) Stat Med 17:873-890, method 10, as reproduced in the m-Py/propint test suite: 56/70 vs 48/80 -> 0.0524 to 0.3339; 9/10 vs 3/10 -> 0.1705 to 0.8090. Fisher p for 9/10 vs 3/10 by direct hypergeometric enumeration.",
+  "A_vs_B": {"difference_pct": 20.0, "difference_ci": [5.24, 33.39]},
+  "C_vs_D": {"difference_pct": 60.0, "difference_ci": [17.05, 80.90], "fisher_p": 0.0197666}
+}

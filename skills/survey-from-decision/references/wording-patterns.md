@@ -1,8 +1,9 @@
 # Wording patterns for common measures
 
 Start from these and replace the bracketed parts with the respondent's own words for the thing. Type names
-match [question-type-chooser.md](question-type-chooser.md). The label sets are common practice; sources are in
-[sources.md](sources.md).
+match [question-type-chooser.md](question-type-chooser.md). The label sets are common practice; the choice of
+5 points for unipolar and 7 for bipolar scales is this pack's default (also used by `survey-bias-check`),
+built on Krosnick and Presser but not stated by them. Sources are in [sources.md](sources.md).
 
 ## Label sets
 
@@ -25,7 +26,7 @@ difficult…") so the stem does not lean one way.
 | Screener by behaviour | "Which of these have you done in the last [30 days]? Select all that apply." (the qualifying behaviour hidden among three or four others, "None of these" last) | multiple select |
 | Filter before a block | "Have you [contacted support] in the last [3 months]?" Yes / No (a fact, so yes/no is acceptable) | single choice |
 | Behaviour frequency | "In the last [7 days], how many times did you [order from us]? Enter 0 if none." | open number |
-| Recency | "When did you last [do X]?" Today or yesterday / In the last 7 days / In the last 30 days / Longer ago / Never | single choice |
+| Recency | "When did you last [do X]?" Today or yesterday / 2 to 7 days ago / 8 to 30 days ago / More than 30 days ago / Never | single choice |
 | Current solution | "The last time you needed to [job], what did you use?" (complete list of alternatives, "Nothing, I did not do it") | single choice |
 | Overall satisfaction | "Overall, how satisfied or dissatisfied are you with [product]?" | rating, 7-point bipolar |
 | Attribute satisfaction | "How satisfied or dissatisfied are you with each of these?" rows: [delivery time], [price], … (after the overall item) | grid, 7-point bipolar |
@@ -42,12 +43,12 @@ difficult…") so the stem does not lean one way.
 | Recommendation (tracked) | "How likely are you to recommend [product] to a friend or colleague?" 0 = Not at all likely … 10 = Extremely likely. Keep verbatim; see `nps-analysis` | keep existing type |
 | Disappointment (product-market fit) | Use the `pmf-survey` wording unchanged | keep existing type |
 | Satisfaction with one interaction (CSAT, tracked) | "How satisfied or dissatisfied were you with [the support you received today]?" There is no single standard CSAT wording or scale: if the user already tracks one, keep theirs verbatim; if not, use this with the 7-point satisfaction labels and say which points count as "satisfied" | keep existing type, or rating, 7-point bipolar |
-| Customer effort, statement form (CES 2.0, tracked) | "[Company] made it easy for me to handle my issue." 1 = Strongly disagree … 7 = Strongly agree. Keep verbatim; see the note below | keep existing type |
-| Customer effort, original form (CES 1.0, tracked) | "How much effort did you personally have to put forth to handle your request?" 1 = Very low effort … 5 = Very high effort. Only for a user who already tracks this version | keep existing type |
+| Customer effort, statement form (CES 2.0, tracked) | "[Company] made it easy for me to handle my issue." Strongly disagree / Disagree / Somewhat disagree / Neither agree nor disagree / Somewhat agree / Agree / Strongly agree (1 to 7; higher is easier). Keep verbatim; see the note below | keep existing type |
+| Customer effort, original form (CES 1.0, tracked) | "How much effort did you personally have to put forth to handle your request?" 1 = Very low effort … 5 = Very high effort. Lower is better, the reverse of CES 2.0: never pool or compare the two. Only for a user who already tracks this version | keep existing type |
 | Customer effort, not tracked before | "How easy or difficult was it to [get your issue resolved] today?" with the 7-point ease labels. Not comparable with published CES figures; say so | rating, 7-point bipolar |
 | Device or context of use | "In the last [7 days], on which of these did you use [product]? Select all that apply." Phone / Tablet / Laptop or desktop / None of these | multiple select |
 | Share of use | "Of the last 10 times you used [product], how many were on a phone?" | open number |
-| Tenure segment | "How long have you been a [customer]?" Less than 1 month / 1 to 5 months / 6 to 11 months / 1 year or more | single choice |
+| Tenure segment | "How long have you been a [customer]?" Less than 1 month / 1 month to under 6 months / 6 months to under 1 year / 1 year or more (take it from records when answers are linked) | single choice |
 | Role or company segment | "Which of these best describes your [role]?" (the bands the business already uses, "Something else") | single choice |
 | Closing | "Is there anything else you want us to know about [topic]?" (counts towards the open-text limit; leave it out unless a shell uses it) | open text |
 
@@ -74,17 +75,21 @@ The same logic covers the 0–10 recommendation question and any in-house item w
 | "Do you agree that our support is helpful?" | Agree/disagree; leading | "The last time you contacted support, how satisfied or dissatisfied were you with the answer you got?" |
 | "How often do you use the reports? Often / Sometimes / Rarely / Never" | Vague quantifiers | "In the last 7 days, on how many days did you open a report? Enter 0 if none." |
 | "How satisfied are you with the speed and reliability of delivery?" | Two things | Two grid rows: "Delivery time", "Delivery arriving on the promised day" |
-| "How much would you pay for premium?" | Not answerable as asked | Leave out; `pricing-research-plan` |
+| "How much would you pay for premium?" | Not answerable as asked | Leave out, or use the four Van Westendorp questions from `van-westendorp-analysis` (a skill that may not be installed) |
 | "What features should we add?" | Respondent as designer | "What is the one thing you could not do with [product] the last time you tried?" |
 | "Don't you think the new design is better?" | Negation; leading | "Compared with the previous design, is the new design better or worse for [task]?" (7-point comparison) |
 
 ## Introduction
 
 Two or three sentences: the topic in the respondent's terms and the time from the length estimate; how the
-answers are used; whether answers are anonymous or linked to the account. Example: "We are deciding what to
-improve in [product] next and want to hear how you used it recently; it takes about [M] minutes. Your
-answers are combined with others and are not used to sell you anything. They are anonymous: we cannot see
-who gave which answer." When the link is personal, say the true thing instead: "Your answers are stored
-with your account so we do not have to ask what plan you are on; only the research team sees them." Never
-promise anonymity for a personal link. Do not describe the options being decided in a way that reveals a
-preferred answer.
+answers are used; what happens to identity. Example: "We are deciding what to improve in [product] next and
+want to hear how you used it recently; it takes about [M] minutes. Your answers are combined with others
+and are not used to sell you anything. [PRIVACY: …]"
+
+The privacy sentence states only what the owner has confirmed in the survey tool's settings. A generic link
+can still carry identity (a login, a captured email address, URL parameters, stored metadata), so a link
+being shared is not proof of anonymity. Until the owner confirms, leave the placeholder, for example
+`[PRIVACY: confirm whether answers are anonymous or stored with the account, and who can see them]`, and
+keep the checklist line. Once confirmed, say the true thing: "They are not linked to your name or account"
+or "They are stored with your account so we do not have to ask what plan you are on; [named team] can see
+them." Do not describe the options being decided in a way that reveals a preferred answer.

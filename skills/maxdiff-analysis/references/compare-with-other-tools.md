@@ -14,7 +14,8 @@ table to line them up before concluding that one of them is wrong. Sources are i
 
 What to expect when the model differs:
 
-- **Order of items:** the same on balanced data unless two items are close (see the adjacent-item lines).
+- **Order of items:** usually the same, but close items can swap between models even on balanced data
+  (see the adjacent-item lines and method.md, section 2).
 - **Utility scale:** differs. The pair model is on a different scale from the sequential one (exactly
   half, with two items per set); marginal and sequential are close but not equal. Never compare raw
   utilities across models.
@@ -23,4 +24,5 @@ What to expect when the model differs:
 - **Reference-coded versus zero-centred:** subtract the mean of the reference-coded utilities (including
   the 0 of the reference item) to get the zero-centred ones.
 - **Intervals:** Sawtooth's aggregate logit reports model standard errors that treat sets as independent
-  (the SE column here). The bootstrap intervals here resample respondents and are wider.
+  (the SE column here; withheld for `--model marginal`, whose composite likelihood would understate them
+  further). The bootstrap intervals here resample respondents and are wider.

@@ -1,0 +1,136 @@
+respondent_id,plan,satisfaction,features,weight
+1,Free,5 - Very satisfied,Reports,1.80
+2,Free,5,,1.20
+3,Free,5 - Very satisfied,Reports;Export;API,1.20
+4,Free,5,,1.80
+5,Free,5 - Very satisfied,Reports,1.20
+6,Free,4,Export,1.20
+7,Free,4 - Satisfied,Reports;API,1.80
+8,Free,4,,1.20
+9,Free,4 - Satisfied,Reports;Export,1.20
+10,Free,4,,1.80
+11,Free,4 - Satisfied,Reports;API,1.20
+12,Free,4,Export,1.20
+13,Free,4 - Satisfied,Reports,1.80
+14,Free,4,,1.20
+15,Free,4 - Satisfied,Reports;Export;API,1.20
+16,Free,3,,1.80
+17,Free,3 - Neutral,Reports,1.20
+18,Free,3,Export,1.20
+19,Free,3 - Neutral,Reports;API,1.80
+20,Free,3,,1.20
+21,Free,3 - Neutral,Reports;Export,1.20
+22,Free,3,,1.80
+23,Free,3 - Neutral,Reports;API,1.20
+24,Free,3,Export,1.20
+25,Free,3 - Neutral,Reports,1.80
+26,Free,3,,1.20
+27,Free,3 - Neutral,Reports;Export;API,1.20
+28,Free,3,,1.80
+29,Free,3 - Neutral,Reports,1.20
+30,Free,3,Export,1.20
+31,Free,2 - Dissatisfied,Reports;API,1.80
+32,Free,2,,1.20
+33,Free,2 - Dissatisfied,Reports;Export,1.20
+34,Free,2,,1.80
+35,Free,2 - Dissatisfied,Reports;API,1.20
+36,Free,2,Export,1.20
+37,Free,2 - Dissatisfied,Reports,1.80
+38,Free,2,,1.20
+39,Free,2 - Dissatisfied,Reports;Export;API,1.20
+40,Free,2,,1.80
+41,Free,1 - Very dissatisfied,Reports,1.20
+42,Free,1,Export,1.20
+43,Free,1 - Very dissatisfied,Reports;API,1.80
+44,Free,1,,1.20
+45,Free,1 - Very dissatisfied,Reports;Export,1.20
+46,Free,1,,1.80
+47,Free,1 - Very dissatisfied,Reports;API,1.20
+48,Free,1,Export,1.20
+49,Free,1 - Very dissatisfied,Reports,1.80
+50,Free,1,,1.20
+51,Free,,Reports,1.20
+52,Pro,5 - Very satisfied,Reports,1.20
+53,Pro,5,,0.80
+54,Pro,5 - Very satisfied,Reports;Export;API,0.80
+55,Pro,5,,1.20
+56,Pro,5 - Very satisfied,Reports,0.80
+57,Pro,5,Export,0.80
+58,Pro,5 - Very satisfied,Reports;API,1.20
+59,Pro,5,,0.80
+60,Pro,5 - Very satisfied,Reports;Export,0.80
+61,Pro,5,,1.20
+62,Pro,5 - Very satisfied,Reports;API,0.80
+63,Pro,5,Export,0.80
+64,Pro,5 - Very satisfied,Reports,1.20
+65,Pro,5,,0.80
+66,Pro,5 - Very satisfied,Reports;Export;API,0.80
+67,Pro,5,,1.20
+68,Pro,5 - Very satisfied,Reports,0.80
+69,Pro,5,Export,0.80
+70,Pro,5 - Very satisfied,Reports;API,1.20
+71,Pro,5,,0.80
+72,Pro,4 - Satisfied,Reports;Export,0.80
+73,Pro,4,,1.20
+74,Pro,4 - Satisfied,Reports;API,0.80
+75,Pro,4,Export,0.80
+76,Pro,4 - Satisfied,Reports,1.20
+77,Pro,4,,0.80
+78,Pro,4 - Satisfied,Reports;Export;API,0.80
+79,Pro,4,,1.20
+80,Pro,4 - Satisfied,Reports,0.80
+81,Pro,4,Export,0.80
+82,Pro,4 - Satisfied,Reports;API,1.20
+83,Pro,4,,0.80
+84,Pro,4 - Satisfied,Reports;Export,0.80
+85,Pro,4,,1.20
+86,Pro,4 - Satisfied,Reports;API,0.80
+87,Pro,4,Export,0.80
+88,Pro,4 - Satisfied,Reports,1.20
+89,Pro,4,,0.80
+90,Pro,4 - Satisfied,Reports;Export;API,0.80
+91,Pro,4,,1.20
+92,Pro,3 - Neutral,Reports,0.80
+93,Pro,3,Export,0.80
+94,Pro,3 - Neutral,Reports;API,1.20
+95,Pro,3,,0.80
+96,Pro,3 - Neutral,Reports;Export,0.80
+97,Pro,3,,1.20
+98,Pro,3 - Neutral,Reports;API,0.80
+99,Pro,3,Export,0.80
+100,Pro,3 - Neutral,Reports,1.20
+101,Pro,3,,0.80
+102,Pro,2 - Dissatisfied,Reports;Export;API,0.80
+103,Pro,2,,1.20
+104,Pro,2 - Dissatisfied,Reports,0.80
+105,Pro,2,Export,0.80
+106,Pro,2 - Dissatisfied,Reports;API,1.20
+107,Pro,1,,0.80
+108,Pro,1 - Very dissatisfied,Reports;Export,0.80
+109,Pro,1,,1.20
+110,Pro,1 - Very dissatisfied,Reports;API,0.80
+111,Pro,1,Export,0.80
+112,Pro,,Reports,0.80
+113,Team,5 - Very satisfied,Reports,1.50
+114,Team,5,,1.00
+115,Team,5 - Very satisfied,Reports;Export;API,1.00
+116,Team,5,,1.50
+117,Team,5 - Very satisfied,Reports,1.00
+118,Team,5,Export,1.00
+119,Team,5 - Very satisfied,Reports;API,1.50
+120,Team,5,,1.00
+121,Team,4 - Satisfied,Reports;Export,1.00
+122,Team,4,,1.50
+123,Team,4 - Satisfied,Reports;API,1.00
+124,Team,4,Export,1.00
+125,Team,4 - Satisfied,Reports,1.50
+126,Team,4,,1.00
+127,Team,3 - Neutral,Reports;Export;API,1.00
+128,Team,3,,1.50
+129,Team,3 - Neutral,Reports,1.00
+130,Team,2,Export,1.00
+131,Team,2 - Dissatisfied,Reports;API,1.50
+132,Team,1,,1.00
+133,Team,,Reports,1.00
+134,,4,Export,1.00
+135,,5 - Very satisfied,,1.00

@@ -175,7 +175,9 @@ not opened. `test_newcombe_matches_hand_worked_example` asserts it.
 
 `waves.input.csv`: 111 rows. Wave `2026-Q1`: 12 very, 22 somewhat, 18 not, 2 N/A (base 52). Wave `2026-Q2`:
 18 very, 20 somewhat, 15 not, 1 N/A (base 53). Two rows (1 very, 1 somewhat) have no wave. This is the
-"23% to 34% on about 52 answers each" case.
+"23% to 34% on about 52 answers each" case. With `--compare 2026-Q1,2026-Q2` the headline score, segments
+and benefits are for the later wave only (18 very, 20 somewhat, 15 not, 1 N/A); all 107 current-user
+answers pooled (31 of 107) are shown only as a labelled reference.
 
 - Q1: 12/52 = 23.08% → **23.1%**. z²/n = 0.073877; centre = (0.230769 + 0.036938)/1.073877 = 0.249291;
   radicand = 0.230769·0.769231/52 + 3.8416/10816 = 0.00341375 + 0.00035518 = 0.00376892; sqrt = 0.061392;
@@ -234,12 +236,15 @@ sqrt = 0.060276; ×1.96 = 0.118141 → 0.368141. **+12.1 to +36.8 points**, all 
 | D | somewhat, not | 2 | 0 | not very |
 | E | N/A, N/A | 0 | 0 | outside the base |
 | F | very, N/A | 1 | 1 | very |
-| (no id) | somewhat | 1 | 0 | not very, its own account |
+| (no id) | somewhat | 1 | 0 | left out of the account score, counted |
 
 - Respondents: very 5, somewhat 4, not 1, N/A 3 → 5/10 = **50.0%**, interval 23.7% to 76.3% (as in `coded`).
-- Accounts: 7, of which 1 outside the base → base 6, very 3 → **50.0%**. centre = 0.5; radicand = 0.25/6 +
-  3.8416/144 = 0.04166667 + 0.02667778 = 0.06834444; sqrt = 0.261428; half = 1.96·0.261428/1.640267 =
-  0.312387 → **18.8% to 81.2%**.
+- Accounts: 6 (A–F), of which 1 (E) outside the base → base 5, very 3 (A, C, F) → **60.0%**. The respondent
+  with no account id is not treated as a company of its own; it is counted as "respondents without
+  account" (1). n = 5, p = 0.6: z²/n = 0.76832; denominator 1.76832; centre = (0.6 + 0.38416)/1.76832 =
+  0.556552; radicand = 0.24/5 + 3.8416/100 = 0.048 + 0.038416 = 0.086416; sqrt = 0.293966;
+  half = 1.96·0.293966/1.76832 = 0.325827 → **23.1% to 88.2%**. No verdict: the 40% benchmark is for users,
+  so the account share is descriptive unless `--account-benchmark` gives a target.
 
 ## nonstandard
 

@@ -40,9 +40,15 @@ SPARSE_MIN_EXPOSURES = 500  # Sawtooth: each item seen at least 500 times by the
 SPARSE_GOOD_EXPOSURES = 1000  # and preferably 1000 times (sparse designs, pooled analysis).
 SMALL_SAMPLE = 400  # Discover: samples of 50 to 400 need 3 or more exposures per respondent.
 LARGE_SAMPLE = 600  # Discover: at 600 or more, 1 to 2 exposures per respondent are typically enough.
+DISCOVER_MIN_SAMPLE = 50  # Discover's guidance starts at samples of 50.
+TOTAL_SAMPLE = 300  # Sawtooth sample-size post: at least 300 respondents in total,
+SUBGROUP_SAMPLE = 200  # and at least 200 in each subgroup reported separately,
+SAMPLE_ITEMS_BASE = 30  # raised in proportion above about 30 items (doubled at 60).
 DEFAULT_SECONDS_PER_SET = 20  # Assumption for the length estimate, not a sourced figure.
 AFFINE_MAX_ORDER = 7  # Script choice: largest affine plane built (49 items, 56 sets of 7).
 SET_ALIASES = ("set", "task", "question")
+# A per-respondent export names the version column after the respondent; each respondent is one version.
+VERSION_ALIASES = ("version", "respondent", "respondent_id", "respondentid", "resp_id")
 WIDE_PREFIXES = ("item", "alt", "alternative", "option")
 DEFAULT_RESTARTS = 10  # Script choice (Sawtooth's designer repeats 1000 times).
 DIFFERENCE_SET_NODE_LIMIT = 200000  # Script choice: bound on the cyclic BIBD search.
@@ -95,66 +101,106 @@ def read_items(path):
     return items
 
 
-def read_design(path):
+def _sniff_delimiter(first_line):
+    """The delimiter among comma, semicolon and tab that splits the header into the most fields."""
+    counts = {d: len(next(csv.reader([first_line], delimiter=d))) for d in (",", ";", "\t")}
+    best = max(counts.values())
+    return "," if counts[","] == best else max(counts, key=counts.get)
+
+
+def read_design(path, delimiter=None):
     """Read a design CSV. Returns (rows, layout); rows are (version, set, position, item).
 
     Long layout: version,set,position,item. Wide layout: version,set,item1..itemk (as Sawtooth and
     Displayr export it; the set column may be called task or question, the item columns alt1.., option1..).
-    Without a version column every row belongs to version 1.
+    In the wide layout the number in the column name is the position; empty trailing columns pad a short set.
+    Without a version column every row belongs to version 1; a respondent column (respondent, respondent_id,
+    resp_id) is read as the version, one per respondent. The delimiter (comma, semicolon or tab) is read from
+    the header unless given; an Excel "sep=;" first line sets it and is skipped.
     """
     try:
         with open(path, encoding="utf-8-sig", newline="") as fh:
-            reader = csv.DictReader(fh)
-            if reader.fieldnames is None:
-                raise InputError(f"design file {path} is empty")
-            header = [(name or "").strip().lower() for name in reader.fieldnames]
-            names = dict(zip(header, reader.fieldnames))
-            set_column = next((alias for alias in SET_ALIASES if alias in header), None)
-            wide = []
-            for name in header:
-                match = re.fullmatch(r"(%s)[ _]?(\d+)" % "|".join(WIDE_PREFIXES), name)
-                if match:
-                    wide.append((int(match.group(2)), name))
-            wide.sort()
-            long_layout = "position" in header and "item" in header
-            if set_column is None or not (long_layout or wide):
-                raise InputError(
-                    f"design file {path} is not a design: expected the header {','.join(CSV_COLUMNS)} "
-                    "or the wide form version,set,item1,item2,..."
-                )
-            layout = "long" if long_layout else "wide"
-
-            def whole(text, column, line):
-                try:
-                    number = int(text)
-                except ValueError:
-                    raise InputError(f"design file {path} line {line}: {column} {text!r} is not a whole number")
-                if number < 1:
-                    raise InputError(f"design file {path} line {line}: {column} must be 1 or more")
-                return number
-
-            rows = []
-            for line, raw in enumerate(reader, 2):
-                cell = lambda column: (raw.get(names[column]) or "").strip()
-                if not any((value or "").strip() for value in raw.values() if isinstance(value, str)):
-                    continue
-                version = whole(cell("version"), "version", line) if "version" in header else 1
-                set_number = whole(cell(set_column), set_column, line)
-                if long_layout:
-                    position = whole(cell("position"), "position", line)
-                    if not cell("item"):
-                        raise InputError(f"design file {path} line {line}: item is empty")
-                    rows.append((version, set_number, position, cell("item")))
-                else:
-                    shown = [cell(name) for _n, name in wide if cell(name)]
-                    if not shown:
-                        raise InputError(f"design file {path} line {line}: the set has no items")
-                    for position, item in enumerate(shown, 1):
-                        rows.append((version, set_number, position, item))
+            text = fh.read()
     except OSError as exc:
         raise InputError(f"cannot read design file {path}: {exc.strerror}")
     except UnicodeDecodeError:
         raise InputError(f"design file {path} is not UTF-8 text")
+    if not text.strip():
+        raise InputError(f"design file {path} is empty")
+    first, _newline, rest = text.partition("\n")
+    sep = re.fullmatch(r"\s*sep=(.)\s*", first)
+    if sep:
+        text = rest
+        delimiter = delimiter or sep.group(1)
+    if delimiter is None:
+        delimiter = _sniff_delimiter(text.splitlines()[0])
+    try:
+        reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
+        raw_header = next(reader)
+        header = [(name or "").strip().lower() for name in raw_header]
+        duplicates = sorted({name for name in header if name and header.count(name) > 1})
+        if duplicates:
+            raise InputError(f"design file {path}: duplicate column name(s) {', '.join(duplicates)} "
+                             "(names are compared ignoring case and spaces)")
+        column = {name: i for i, name in enumerate(header) if name}
+        set_column = next((alias for alias in SET_ALIASES if alias in column), None)
+        version_column = next((alias for alias in VERSION_ALIASES if alias in column), None)
+        wide = []
+        for name in header:
+            match = re.fullmatch(r"(%s)[ _]?(\d+)" % "|".join(WIDE_PREFIXES), name)
+            if match:
+                wide.append((int(match.group(2)), name))
+        wide.sort()
+        slots = [number for number, _name in wide]
+        if len(set(slots)) != len(slots):
+            repeated = sorted({n for n in slots if slots.count(n) > 1})
+            raise InputError(f"design file {path}: more than one item column for position(s) "
+                             + ", ".join(str(n) for n in repeated))
+        long_layout = "position" in column and "item" in column
+        if set_column is None or not (long_layout or wide):
+            raise InputError(
+                f"design file {path} is not a design: expected the header {','.join(CSV_COLUMNS)} "
+                "or the wide form version,set,item1,item2,... (comma, semicolon or tab separated; "
+                "pass --delimiter if it is another character)"
+            )
+        layout = "long" if long_layout else "wide"
+
+        def whole(text, name, line):
+            try:
+                number = int(text)
+            except ValueError:
+                raise InputError(f"design file {path} line {line}: {name} {text!r} is not a whole number")
+            if number < 1:
+                raise InputError(f"design file {path} line {line}: {name} must be 1 or more")
+            return number
+
+        rows = []
+        wide_seen = {}
+        for line, raw in enumerate(reader, 2):
+            cell = lambda name: (raw[column[name]] if column[name] < len(raw) else "").strip()
+            if not any(value.strip() for value in raw):
+                continue
+            version = whole(cell(version_column), version_column, line) if version_column else 1
+            set_number = whole(cell(set_column), set_column, line)
+            if long_layout:
+                position = whole(cell("position"), "position", line)
+                if not cell("item"):
+                    raise InputError(f"design file {path} line {line}: item is empty")
+                rows.append((version, set_number, position, cell("item")))
+            else:
+                # The column number is the position: an empty column before a filled one leaves a gap,
+                # which the shape criterion reports, instead of moving later items forward.
+                if (version, set_number) in wide_seen:
+                    raise InputError(
+                        f"design file {path} line {line}: set {set_number} appears more than once in version {version} "
+                        f"(first on line {wide_seen[(version, set_number)]}); if each row is one respondent's set, "
+                        "name the respondent column version or respondent")
+                wide_seen[(version, set_number)] = line
+                shown = [(number, cell(name)) for number, name in wide if cell(name)]
+                if not shown:
+                    raise InputError(f"design file {path} line {line}: the set has no items")
+                for position, item in shown:
+                    rows.append((version, set_number, position, item))
     except csv.Error as exc:
         raise InputError(f"design file {path} is not valid CSV: {exc}")
     if not rows:
@@ -164,7 +210,7 @@ def read_design(path):
 
 def ids_to_labels(rows, items, path):
     """When every item cell is a number and an items file is given, read the numbers as 1-based item ids."""
-    if items is None or not all(row[3].isdigit() for row in rows):
+    if items is None or not all(row[3].isascii() and row[3].isdigit() for row in rows):
         return rows, False
     if all(row[3] in set(items) for row in rows):
         return rows, False
@@ -372,6 +418,60 @@ def _improve_sets(sets, pair, cum_pair, rng, max_passes=12):
             break
 
 
+def _repeated_sets(sets):
+    return len(sets) - len({frozenset(members) for members in sets})
+
+
+def _remove_repeated_sets(sets, pair, cum_pair):
+    """Trade one item between a repeated set and another set until no set of the version repeats.
+
+    Each step takes the trade that leaves every set distinct at the smallest cost in pair imbalance; item
+    frequencies do not change. Stops when no trade can remove a repeat.
+    """
+    for _ in range(len(sets) * len(sets)):
+        seen, repeat = set(), None
+        for index, members in enumerate(sets):
+            key = frozenset(members)
+            if key in seen:
+                repeat = index
+                break
+            seen.add(key)
+        if repeat is None:
+            return
+        set_a = sets[repeat]
+        others = {}
+        for index, members in enumerate(sets):
+            if index != repeat:
+                key = frozenset(members)
+                others[key] = others.get(key, 0) + 1
+        best = None
+        for ib, set_b in enumerate(sets):
+            if ib == repeat:
+                continue
+            for a in sorted(set_a - set_b):
+                for b in sorted(set_b - set_a):
+                    new_a = frozenset(set_a - {a} | {b})
+                    new_b = frozenset(set_b - {b} | {a})
+                    remaining = dict(others)
+                    remaining[frozenset(set_b)] -= 1
+                    if remaining.get(new_a) or remaining.get(new_b) or new_a == new_b:
+                        continue
+                    within, overall, change = _swap_delta(pair, cum_pair, set_a, set_b, a, b)
+                    key = (within, overall, ib, a, b)
+                    if best is None or key < best[0]:
+                        best = (key, set_b, a, b, change)
+        if best is None:
+            return
+        _key, set_b, a, b, change = best
+        for (p, q), c in change.items():
+            pair[p][q] += c
+            pair[q][p] += c
+        set_a.remove(a)
+        set_a.add(b)
+        set_b.remove(b)
+        set_b.add(a)
+
+
 def _search_version(n_items, per_set, n_sets, cum_item, cum_pair, rng, restarts):
     slots = n_sets * per_set
     base, extra = divmod(slots, n_items)
@@ -384,9 +484,11 @@ def _search_version(n_items, per_set, n_sets, cum_item, cum_pair, rng, restarts)
     for _ in range(restarts):
         sets, pair = _greedy_sets(n_items, per_set, n_sets, quota, cum_pair, rng)
         _improve_sets(sets, pair, cum_pair, rng)
+        _remove_repeated_sets(sets, pair, cum_pair)
         within = sum(pair[a][b] ** 2 for a in range(n_items) for b in range(a + 1, n_items))
         overall = sum((pair[a][b] + cum_pair[a][b]) ** 2 for a in range(n_items) for b in range(a + 1, n_items))
-        key = (_components(n_items, sets), within, overall)
+        # A version that shows the same set twice ranks below any version without repeats.
+        key = (_components(n_items, sets), _repeated_sets(sets), within, overall)
         if best_key is None or key < best_key:
             best, best_key = sets, key
     return best
@@ -543,8 +645,33 @@ def generate(items, per_set, n_sets, versions, seed, restarts=DEFAULT_RESTARTS):
         return rows, "complete-bibd", f"exact BIBD: all {n_sets} subsets of {per_set} items from {n_items}"
     return rows, "randomized-search", (
         f"seeded randomized search ({restarts} restarts per version): item frequencies fixed within 1, "
-        "then swaps that lower pair imbalance; no simple exact BIBD has these parameters"
+        "then swaps that lower pair imbalance"
     )
+
+
+def bibd_conditions(n_items, per_set, n_sets):
+    """(r, lambda) when the counting conditions for a BIBD hold (bk = vr, lambda(v-1) = r(k-1), b >= v), else None.
+
+    The conditions are necessary, not sufficient: when they hold a BIBD may or may not exist.
+    """
+    if not 2 <= per_set < n_items or (n_sets * per_set) % n_items:
+        return None
+    r = n_sets * per_set // n_items
+    if (r * (per_set - 1)) % (n_items - 1) or n_sets < n_items:
+        return None
+    return r, r * (per_set - 1) // (n_items - 1)
+
+
+def search_outcome(n_items, per_set, n_sets, found_exact):
+    """What the randomized search result says about exact designs, from its own diagnostics."""
+    if found_exact:
+        return "; every version came out as an exact BIBD (pair counts all equal)"
+    conditions = bibd_conditions(n_items, per_set, n_sets)
+    if conditions is None:
+        return "; no BIBD has these parameters (the counting conditions bk = vr and lambda(v-1) = r(k-1) fail)"
+    return (f"; the counting conditions for a BIBD hold (r = {conditions[0]}, lambda = {conditions[1]}) but the "
+            "search did not find one: that is not proof none exists (a published construction, such as a Steiner "
+            "triple system for k = 3, may give one)")
 
 
 # ---------------------------------------------------------------- diagnostics
@@ -591,8 +718,12 @@ def diagnose(rows, items=None, respondents=None):
     all_sets = []
     every_version_bibd = True
     adjacent_repeats = adjacent_gaps = 0
+    missing_by_version = {}
+    repeated_sets = 0
+    worst_version_spread = 0
     for version in sorted(by_version):
         item_v = [0] * n_items
+        pos_v = [[0] * per_set for _ in range(n_items)]
         version_sets = []
         previous = None
         for set_number in sorted(by_version[version]):
@@ -603,10 +734,16 @@ def diagnose(rows, items=None, respondents=None):
                 item_v[index[item]] += 1
                 if slot < per_set:
                     pos_total[index[item]][slot] += 1
+                    pos_v[index[item]][slot] += 1
             if previous is not None:
                 adjacent_repeats += len(previous & members)
                 adjacent_gaps += 1
             previous = members
+        repeated_sets += len(version_sets) - len({frozenset(members) for members in version_sets})
+        worst_version_spread = max(worst_version_spread, max(max(row) - min(row) for row in pos_v if any(row)))
+        missing = sum(1 for count in item_v if count == 0)
+        if missing:
+            missing_by_version[version] = missing
         pair_v = _pair_matrix(n_items, version_sets)
         pair_values = [pair_v[a][b] for a in range(n_items) for b in range(a + 1, n_items)]
         item_range = max(item_v) - min(item_v)
@@ -642,15 +779,29 @@ def diagnose(rows, items=None, respondents=None):
             if spread == 0:
                 undefined += 1
                 continue
-            together = sum(1 for members in all_sets if a in members and b in members)
+            together = pair_total[a][b]
             correlations.append((n_all * together - shown_in[a] * shown_in[b]) / math.sqrt(spread))
     corr_min = round(min(correlations), 4) if correlations else None
     corr_max = round(max(correlations), 4) if correlations else None
     structure_ok = len(set_sizes) == 1 and len(sets_per_version) == 1 and bad_positions == 0 and repeats == 0
     exposures = sum(item_total) / n_items / n_versions
-    is_bibd = structure_ok and every_version_bibd and not unknown
+    smallest_set = min(len({item for _p, item in cells}) for sets in by_version.values() for cells in sets.values())
+    largest_set = max(len({item for _p, item in cells}) for sets in by_version.values() for cells in sets.values())
+    # A balanced incomplete block design needs 2 <= k < v: a set of one item has no choice, and a set holding
+    # every item is a complete block (it identifies only the overall best and worst).
+    is_bibd = structure_ok and every_version_bibd and not unknown and 2 <= per_set < n_items
 
     criteria = []
+    choice_problems = []
+    if smallest_set < 2:
+        choice_problems.append("a set shows fewer than 2 different items, so there is nothing to choose between")
+    elif largest_set >= n_items:
+        choice_problems.append(f"a set shows all {n_items} items, so it identifies only the overall best and worst "
+                               "and the design is not an incomplete (MaxDiff) design")
+    criteria.append(_criterion(
+        "each set offers a choice", "fail" if choice_problems else "pass",
+        "; ".join(choice_problems) if choice_problems
+        else f"every set shows {smallest_set} to {largest_set} different items, fewer than the {n_items} in the list"))
     criteria.append(_criterion(
         "no item repeated within a set", "fail" if repeats else "pass",
         f"{repeats} repeated item(s) inside sets" if repeats else "no set shows an item twice"))
@@ -672,7 +823,9 @@ def diagnose(rows, items=None, respondents=None):
     criteria.append(_criterion(
         "one-way balance overall", "pass" if item_range <= 1 else ("fail" if n_versions == 1 else "warn"),
         f"item frequencies run from {min(item_total)} to {max(item_total)} over all versions (criterion: within 1)"))
-    if is_bibd and pair_range == 0:
+    if not pair_values:
+        pair_detail = "not defined: the design has fewer than 2 items"
+    elif is_bibd and pair_range == 0:
         pair_detail = f"exact: every pair appears together {pair_values[0] // n_versions if pair_values else 0} time(s) in each version"
     else:
         pair_detail = (f"pair counts differ by at most {worst_pair_range} inside a version (criterion: 1 or less); "
@@ -686,7 +839,8 @@ def diagnose(rows, items=None, respondents=None):
         else f"{never} of {len(pair_values)} pairs never share a set; they are compared only through other items"))
     criteria.append(_criterion(
         "positional balance", "pass" if max(spreads) <= 1 else "warn",
-        f"largest gap between an item's most and least used position: {max(spreads)} (criterion: 1 or less)"))
+        f"largest gap between an item's most and least used position: {max(spreads)} (criterion: 1 or less); "
+        f"largest gap inside one version: {worst_version_spread}"))
     if components > 1:
         connectivity = _criterion("connectivity", "fail",
                                   f"the items split into {components} groups that are never compared; scores cannot share one scale")
@@ -722,14 +876,38 @@ def diagnose(rows, items=None, respondents=None):
             f"more than {MAX_PER_SET} per set adds fatigue for little precision (Lighthouse advises 4 or 5, Discover 3 to 5"
             + (f"; Discover warns above {DISCOVER_WARN_PER_SET})" if per_set > DISCOVER_WARN_PER_SET else ")"))
     if per_set < MIN_PER_SET:
-        size_notes.append("two per set is a paired comparison, with no separate worst choice")
-    criteria.append(_criterion("items per set", "warn" if size_notes else "pass",
+        size_notes.insert(0, f"{per_set} per set is under the minimum of {MIN_PER_SET}: with two items the best and "
+                             "worst choice are the same choice (a paired comparison, not MaxDiff)")
+    criteria.append(_criterion("items per set",
+                               "fail" if per_set < MIN_PER_SET else ("warn" if size_notes else "pass"),
                                "; ".join(size_notes) if size_notes else f"{per_set} per set, at most half of {n_items} items"))
+    possible_sets = math.comb(n_items, per_set) if per_set <= n_items else 0
+    if repeated_sets and n_sets <= possible_sets:
+        criteria.append(_criterion(
+            "no set repeated within a version", "warn",
+            f"{repeated_sets} set(s) repeat an earlier set of the same version: the respondent sees the same items "
+            "together twice; regenerate with another seed or fewer sets"))
+    else:
+        criteria.append(_criterion(
+            "no set repeated within a version", "pass",
+            "every set of a version is different" if not repeated_sets
+            else f"{repeated_sets} repeated set(s), unavoidable: only {possible_sets} different sets of {per_set} exist"))
 
+    if missing_by_version:
+        worst = max(missing_by_version.values())
+        criteria.append(_criterion(
+            "every item in every version", "warn",
+            f"{len(missing_by_version)} of {n_versions} version(s) leave out up to {worst} item(s); a respondent "
+            "gives no information on items they never see, so only pooled (aggregate or latent class) scores "
+            "cover every item"))
+    else:
+        criteria.append(_criterion("every item in every version", "pass", "each version shows every item"))
     if correlations and (corr_min < -CORRELATION_LIMIT or corr_max > CORRELATION_LIMIT):
         detail = f"item correlations run from {corr_min:.2f} to {corr_max:.2f}; outside -0.5..0.5 two items are confounded"
         if corr_min <= -1 + 1e-9:
             detail += "; -1.00 means two items split the sets between them and never meet"
+        if corr_max >= 1 - 1e-9:
+            detail += "; 1.00 means two items are always shown together and never apart"
         criteria.append(_criterion("item correlations", "warn", detail))
     else:
         criteria.append(_criterion(
@@ -740,16 +918,29 @@ def diagnose(rows, items=None, respondents=None):
     sample = None
     if respondents is not None:
         per_item = respondents * min(item_total) / n_versions
-        if per_item >= SPARSE_GOOD_EXPOSURES:
-            verdict = "at or above the preferred 1000"
+        needed = TOTAL_SAMPLE * max(1.0, n_items / SAMPLE_ITEMS_BASE)
+        subgroup = SUBGROUP_SAMPLE * max(1.0, n_items / SAMPLE_ITEMS_BASE)
+        scaled = f" ({n_items} items: raised in proportion above {SAMPLE_ITEMS_BASE})" if n_items > SAMPLE_ITEMS_BASE else ""
+        total_verdict = (f"{'at or above' if respondents >= needed else 'under'} the {needed:.0f} in total "
+                         f"and {subgroup:.0f} per reported subgroup that Sawtooth asks for{scaled}")
+        if exposures >= WARN_EXPOSURES:
+            verdict = ("not a sparse design (2 or more exposures per respondent), so the 500 to 1000 exposures rule "
+                       "for pooled analysis does not apply")
+        elif per_item >= SPARSE_GOOD_EXPOSURES:
+            verdict = "at or above the preferred 1000 for a sparse design"
         elif per_item >= SPARSE_MIN_EXPOSURES:
-            verdict = "above the minimum of 500, under the preferred 1000"
+            verdict = "above the minimum of 500, under the preferred 1000 for a sparse design"
         else:
             verdict = "under the minimum of 500 for pooled analysis of a sparse design"
-        if exposures >= DEFAULT_EXPOSURES:
-            rule = "3 or more exposures per respondent: fits any sample size in Discover's guidance"
+        if respondents < DISCOVER_MIN_SAMPLE:
+            rule = f"fewer than {DISCOVER_MIN_SAMPLE} respondents is below every sample Discover's guidance covers"
+        elif exposures >= DEFAULT_EXPOSURES:
+            rule = "3 or more exposures per respondent: meets Discover's guidance at this sample size"
+        elif exposures < 1:
+            rule = ("under 1 exposure per respondent: below Discover's 1 to 2 even at 600 or more respondents; "
+                    "only pooled (aggregate or latent class) scores are possible")
         elif respondents >= LARGE_SAMPLE:
-            rule = "under 3 exposures per respondent, acceptable at 600 or more respondents (Discover)"
+            rule = "1 to 3 exposures per respondent, acceptable at 600 or more respondents (Discover)"
         elif respondents <= SMALL_SAMPLE:
             rule = "under 3 exposures per respondent with 400 or fewer respondents: Discover asks for 3 or more"
         else:
@@ -757,6 +948,7 @@ def diagnose(rows, items=None, respondents=None):
         sample = {
             "respondents": respondents,
             "exposures_per_item": round(per_item, 1),
+            "total_verdict": total_verdict,
             "exposures_verdict": verdict,
             "per_respondent_rule": rule,
         }
@@ -777,10 +969,13 @@ def diagnose(rows, items=None, respondents=None):
         "position_frequency": {
             "overall": {items[i]: pos_total[i] for i in range(n_items)},
             "max_spread": max(spreads),
+            "worst_version_spread": worst_version_spread,
         },
         "connectivity": {"overall_components": components, "versions_connected": connected_versions, "versions": n_versions},
+        "versions_missing_items": len(missing_by_version),
         "item_correlation": {"min": corr_min, "max": corr_max, "undefined_pairs": undefined},
         "repeats_within_set": repeats,
+        "repeated_sets_within_versions": repeated_sets,
         "adjacent_set_repeats_mean": round(adjacent_repeats / adjacent_gaps, 4) if adjacent_gaps else 0.0,
     }
     return {
@@ -790,6 +985,7 @@ def diagnose(rows, items=None, respondents=None):
         "diagnostics": diagnostics,
         "criteria": criteria,
         "meets_criteria": all(c["status"] != "fail" for c in criteria),
+        "warnings": sum(1 for c in criteria if c["status"] == "warn"),
     }
 
 
@@ -833,8 +1029,9 @@ def render(report, rows, items):
                  f"{length['basis']})")
     if report.get("sample"):
         sample = report["sample"]
-        lines.append(f"Sample: {sample['respondents']} respondents show each item about {sample['exposures_per_item']:.0f} times "
-                     f"in total, {sample['exposures_verdict']}; {sample['per_respondent_rule']}")
+        lines.append(f"Sample: {sample['respondents']} respondents, {sample['total_verdict']}; each item shown about "
+                     f"{sample['exposures_per_item']:.0f} times in total, {sample['exposures_verdict']}; "
+                     f"{sample['per_respondent_rule']}")
     if report.get("method"):
         lines.append(f"Method: {report['method_detail']}")
     lines.append(f"Exact BIBD in every version: {'yes' if report['is_bibd'] else 'no'}")
@@ -851,15 +1048,24 @@ def render(report, rows, items):
     lines.append(f"Connectivity: {c['versions_connected']} of {c['versions']} versions connected; "
                  f"{'connected' if c['overall_components'] == 1 else str(c['overall_components']) + ' separate groups'} overall")
     corr = d["item_correlation"]
+    undefined = (f"; {corr['undefined_pairs']} pairs have no correlation (an item is in every set or in none)"
+                 if corr["undefined_pairs"] else "")
     if corr["min"] is not None:
-        lines.append(f"Item correlation (0/1 item-in-set indicators): min {corr['min']:.2f}, max {corr['max']:.2f}")
+        lines.append(f"Item correlation (0/1 item-in-set indicators): min {corr['min']:.2f}, max {corr['max']:.2f}{undefined}")
+    elif undefined:
+        lines.append("Item correlation:" + undefined[1:])
     lines.append(f"Adjacent sets: {d['adjacent_set_repeats_mean']:.2f} items repeated from the previous set on average")
     lines.append("")
     lines.append("Criteria")
     for crit in report["criteria"]:
         lines.append(f"  {crit['status'].upper():4}  {crit['name']}: {crit['detail']}")
-    lines.append("Result: " + ("meets the balance criteria" if report["meets_criteria"]
-                               else "DOES NOT meet the balance criteria (see FAIL lines)"))
+    if not report["meets_criteria"]:
+        result = "DOES NOT meet the balance criteria (see FAIL lines)"
+    elif report["warnings"]:
+        result = f"meets the balance criteria, with {report['warnings']} WARN line(s) to fix or accept with a reason"
+    else:
+        result = "meets the balance criteria"
+    lines.append("Result: " + result)
     lines.append("")
     width = max(len("item"), max(len(item) for item in items))
     k = p["items_per_set"]
@@ -905,6 +1111,8 @@ def build_parser():
                         help=f"search restarts per version (default {DEFAULT_RESTARTS})")
     parser.add_argument("--check", metavar="DESIGN_CSV",
                         help="validate an existing design CSV (long, or wide version,set,item1..itemk) instead of generating")
+    parser.add_argument("--delimiter", metavar="CHAR",
+                        help="field separator of the --check file (default: comma, semicolon or tab, read from the header)")
     parser.add_argument("--out", metavar="FILE", help="write the design CSV to FILE")
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="print the report and the design as JSON")
@@ -922,10 +1130,10 @@ def run(args):
         if args.items is not None or args.per_set is not None or args.sets is not None:
             raise InputError("--check reads the design from the CSV; do not combine it with --items, --per-set or --sets")
         items = read_items(args.items_file) if args.items_file else None
-        rows, layout = read_design(args.check)
+        rows, layout = read_design(args.check, args.delimiter)
         rows, mapped = ids_to_labels(rows, items, args.check)
         if layout == "wide":
-            notes.append("wide layout read: positions taken from the item columns, left to right")
+            notes.append("wide layout read: positions taken from the numbers in the item column names")
         if mapped:
             notes.append("item cells are numbers: read as 1-based ids into the items file")
         report = diagnose(rows, items, args.respondents)
@@ -951,8 +1159,9 @@ def run(args):
             notes.append(f"--per-set not given: using {per_set}")
         else:
             per_set = args.per_set
-        if per_set < 2:
-            raise InputError("--per-set must be at least 2")
+        if per_set < MIN_PER_SET:
+            raise InputError(f"--per-set must be at least {MIN_PER_SET}: with 2 the best and worst choice are one "
+                             "choice (a paired comparison)")
         if per_set >= n_items:
             raise InputError(f"--per-set ({per_set}) must be smaller than the number of items ({n_items}); "
                              "a set with every item only identifies the best and the worst")
@@ -971,6 +1180,8 @@ def run(args):
         report = diagnose(rows, items, args.respondents)
         report["mode"] = "generate"
         report["parameters"]["seed"] = args.seed
+        if method == "randomized-search":
+            detail += search_outcome(n_items, per_set, n_sets, report["is_bibd"])
         report["method"], report["method_detail"] = method, detail
         if args.sets is None and method == "randomized-search" and per_set <= MAX_PER_SET:
             if find_difference_set(n_items, per_set):
@@ -994,7 +1205,9 @@ def run(args):
     report["versions_rule"] = (
         f"{p['versions']} in this design. Default {DEFAULT_VERSIONS}: enough to average out order and context effects "
         f"(Displayr); Sawtooth generates {SAWTOOTH_DEFAULT_VERSIONS} by default and asks for at least {PAPER_MIN_VERSIONS} "
-        "on paper. Versions add differences between respondents, so use 1 when the aim is to compare or segment individuals")
+        "on paper. When respondents will be segmented or compared, choose: Displayr prefers 1 version (versions add "
+        "differences that are not preference), Sawtooth fields many and scores individuals with HB; 1 version leaves "
+        "order and context effects and some pairs never shown together")
     seconds = args.seconds_per_set or DEFAULT_SECONDS_PER_SET
     report["length_estimate"] = {
         "seconds_per_set": seconds,
@@ -1012,7 +1225,7 @@ def run(args):
     if args.json:
         ordered = {key: report[key] for key in ("mode", "parameters", "recommendation", "versions_rule", "length_estimate",
                                                 "sample", "method", "is_bibd", "notes", "diagnostics", "criteria",
-                                                "meets_criteria")}
+                                                "meets_criteria", "warnings")}
         if report.get("method_detail"):
             ordered["method_detail"] = report["method_detail"]
         if args.check:

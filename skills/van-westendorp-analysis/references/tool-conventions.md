@@ -33,5 +33,8 @@ step), R's `intersection_method = "median"`, survey-design weighting details bey
 any tool's plotting.
 
 How each R rule was established: validity, the curve boundary, the pinned ends, the default arguments and
-the older crossing routine were read in the CRAN source of versions 1.3.3 and 1.3.0. No R session was run.
+the older crossing routine were read in the CRAN source of versions 1.3.3 and 1.3.0. No R session was run
+for the price points, so `--compat r` is not yet pinned to price points printed by an R release; its
+Newton-Miller-Smith trial values did match three R 1.3.3 runs to within 1e-15 (an external review). With
+`--compat r` the `--at` shares use the same pinned-end curves as the grid.
 The hand-worked example under these rules is in `fixtures/README.md`, section 7.

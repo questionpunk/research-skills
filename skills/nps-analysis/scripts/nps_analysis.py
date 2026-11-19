@@ -6,7 +6,7 @@ Standard library only, Python 3.9+. No network. Formulas and thresholds: referen
 
 Usage:
   python3 scripts/nps_analysis.py responses.csv
-  python3 scripts/nps_analysis.py --counts 61,30,16 --benchmark 30 --tail one
+  python3 scripts/nps_analysis.py --counts 61,30,16 --benchmark 30 --tail above
   python3 scripts/nps_analysis.py responses.csv --segment-col plan --pairwise --adjust holm
   python3 scripts/nps_analysis.py responses.csv --segment-col plan --period-col quarter --compare-periods 2026-Q2 2026-Q3
   python3 scripts/nps_analysis.py responses.csv --comment-col comment --comments-out comments.csv --json
@@ -19,9 +19,11 @@ Exit codes: 0 success, 2 bad input or a refused calculation (the message says wh
 import argparse
 import csv
 import datetime
+import io
 import itertools
 import json
 import math
+import os
 import re
 import sys
 from statistics import NormalDist
@@ -39,6 +41,22 @@ AW_ADD_N = 3.0
 DEFAULT_MIN_BASE = 100  # Pew Research Center reporting rule, see references/sources.md
 TARGET_MARGIN = 0.10  # 10 points: the margin Pew's rule is built on, used for the "n needed" hint
 NO_ZERO_STOP_N = 200  # convention of this skill, see references/sources.md "Scale checks"
+# Rocks (2016) Table 1 evaluates interval coverage from n = 5 up. Below that no verdict is given.
+MIN_N_FOR_TEST = 5
+# Convention of this skill (references/sources.md "Scale checks"): stop when more than 5% of the non-blank
+# answers are not scores, because a whole answer category is probably being dropped.
+NON_NUMERIC_STOP_SHARE = 0.05
+# An answer exported with its scale label, such as "10 - Extremely likely" or "0 = Not at all likely".
+LABELLED_SCORE_RE = re.compile(r"^\s*(\d{1,2})\s*(?:[-\u2013\u2014:=(]\s*)?[^\W\d_]")
+# Common ways of writing "no answer". They are excluded and counted like any non-numeric value but do not
+# trigger the NON_NUMERIC_STOP_SHARE stop, which is meant for scores the script failed to read.
+NON_ANSWER_RE = re.compile(
+    r"^(n/?a|na|none|-+|\.|\?|don'?t know|do not know|dk|not applicable|prefer not to (say|answer)|refused|"
+    r"skipped|no answer|no opinion)$",
+    re.I,
+)
+# Qualtrics adds <question>_NPS_GROUP: the computed category, not the 0-10 answer.
+NPS_GROUP_RE = re.compile(r"nps[ _-]?group", re.I)
 SCORE_NAME_RE = re.compile(r"nps|recommend|ltr|likelihood|score|rating", re.I)
 STRONG_SCORE_NAME_RE = re.compile(r"nps|recommend|ltr", re.I)
 COUNT_COLUMNS = {
@@ -49,6 +67,15 @@ COUNT_COLUMNS = {
 GROUPS = ("promoter", "passive", "detractor")
 RECODE = {"promoter": 100, "passive": 0, "detractor": -100}
 BLANK_LABEL = "(blank)"
+DELIMITER_NAMES = {"comma": ",", "semicolon": ";", "tab": "\t", "pipe": "|", "\\t": "\t"}
+# Period labels the script can put in time order without being told (anything else needs --period-order).
+PERIOD_PATTERNS = (
+    (re.compile(r"^(\d{4})-(\d{2})-(\d{2})$"), lambda m: (int(m[1]), int(m[2]), int(m[3]))),
+    (re.compile(r"^(\d{4})-(\d{2})$"), lambda m: (int(m[1]), int(m[2]), 0)),
+    (re.compile(r"^(\d{4})[ -]?Q([1-4])$", re.I), lambda m: (int(m[1]), 3 * int(m[2]) - 2, 0)),
+    (re.compile(r"^Q([1-4])[ -]?(\d{4})$", re.I), lambda m: (int(m[2]), 3 * int(m[1]) - 2, 0)),
+    (re.compile(r"^(\d{4})$"), lambda m: (int(m[1]), 0, 0)),
+)
 MAX_EXAMPLES = 5
 
 
@@ -154,9 +181,21 @@ def summarize(label, counts, method, z, min_base):
             "small_base": n < min_base,
         }
     )
+    # Everyone in one end category: a population at that end (+100 or -100) gives this sample with
+    # certainty, so no level of confidence can exclude it. Extend the limit to the end (as the exact
+    # Clopper-Pearson limit for a proportion with x = n is 1). See references/sources.md "Intervals".
+    if counts["promoter"] == n:
+        out["ci_high"] = 100.0
+    if counts["detractor"] == n:
+        out["ci_low"] = -100.0
     if method == "adjusted-wald":
         out["nps_adjusted"] = round(100 * center, 4)
-    if variance == 0:
+    if n < MIN_N_FOR_TEST:
+        out["note"] = (
+            f"fewer than {MIN_N_FOR_TEST} responses: the interval's coverage was not evaluated below n = 5 "
+            "(Rocks 2016, Table 1); treat it as a rough indication and draw no verdict from it"
+        )
+    elif variance == 0:
         out["note"] = (
             "variance is 0 (everyone in one category): the Wald interval has zero width and says nothing about "
             "precision; use --interval adjusted-wald"
@@ -168,15 +207,40 @@ def summarize(label, counts, method, z, min_base):
     return out
 
 
+INCONCLUSIVE = "inconclusive, small base"
+REVERSED_NOTE = (
+    "the adjustment, not the data, gives this result: the observed difference is {observed} points but the "
+    "adjusted one used by the test is {adjusted} (adding 3 responses moves a small group's score a long "
+    "way), so no verdict; show both scores with their intervals (references/sources.md)"
+)
+
+
+def adjustment_reverses(observed, adjusted):
+    """True when the adjusted-Wald difference points the other way from the observed one, or the observed one is 0.
+
+    A test that comes out significant only because of the pseudo-counts says nothing about the data."""
+    return observed == 0 or (observed > 0) != (adjusted > 0)
+
+
 def set_verdict(result, alpha):
+    """Verdict from the unrounded p-value. P-values are never rounded before a decision; only the text
+    output rounds them (fmt_p), and the JSON carries them in full."""
     p_value = result.get("p_adjusted", result["p_value"])
     result["significant"] = p_value < alpha
     if result["significant"]:
         result["verdict"] = "significant"
     elif result.get("small_base"):
-        result["verdict"] = "underpowered"
+        result["verdict"] = INCONCLUSIVE
     else:
         result["verdict"] = "not significant"
+
+
+def fmt_p(p_value, alpha):
+    """Four decimals, or more when four would print a value equal to alpha that is not alpha."""
+    text = f"{p_value:.4f}"
+    if float(text) == round(alpha, 4) and p_value != alpha:
+        text = f"{p_value:.8f}"
+    return text
 
 
 def compare(kind, a, b, method, test, confidence, min_base):
@@ -187,6 +251,15 @@ def compare(kind, a, b, method, test, confidence, min_base):
         return out
     out["difference"] = round(a["nps"] - b["nps"], 4)
     out["small_base"] = a["n"] < min_base or b["n"] < min_base
+    if min(a["n"], b["n"]) < MIN_N_FOR_TEST:
+        out.update(
+            {
+                "tested": False,
+                "note": f"fewer than {MIN_N_FOR_TEST} responses on one side: the test was not evaluated below "
+                "n = 5 (Rocks 2016, Table 1), so no verdict; show both scores with their intervals",
+            }
+        )
+        return out
     if test == "welch":
         if a["n"] < 2 or b["n"] < 2:
             out.update({"tested": False, "note": "the Welch t-test needs at least 2 responses on each side"})
@@ -219,11 +292,22 @@ def compare(kind, a, b, method, test, confidence, min_base):
         p_value = 2 * (1 - NormalDist().cdf(stat))
         critical = z_for(confidence)
         out["z"] = round(stat, 4)
+        observed = a["nps"] - b["nps"]
+        if method == "adjusted-wald" and p_value < 1 - confidence and adjustment_reverses(observed, diff):
+            out.update(
+                {"tested": False, "note": REVERSED_NOTE.format(observed=fmt(observed), adjusted=fmt(100 * diff))}
+            )
+            return out
+        if method == "wald" and (var_a == 0 or var_b == 0):
+            out["note"] = (
+                "variance is 0 in one group (everyone in one category): the Wald test treats that score as exact, "
+                "so the verdict overstates the certainty; use --interval adjusted-wald"
+            )
     out.update(
         {
             "tested": True,
             "se_difference": round(100 * se, 4),
-            "p_value": round(p_value, 6),
+            "p_value": p_value,
             "ci_low": round(max(-200.0, 100 * (diff - critical * se)), 4),
             "ci_high": round(min(200.0, 100 * (diff + critical * se)), 4),
         }
@@ -240,39 +324,77 @@ def adjust_p_values(comparisons, method, alpha):
         return
     if method == "bonferroni":
         for c in tested:
-            c["p_adjusted"] = round(min(1.0, c["p_value"] * m), 6)
+            c["p_adjusted"] = min(1.0, c["p_value"] * m)
     else:
         running = 0.0
         for rank, c in enumerate(sorted(tested, key=lambda c: c["p_value"])):
             running = max(running, min(1.0, (m - rank) * c["p_value"]))
-            c["p_adjusted"] = round(running, 6)
+            c["p_adjusted"] = running
     for c in tested:
         set_verdict(c, alpha)
 
 
+HYPOTHESES = {
+    "two": "the score differs from the benchmark",
+    "above": "the score is above the benchmark",
+    "below": "the score is below the benchmark",
+}
+
+
 def benchmark_test(group, benchmark, tail, method, confidence):
-    """One-sample z-test of the score against a fixed benchmark (Lewis and Sauro 2021d)."""
-    out = {"benchmark": benchmark, "tail": tail, "n": group["n"], "nps": group["nps"]}
-    center, variance, n_used = moments(group["n"], group["promoters"], group["detractors"], method)
+    """One-sample z-test of the score against a fixed benchmark (Lewis and Sauro 2021d).
+
+    tail: two, above or below. A benchmark of exactly +100 or -100 is tested exactly: only a sample made
+    entirely of promoters (or detractors) is possible under it, so p is 1 or 0 (references/sources.md).
+    """
+    n = group["n"]
+    out = {"benchmark": benchmark, "tail": tail, "n": n, "nps": group["nps"], "hypothesis": HYPOTHESES[tail]}
+    center, variance, n_used = moments(n, group["promoters"], group["detractors"], method)
     se = math.sqrt(variance / n_used)
-    out["difference"] = round(100 * center - benchmark, 4)
+    out["difference"] = round(group["nps"] - benchmark, 4)  # observed score minus the benchmark
     out["se"] = round(100 * se, 4)
     if method == "adjusted-wald":
         out["nps_adjusted"] = round(100 * center, 4)
+        out["difference_adjusted"] = round(100 * center - benchmark, 4)  # what the z-test uses
+    alpha = 1 - confidence
+    if abs(benchmark) == 100:
+        end = "promoter" if benchmark == 100 else "detractor"
+        possible = group[end + "s"] == n  # the only sample a population at the end can produce
+        # A score cannot lie beyond +100 or -100, so "above +100" and "below -100" can never be shown.
+        beyond = (tail == "above" and benchmark == 100) or (tail == "below" and benchmark == -100)
+        p_value = 1.0 if (possible or beyond) else 0.0
+        out.update({"tested": True, "exact": True, "p_value": p_value, "significant": p_value < alpha})
+        out["note"] = (
+            f"exact test at the end of the scale: a population at {benchmark:+g} would give only "
+            f"{end}s, and this sample {'has only' if possible else 'does not have only'} {end}s"
+        )
+        return out
+    if n < MIN_N_FOR_TEST:
+        out.update(
+            {
+                "tested": False,
+                "note": f"fewer than {MIN_N_FOR_TEST} responses: the z-test was not evaluated below n = 5 "
+                "(Rocks 2016, Table 1), so no verdict",
+            }
+        )
+        return out
     if se == 0:
         out.update({"tested": False, "note": "variance is 0: the test is undefined; use --interval adjusted-wald"})
         return out
     z_stat = (center - benchmark / 100) / se
     upper = 1 - NormalDist().cdf(z_stat)
-    p_value = upper if tail == "one" else 2 * min(upper, 1 - upper)
-    out.update({"tested": True, "z": round(z_stat, 4), "p_value": round(p_value, 6)})
-    out["significant"] = p_value < 1 - confidence
-    if tail == "one":
-        out["hypothesis"] = "the score is above the benchmark"
-        one_sided_z = NormalDist().inv_cdf(confidence)
+    p_value = {"above": upper, "below": 1 - upper, "two": 2 * min(upper, 1 - upper)}[tail]
+    observed = group["nps"] - benchmark
+    if method == "adjusted-wald" and p_value < alpha and adjustment_reverses(observed, z_stat):
+        adjusted = fmt(100 * center - benchmark)
+        out.update({"tested": False, "note": REVERSED_NOTE.format(observed=fmt(observed), adjusted=adjusted)})
+        return out
+    out.update({"tested": True, "z": round(z_stat, 4), "p_value": p_value, "significant": p_value < alpha})
+    one_sided_z = NormalDist().inv_cdf(confidence)
+    if tail == "above":
         out["lower_bound"] = round(max(-100.0, 100 * (center - one_sided_z * se)), 4)
-    else:
-        out["hypothesis"] = "the score differs from the benchmark"
+    elif tail == "below":
+        out["upper_bound"] = round(min(100.0, 100 * (center + one_sided_z * se)), 4)
     return out
 
 
@@ -369,7 +491,7 @@ def paired_change(records, earlier, later, confidence):
             "se": round(se, 4),
             "t": round(abs(mean) / se, 4),
             "df": df,
-            "p_value": round(p_value, 6),
+            "p_value": p_value,
             "ci_low": round(mean - critical * se, 4),
             "ci_high": round(mean + critical * se, 4),
             "significant": p_value < 1 - confidence,
@@ -390,14 +512,18 @@ def classify(score, scale):
 
 
 def parse_score(raw, scale):
-    """Return (score, None) or (None, reason). Integer-valued decimals such as '9.0' are accepted."""
+    """Return (score, None) or (None, reason). Integer-valued decimals such as '9.0' are accepted, and so
+    are answers exported with their scale label ('10 - Extremely likely'); see labelled_score."""
     text = (raw or "").strip()
     if text == "":
         return None, "blank"
     try:
         value = float(text)
     except ValueError:
-        return None, "non_numeric"
+        match = LABELLED_SCORE_RE.match(text)
+        if not match:
+            return None, "non_numeric"
+        value = float(match.group(1))
     if math.isnan(value) or math.isinf(value):
         return None, "non_numeric"
     if value != int(value):
@@ -415,14 +541,36 @@ def parse_count(raw, where):
     return int(text)
 
 
+def labelled_score(raw):
+    """True when the answer was read from a scale label rather than a bare number."""
+    text = (raw or "").strip()
+    try:
+        float(text)
+        return False
+    except ValueError:
+        return bool(LABELLED_SCORE_RE.match(text))
+
+
+def nps_group_error(column):
+    return InputError(
+        f"column {column!r} looks like Qualtrics's computed NPS group (detractor, passive or promoter coded as "
+        "small numbers), not the 0-10 answer. Pass the 0-10 question column with --score-col; do not use "
+        "--scale to make the group codes fit."
+    )
+
+
 def detect_score_column(headers, taken):
     candidates = [h for h in headers if h not in taken and SCORE_NAME_RE.search(h)]
+    groups = [h for h in candidates if NPS_GROUP_RE.search(h)]
+    candidates = [h for h in candidates if h not in groups]
     if len(candidates) == 1:
         return candidates[0]
     strong = [h for h in candidates if STRONG_SCORE_NAME_RE.search(h)]
     if len(strong) == 1:
         return strong[0]
     if not candidates:
+        if groups:
+            raise nps_group_error(groups[0])
         raise InputError(
             "could not find the score column by name. Columns: " + ", ".join(headers) + ". Pass --score-col NAME."
         )
@@ -432,9 +580,12 @@ def detect_score_column(headers, taken):
 
 
 def period_bucket(raw, grain):
+    """Return (period, None) or (None, reason): blank_period, or bad_period for an unreadable date."""
     text = (raw or "").strip()
+    if not text:
+        return None, "blank_period"
     if grain == "as-is":
-        return (text or BLANK_LABEL), None
+        return text, None
     try:
         day = datetime.date.fromisoformat(text[:10])
     except ValueError:
@@ -446,20 +597,82 @@ def period_bucket(raw, grain):
     return f"{day.year}-{day.month:02d}", None
 
 
-def read_rows(path, delimiter):
+def resolve_delimiter(value):
+    delimiter = DELIMITER_NAMES.get(value.lower(), value) if value else ","
+    if len(delimiter) != 1:
+        raise InputError(f"--delimiter takes one character or comma, semicolon, tab or pipe; got {value!r}")
+    return delimiter
+
+
+def read_rows(path, delimiter, warnings, explicit=False):
+    """Read a CSV into dicts. Stops on duplicate column names and on rows wider or narrower than the header,
+    which a dict would otherwise resolve silently. Detects a semicolon, tab or pipe file when the
+    delimiter was not given and the header has no comma."""
     try:
         with open(path, newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle, delimiter=delimiter)
-            headers = reader.fieldnames
-            if not headers:
-                raise InputError(f"{path} is empty or has no header row")
-            return headers, list(reader)
+            text = handle.read()
     except FileNotFoundError:
         raise InputError(f"file not found: {path}")
     except UnicodeDecodeError:
         raise InputError(f"{path} is not UTF-8 text; export it as UTF-8 CSV")
+    first_line = text.split("\n", 1)[0]
+    if not explicit and delimiter == "," and "," not in first_line:
+        found = [d for d in (";", "\t", "|") if d in first_line]
+        if len(found) == 1:
+            delimiter = found[0]
+            warnings.append(f"The file uses {DELIMITER_NAME.get(delimiter, delimiter)} as its delimiter; read it that way.")
+    try:
+        table = [row for row in csv.reader(io.StringIO(text), delimiter=delimiter) if row]
     except csv.Error as exc:
         raise InputError(f"{path} is not valid CSV: {exc}")
+    if not table:
+        raise InputError(f"{path} is empty or has no header row")
+    headers = [h.strip() for h in table[0]]
+    seen, repeated = set(), []
+    for header in headers:
+        if header in seen and header not in repeated:
+            repeated.append(header)
+        seen.add(header)
+    if repeated:
+        raise InputError(
+            f"{path} has more than one column named " + ", ".join(repr(h) for h in repeated) + ". Rename them "
+            "so each column is unique, then pass the one you mean."
+        )
+    rows = []
+    for index, row in enumerate(table[1:], start=2):
+        if len(row) != len(headers):
+            hint = "" if len(headers) > 1 else " If the file uses another delimiter, pass --delimiter."
+            raise InputError(
+                f"{path} row {index} has {len(row)} cells but the header has {len(headers)}; a row may be cut or "
+                f"shifted, so values would land in the wrong columns.{hint}"
+            )
+        rows.append(dict(zip(headers, row)))
+    return headers, rows
+
+
+DELIMITER_NAME = {";": "semicolons", "\t": "tabs", "|": "pipes"}
+
+
+def order_periods(labels, explicit):
+    """Put period labels in time order. Recognised: YYYY-MM-DD, YYYY-MM, YYYY-Qn, Qn YYYY, YYYY, or one
+    shared prefix followed by a number (wave1, wave2, ... wave10). Anything else needs --period-order."""
+    if explicit:
+        order = [p.strip() for p in explicit.split(",") if p.strip()]
+        missing = [p for p in labels if p not in order]
+        if missing:
+            raise InputError(
+                "--period-order does not list these periods: " + ", ".join(missing) + ". Periods in the data: "
+                + ", ".join(labels)
+            )
+        return [p for p in order if p in labels]
+    for pattern, key in PERIOD_PATTERNS:
+        matches = [pattern.match(p) for p in labels]
+        if all(matches):
+            return [p for _, p in sorted(zip((key(m) for m in matches), labels))]
+    numbered = [re.match(r"^(.*?)(\d+)$", p) for p in labels]
+    if all(numbered) and len({m.group(1).strip().lower() for m in numbered}) == 1:
+        return [p for _, p in sorted(zip((int(m.group(2)) for m in numbered), labels))]
+    return None
 
 
 def check_scale(scores, scale_arg, warnings):
@@ -538,9 +751,9 @@ def load_counts_csv(args, headers, rows, columns, warnings):
                 segments.append(cell["segment"])
         if args.period_col:
             cell["period"], problem = period_bucket(row.get(args.period_col), args.period_grain)
-            if problem:
+            if problem == "bad_period":
                 raise InputError(f"row {index}: period {row.get(args.period_col)!r} is not an ISO date")
-            if cell["period"] not in periods:
+            if cell["period"] is not None and cell["period"] not in periods:
                 periods.append(cell["period"])
         cells.append(cell)
     if not cells or sum(c[g] for c in cells for g in GROUPS) == 0:
@@ -562,38 +775,61 @@ def load_counts_csv(args, headers, rows, columns, warnings):
 def load_respondents(args, headers, rows, warnings):
     taken = {c for c in (args.segment_col, args.period_col, args.comment_col, args.id_col, args.theme_col) if c}
     score_col = args.score_col or detect_score_column(headers, taken)
+    if NPS_GROUP_RE.search(score_col):
+        raise nps_group_error(score_col)
     # First pass with the widest range so the scale check sees every whole-number answer.
-    whole = [s for s, _ in (parse_score(row.get(score_col), "0-10") for row in rows) if s is not None]
+    first = [parse_score(row.get(score_col), "0-10") for row in rows]
+    whole = [s for s, _ in first if s is not None]
+    non_blank = sum(1 for _, reason in first if reason != "blank")
+    non_numeric = [
+        row.get(score_col)
+        for row, (_, reason) in zip(rows, first)
+        if reason == "non_numeric" and not NON_ANSWER_RE.match((row.get(score_col) or "").strip())
+    ]
     if not whole:
         raise InputError(f"column {score_col!r} has no whole-number scores between 0 and 10 in {len(rows)} row(s)")
+    if non_blank and len(non_numeric) / non_blank > NON_NUMERIC_STOP_SHARE and not args.allow_non_numeric:
+        shown = ", ".join(repr(v) for v in list(dict.fromkeys(non_numeric))[:MAX_EXAMPLES])
+        raise InputError(
+            f"{len(non_numeric)} of {non_blank} non-blank answers in {score_col!r} "
+            f"({100 * len(non_numeric) / non_blank:.1f}%) are neither scores nor a usual 'no answer' value, for "
+            f"example {shown}. Dropping them could remove a whole answer category. Re-export the column as "
+            "numbers, or, if these really are non-answers, re-run with --allow-non-numeric and report them."
+        )
     scale = check_scale(whole, args.scale, warnings)
     if scale != "0-10":
         warnings.append(
             f"Scale {scale} is not the Net Promoter standard. The result is not comparable with 0-10 scores or "
             "with published benchmarks; say so wherever the number is shown."
         )
-    excluded = {"blank": 0, "non_numeric": 0, "non_integer": 0, "out_of_range": 0, "bad_period": 0}
-    examples, records, segments, periods = [], [], [], []
+    excluded = {"blank": 0, "non_numeric": 0, "non_integer": 0, "out_of_range": 0}
+    no_period = {"blank_period": 0, "bad_period": 0}
+    labelled = 0
+    examples, period_examples, records, segments, periods = [], [], [], [], []
     for index, row in enumerate(rows, start=2):  # row 1 is the header
         segment = None
         if args.segment_col:
             segment = (row.get(args.segment_col) or "").strip() or BLANK_LABEL
             if segment not in segments:
                 segments.append(segment)
-        period, period_problem = (None, None)
+        period, period_problem = None, None
         if args.period_col:
             period, period_problem = period_bucket(row.get(args.period_col), args.period_grain)
             if period is not None and period not in periods:
                 periods.append(period)
         score, reason = parse_score(row.get(score_col), scale)
-        if reason is None and period_problem:
-            reason = period_problem
         if reason:
             excluded[reason] += 1
             if reason != "blank" and len(examples) < MAX_EXAMPLES:
-                shown = row.get(args.period_col) if reason == "bad_period" else row.get(score_col)
-                examples.append({"row": index, "value": shown, "reason": reason})
+                examples.append({"row": index, "value": row.get(score_col), "reason": reason})
             continue
+        labelled += labelled_score(row.get(score_col))
+        if period_problem:
+            # A missing or unreadable date leaves the row out of the period analysis only: its score still
+            # counts in the overall result and in segments.
+            no_period[period_problem] += 1
+            if period_problem == "bad_period" and len(period_examples) < MAX_EXAMPLES:
+                period_examples.append({"row": index, "value": row.get(args.period_col)})
         records.append(
             {
                 "row": index,
@@ -612,6 +848,17 @@ def load_respondents(args, headers, rows, warnings):
         warnings.append(
             f"{len(rows) - len(records)} of {len(rows)} rows ({100 * (len(rows) - len(records)) / len(rows):.1f}%) "
             "were excluded; see the exclusion counts and report them with the score."
+        )
+    if labelled:
+        warnings.append(
+            f"{labelled} answers carried their scale label (for example '10 - Extremely likely'); the leading "
+            "number was used as the score."
+        )
+    if args.period_col and sum(no_period.values()):
+        warnings.append(
+            f"{no_period['blank_period']} valid scores have no period and {no_period['bad_period']} have an "
+            "unreadable date. They count in the overall result and segments, but not in the period table, trend "
+            "tests or mix shift."
         )
     cells = {}
     for record in records:
@@ -635,7 +882,17 @@ def load_respondents(args, headers, rows, warnings):
         "rows_excluded": len(rows) - len(records),
         "excluded": excluded,
         "excluded_examples": examples,
+        "scores_read_from_labels": labelled,
     }
+    if args.period_col:
+        info["without_period"] = no_period
+        info["bad_period_examples"] = period_examples
+    if args.id_col:
+        ids = [r["id"] for r in records]
+        info["ids"] = {
+            "blank": sum(1 for i in ids if not i),
+            "repeated": sum(n - 1 for n in _count([i for i in ids if i]).values() if n > 1),
+        }
     return {
         "info": info,
         "cells": list(cells.values()),
@@ -646,6 +903,13 @@ def load_respondents(args, headers, rows, warnings):
     }
 
 
+def _count(items):
+    out = {}
+    for item in items:
+        out[item] = out.get(item, 0) + 1
+    return out
+
+
 def load(args, warnings):
     if args.counts and args.input:
         raise InputError("give either a CSV file or --counts, not both")
@@ -653,7 +917,7 @@ def load(args, warnings):
         return load_counts_argument(args)
     if not args.input:
         raise InputError("give a CSV file, or --counts P,A,D")
-    headers, rows = read_rows(args.input, args.delimiter)
+    headers, rows = read_rows(args.input, resolve_delimiter(args.delimiter), warnings, args.delimiter is not None)
     for name, value in (
         ("--score-col", args.score_col),
         ("--segment-col", args.segment_col),
@@ -685,8 +949,16 @@ def check_arguments(args):
         raise InputError("--comments-out must end in .json or .csv")
     if args.paired and not (args.id_col and args.compare_periods):
         raise InputError("--paired needs --id-col and --compare-periods EARLIER LATER")
+    if args.period_order and not args.period_col:
+        raise InputError("--period-order needs --period-col")
+    if args.comments_out and args.input and same_file(args.comments_out, args.input):
+        raise InputError("--comments-out points at the input file; write the comments to a new file")
+    if 1 < args.confidence < 100:
+        args.confidence /= 100  # 95 means 95%
     if not 0 < args.confidence < 1:
-        raise InputError("--confidence must be between 0 and 1, for example 0.95")
+        raise InputError("--confidence must be a level such as 0.95 or 95")
+    if args.tail == "one":
+        args.tail = "above"  # the original spelling of the one-tailed "are we above" test
     if args.min_base < 1:
         raise InputError("--min-base must be at least 1")
     if args.benchmark is not None and not -100 <= args.benchmark <= 100:
@@ -695,6 +967,13 @@ def check_arguments(args):
         raise InputError("--tail needs --benchmark")
     if args.invited is not None and args.invited < 1:
         raise InputError("--invited must be at least 1")
+
+
+def same_file(a, b):
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.realpath(a) == os.path.realpath(b)
 
 
 def analyse(args):
@@ -735,14 +1014,34 @@ def analyse(args):
         n = result["overall"]["n"]
         if args.invited < n:
             raise InputError(f"--invited {args.invited} is smaller than the {n} valid responses")
-        result["response"] = {"invited": args.invited, "valid": n, "response_rate": round(100 * n / args.invited, 4)}
+        # Respondents are the rows in the file; valid scores can be fewer. Report both, separately.
+        answered = data["info"].get("rows_total", n)
+        if args.invited < answered:
+            raise InputError(f"--invited {args.invited} is smaller than the {answered} responses in the file")
+        result["response"] = {
+            "invited": args.invited,
+            "responses": answered,
+            "valid": n,
+            "response_rate": round(100 * answered / args.invited, 4),
+            "valid_score_rate": round(100 * n / args.invited, 4),
+        }
         warnings.append(
-            f"Response rate {100 * n / args.invited:.1f}% ({n} of {args.invited} invited). The interval covers "
-            "sampling error only, not the difference between people who answered and people who did not."
+            f"Response rate {100 * answered / args.invited:.1f}% ({answered} of {args.invited} invited); valid "
+            f"scores from {100 * n / args.invited:.1f}% of those invited. The interval covers sampling error "
+            "only, not the difference between people who answered and people who did not."
         )
 
     by_segment = {name: stats_for(name, "segment", name) for name in sorted(data["segments"])}
-    by_period = {name: stats_for(name, "period", name) for name in sorted(data["periods"])}
+    ordered = order_periods(data["periods"], args.period_order)
+    if ordered is None:
+        if len(data["periods"]) > 1:
+            raise InputError(
+                "cannot tell the time order of these periods: " + ", ".join(data["periods"]) + ". Pass "
+                "--period-order with them from earliest to latest (comma-separated), or use ISO dates with "
+                "--period-grain."
+            )
+        ordered = data["periods"]
+    by_period = {name: stats_for(name, "period", name) for name in ordered}
     result["segments"], result["periods"] = list(by_segment.values()), list(by_period.values())
     groups = [result["overall"]] + result["segments"] + result["periods"]
     for group in groups:
@@ -762,38 +1061,57 @@ def analyse(args):
             raise InputError(f"{what} {name!r} has no valid scores, so it cannot be compared")
         return table[name]
 
-    def shared_ids(earlier, later):
+    def id_overlap(key, first, second):
+        """Ids in both groups, and extra answers from ids repeated within either group."""
         if not (records and args.id_col):
-            return 0
-        ids = {p: {r["id"] for r in records if r["period"] == p and r["id"]} for p in (earlier, later)}
-        return len(ids[earlier] & ids[later])
+            return 0, 0
+        ids = {g: [r["id"] for r in records if r[key] == g and r["id"]] for g in (first, second)}
+        shared = len(set(ids[first]) & set(ids[second]))
+        repeated = sum(len(v) - len(set(v)) for v in ids.values())
+        return shared, repeated
+
+    def independent_test(kind, a, b):
+        """compare(), unless --id-col shows the two groups are not independent samples."""
+        key = "segment" if kind == "segment" else "period"
+        shared, repeated = id_overlap(key, a["label"], b["label"])
+        if not (shared or repeated):
+            return compare(kind, a, b, args.interval, args.test, args.confidence, args.min_base)
+        problems = []
+        if shared:
+            where = "both periods" if key == "period" else "both segments"
+            problems.append(f"{shared} respondent ids answered in {where}")
+        if repeated:
+            problems.append(f"{repeated} extra answers come from ids that answered more than once in one group")
+        fix = (
+            "use --paired with --compare-periods, or keep one answer per respondent"
+            if key == "period"
+            else "keep one answer per respondent (and one segment per respondent) before testing"
+        )
+        return {
+            "kind": kind,
+            "a": a["label"],
+            "b": b["label"],
+            "n_a": a["n"],
+            "n_b": b["n"],
+            "difference": round(a["nps"] - b["nps"], 4) if a["n"] and b["n"] else None,
+            "tested": False,
+            "shared_respondents": shared,
+            "repeated_answers": repeated,
+            "note": "; ".join(problems) + ", so the samples are not independent; " + fix,
+        }
 
     def period_comparison(kind, earlier, later):
-        shared = shared_ids(earlier["label"], later["label"])
-        if shared:
-            return {
-                "kind": kind,
-                "a": later["label"],
-                "b": earlier["label"],
-                "n_a": later["n"],
-                "n_b": earlier["n"],
-                "difference": round(later["nps"] - earlier["nps"], 4),
-                "tested": False,
-                "shared_respondents": shared,
-                "note": f"{shared} respondent ids answered in both periods, so the samples are not independent; "
-                "use --paired with --compare-periods, or keep one answer per respondent",
-            }
-        return compare(kind, later, earlier, args.interval, args.test, args.confidence, args.min_base)
+        return independent_test(kind, later, earlier)
 
     family = []
     if args.compare:
         a, b = (lookup(by_segment, name, "segment") for name in args.compare)
-        family.append(compare("segment", a, b, args.interval, args.test, args.confidence, args.min_base))
+        family.append(independent_test("segment", a, b))
     if args.pairwise:
         for a, b in itertools.combinations([g for g in result["segments"] if g["n"] > 0], 2):
             if args.compare and {a["label"], b["label"]} == set(args.compare):
                 continue
-            family.append(compare("segment", a, b, args.interval, args.test, args.confidence, args.min_base))
+            family.append(independent_test("segment", a, b))
     if args.compare_periods:
         earlier, later = (lookup(by_period, name, "period") for name in args.compare_periods)
         family.append(period_comparison("period", earlier, later))
@@ -817,11 +1135,20 @@ def analyse(args):
             "The tests assume independent samples. If the same people answered in both groups or periods, "
             "this test is not valid; say so."
         )
-    if any(c.get("verdict") == "underpowered" for c in family):
+    if any(c.get("verdict") == INCONCLUSIVE for c in family):
         warnings.append(
-            "Underpowered means: not significant, and at least one side is a small base, so a real difference "
-            "could easily be missed. It is not evidence of no difference."
+            f"Inconclusive, small base means: not significant, and at least one side has fewer than "
+            f"{args.min_base} responses. Read the interval of the difference: a difference anywhere inside it fits "
+            "the data. It is not evidence of no difference. (No power calculation was made.)"
         )
+    ids = data["info"].get("ids")
+    if ids and ids["repeated"]:
+        warnings.append(
+            f"{ids['repeated']} answers come from respondent ids that appear more than once. Every interval "
+            "treats each row as a different person; keep one answer per respondent unless repeats are intended."
+        )
+    if ids and ids["blank"]:
+        warnings.append(f"{ids['blank']} valid scores have a blank id, so overlap among them cannot be checked.")
     if len(usable_periods) > 1 and not args.id_col:
         warnings.append(
             "Period tests assume the periods do not share respondents. Rolling or overlapping windows do; the "
@@ -831,6 +1158,11 @@ def analyse(args):
     if args.benchmark is not None:
         result["benchmark"] = benchmark_test(
             result["overall"], args.benchmark, args.tail or "two", args.interval, args.confidence
+        )
+        warnings.append(
+            "The benchmark test treats the benchmark as a fixed number (a target). If it is an estimate from "
+            "another survey (last year's score, an industry study), it has sampling error too: put both sets "
+            "of counts in a counts CSV and use --segment-col and --compare instead."
         )
     if args.segment_col and len(usable_periods) > 1:
         pair = list(args.compare_periods) if args.compare_periods else [usable_periods[0]["label"], usable_periods[-1]["label"]]
@@ -926,7 +1258,9 @@ def table(rows, level):
             lines.append(f"{g['label'][:21]:<22}{0:>6}{'':>7}{'':>7}{'':>7}{'n/a':>8}  no valid scores")
             continue
         flag = ""
-        if g["small_base"]:
+        if g["n"] < MIN_N_FOR_TEST:
+            flag = f"  (n under {MIN_N_FOR_TEST}: rough indication only)"
+        elif g["small_base"]:
             flag = "  (small base"
             if "n_for_10_point_margin" in g:
                 flag += f"; about n = {g['n_for_10_point_margin']} for +/-10 points"
@@ -941,6 +1275,7 @@ def table(rows, level):
 def render(result):
     info, settings = result["input"], result["settings"]
     level = f"{100 * settings['confidence']:g}"
+    alpha = 1 - settings["confidence"]
     lines = []
     if info["mode"] == "respondents":
         lines += [
@@ -953,6 +1288,14 @@ def render(result):
         ]
         for example in info["excluded_examples"]:
             lines.append(f"  excluded row {example['row']}: {example['value']!r} ({example['reason'].replace('_', ' ')})")
+        if "without_period" in info:
+            w = info["without_period"]
+            lines.append(
+                f"Without a period (kept in the overall result, left out of the period analysis): "
+                f"blank {w['blank_period']}, unreadable date {w['bad_period']}"
+            )
+            for example in info["bad_period_examples"]:
+                lines.append(f"  row {example['row']}: date {example['value']!r} not read")
     else:
         source = info["file"] or "--counts"
         lines += [
@@ -965,23 +1308,34 @@ def render(result):
         lines.append("Scores: " + "  ".join(f"{score}:{count}" for score, count in result["score_distribution"].items()))
     if "response" in result:
         r = result["response"]
-        lines.append(f"Response rate: {r['response_rate']:.1f}% ({r['valid']} of {r['invited']} invited)")
+        lines.append(
+            f"Response rate: {r['response_rate']:.1f}% ({r['responses']} of {r['invited']} invited); valid scores "
+            f"{r['valid']} ({r['valid_score_rate']:.1f}% of invited)"
+        )
     for title, key in (("By segment", "segments"), ("By period", "periods")):
         if result[key]:
             lines.extend(["", title])
             lines.extend(table(result[key], level))
     if "benchmark" in result:
         b = result["benchmark"]
-        lines.extend(["", f"Benchmark {fmt(b['benchmark'])} ({b['tail']}-tailed z-test on the overall score)"])
+        tail = "two-tailed" if b["tail"] == "two" else f"one-tailed, {b['tail']}"
+        lines.extend(["", f"Benchmark {fmt(b['benchmark'])} ({tail}; z-test on the overall score, fixed benchmark)"])
+        gaps = f"Observed difference {fmt(b['difference'])} points"
+        if "difference_adjusted" in b:
+            gaps += f" (adjusted score minus benchmark {fmt(b['difference_adjusted'])}, used by the test)"
         if b.get("tested"):
             verdict = "significant" if b["significant"] else "not significant"
             extra = f"; one-sided lower bound {fmt(b['lower_bound'])}" if "lower_bound" in b else ""
+            extra += f"; one-sided upper bound {fmt(b['upper_bound'])}" if "upper_bound" in b else ""
+            stat = "exact" if b.get("exact") else f"z = {b['z']:.3f}"
             lines.append(
-                f"  H1: {b['hypothesis']}. Difference {fmt(b['difference'])} points, z = {b['z']:.3f}, "
-                f"p = {b['p_value']:.4f} ({verdict} at {level}%){extra}"
+                f"  H1: {b['hypothesis']}. {gaps}, {stat}, p = {fmt_p(b['p_value'], alpha)} "
+                f"({verdict} at {level}%){extra}"
             )
+            if b.get("exact"):
+                lines.append(f"  {b['note']}")
         else:
-            lines.append(f"  not tested, {b['note']}")
+            lines.append(f"  H1: {b['hypothesis']}. {gaps}; not tested, {b['note']}")
     if result["comparisons"]:
         name = "Welch t-test on the -100/0/+100 recode" if settings["test"] == "welch" else "z-test on the NPS difference"
         lines.extend(["", f"Comparisons ({name}, independent samples; difference = first minus second)"])
@@ -990,15 +1344,17 @@ def render(result):
             if not c.get("tested"):
                 lines.append(f"{head}: not tested, {c['note']}")
                 continue
-            p_text = f"p = {c['p_value']:.4f}"
+            p_text = f"p = {fmt_p(c['p_value'], alpha)}"
             if "p_adjusted" in c:
-                p_text += f", {settings['adjust']}-adjusted p = {c['p_adjusted']:.4f}"
+                p_text += f", {settings['adjust']}-adjusted p = {fmt_p(c['p_adjusted'], alpha)}"
             stat = f"t = {c['t']:.2f}, df = {c['df']:.1f}" if "t" in c else f"z = {c['z']:.2f}"
             centre = f" (centred on the adjusted difference {fmt(c['difference_adjusted'])})" if "difference_adjusted" in c else ""
             lines.append(
                 f"{head}: {fmt(c['difference'])} points, {level}% interval {fmt(c['ci_low'])} to "
                 f"{fmt(c['ci_high'])}{centre}, {stat}, {p_text} ({c['verdict']})"
             )
+            if c.get("note"):
+                lines.append(f"    {c['note']}")
     if "paired" in result:
         p = result["paired"]
         lines.extend(["", f"Paired change, {p['earlier']} to {p['later']} (same respondents, -100/0/+100 recode)"])
@@ -1009,7 +1365,7 @@ def render(result):
         if p.get("tested"):
             lines.append(
                 f"  mean change {fmt(p['mean_change'])} points, {level}% interval {fmt(p['ci_low'])} to "
-                f"{fmt(p['ci_high'])}, t = {p['t']:.2f}, df = {p['df']}, p = {p['p_value']:.4f}"
+                f"{fmt(p['ci_high'])}, t = {p['t']:.2f}, df = {p['df']}, p = {fmt_p(p['p_value'], alpha)}"
             )
         else:
             lines.append(f"  not tested, {p['note']}")
@@ -1061,7 +1417,12 @@ def build_parser():
         "--period-grain",
         choices=["as-is", "month", "quarter", "year"],
         default="as-is",
-        help="as-is uses the period value as a label (sorted as text); the others bucket ISO dates (default: as-is)",
+        help="as-is uses the period value as a label; the others bucket ISO dates (default: as-is)",
+    )
+    parser.add_argument(
+        "--period-order",
+        metavar="P1,P2,...",
+        help="periods from earliest to latest, when the labels are not dates, YYYY-MM, YYYY-Qn or numbered",
     )
     parser.add_argument("--comment-col", help="column with the open-ended reason")
     parser.add_argument("--comments-out", metavar="PATH", help="write comments split by group to PATH (.csv or .json)")
@@ -1073,7 +1434,7 @@ def build_parser():
         choices=sorted(SCALES),
         help="the scale the question used, when it is not 0-10 or the script could not tell",
     )
-    parser.add_argument("--confidence", type=float, default=0.95, help="confidence level (default: 0.95)")
+    parser.add_argument("--confidence", type=float, default=0.95, help="confidence level, 0.95 or 95 (default: 0.95)")
     parser.add_argument(
         "--interval",
         choices=["adjusted-wald", "wald"],
@@ -1091,7 +1452,11 @@ def build_parser():
     parser.add_argument("--compare-periods", nargs=2, metavar=("EARLIER", "LATER"), help="test two periods")
     parser.add_argument("--paired", action="store_true", help="with --id-col and --compare-periods: change per respondent")
     parser.add_argument("--benchmark", type=float, metavar="POINTS", help="test the overall score against this value")
-    parser.add_argument("--tail", choices=["one", "two"], help="benchmark test: one (score is above) or two (default: two)")
+    parser.add_argument(
+        "--tail",
+        choices=["two", "above", "below", "one"],
+        help="benchmark test: two (default), above (one-tailed: is the score above it), below; one = above",
+    )
     parser.add_argument(
         "--adjust",
         choices=["none", "bonferroni", "holm"],
@@ -1105,7 +1470,16 @@ def build_parser():
         help=f"flag groups with fewer valid scores than this as a small base (default: {DEFAULT_MIN_BASE})",
     )
     parser.add_argument("--invited", type=int, metavar="N", help="number of people invited, to report the response rate")
-    parser.add_argument("--delimiter", default=",", help="CSV delimiter (default: comma)")
+    parser.add_argument(
+        "--delimiter",
+        help="CSV delimiter: a character, or comma, semicolon, tab, pipe (default: comma; a header with no comma "
+        "but semicolons, tabs or pipes is read with that delimiter)",
+    )
+    parser.add_argument(
+        "--allow-non-numeric",
+        action="store_true",
+        help="go on when more than 5%% of the non-blank answers are not scores (they are excluded and counted)",
+    )
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     return parser
 

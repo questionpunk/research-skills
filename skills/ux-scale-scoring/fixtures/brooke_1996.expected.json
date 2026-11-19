@@ -1,0 +1,7 @@
+{
+  "_source": "Brooke (1996), 'SUS: a quick and dirty usability scale', scored example: item contributions 4,1,1,4,1,2,1,1,4,3, total 22, SUS 22 x 2.5 = 55. Answer positions inferred from the contributions with Brooke's rule (fixtures/README.md section 1).",
+  "responses": [5, 4, 2, 1, 2, 3, 2, 4, 5, 2],
+  "sus": 55.0,
+  "grade": "D",
+  "adjective": "OK"
+}

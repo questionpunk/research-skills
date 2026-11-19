@@ -21,6 +21,8 @@ Have you used the product in the last 30 days?
 > skip: if "No" -> end of survey
 > skip: if "Not sure" -> role
 
+---
+
 ### features [multi] request
 Which features did you use?
 Select all that apply.
@@ -87,7 +89,8 @@ A longer example with every type is [`../fixtures/survey.input.md`](../fixtures/
 Order inside a question: heading, text, options, then `>` rules. Blank lines between parts are optional.
 
 **Tags** start with a letter or digit and may contain letters, digits, `_`, `.` and `-`. They must be
-unique. Rules refer to questions by tag.
+unique, also when upper and lower case are ignored (`Age` and `age` clash in a data export). Rules refer to
+questions by tag.
 
 ## Question types
 
@@ -117,16 +120,19 @@ Option marks, at the end of an option line:
 - `{exclusive}` makes the option clear all others (`[multi]` only).
 - `{code:5}` sets the value stored for that option (the Qualtrics recode value). Allowed on the options of
   `[single]`, `[multi]`, `[dropdown]` and on the columns of `[matrix]` and `[matrix-multi]`. Whole numbers,
-  all different, and on every option of the question or on none. Without codes, options are coded 1, 2, 3
-  in the order written, so `to-md` leaves codes out when they are exactly that.
-- `{var:name}` sets the export tag of a matrix row. On every row or on none.
+  all different as numbers (`{code:01}` and `{code:1}` clash), and on every option of the question or on
+  none. Without codes, options are coded 1, 2, 3 in the order written, so `to-md` leaves codes out when
+  they are exactly that.
+- `{var:name}` sets the export tag of a matrix row. On every row or on none, all different ignoring case.
+- An option whose text really ends in one of these marks escapes the brace: `- First \{text}` is the
+  option "First {text}" with no write-in box. `to-md` writes such text this way.
 
 `> randomize: options` works on `[single]`, `[multi]` and `[sum]`; `> randomize: rows` on `[matrix]` and
 `[matrix-multi]`.
 
 ## Rules
 
-**Skip logic**, on `[single]`, `[multi]` and `[dropdown]` questions:
+**Skip logic**, on `[single]`, `[multi]`, `[dropdown]` and `[nps]` questions:
 
 ```
 > skip: if "Option text" -> end of block
@@ -139,7 +145,8 @@ The option text must match one option of that question exactly. `not` means "is 
 tag must be a later question in the same block, because that is all Qualtrics skip logic can do. A
 question may have several skip lines.
 
-**Display logic**, on any question, testing `[single]`, `[multi]` or `[dropdown]` questions:
+**Display logic**, on any question, testing an earlier `[single]`, `[multi]`, `[dropdown]` or `[nps]`
+question (an NPS option is its score, `"0"` to `"10"`):
 
 ```
 > show if: used is "Yes"
@@ -148,17 +155,23 @@ question may have several skip lines.
 ```
 
 One line per question. Join conditions with `and` or with `or`, never both in one rule: mixed grouping is
-not in the supported subset, so the script refuses it instead of guessing.
+not in the supported subset, so the script refuses it instead of guessing. "Ask why if the score is 6 or
+less" is `> show if: nps is "0" or nps is "1" or … or nps is "6"`. A rule on a later question is refused,
+because it could never be true. Qualtrics evaluates display logic when a page loads, so the script warns
+when the question a rule tests is on the same page; put `---` between them. NPS logic uses the same choice
+locator as multiple choice; no sampled export had it, so check it in the preview.
 
 Inside quotes, write `\"` for a double quote and `\\` for a backslash.
 
 ## Text
 
-- Text is passed to Qualtrics as HTML. `&` and a bare `<` are escaped for you; an HTML tag you type
-  (`<strong>`, `<em>`, `<u>`, a link) passes through unchanged. To show a literal `<b`, write `&lt;b`.
-- `to-md` turns `<br>` and `<p>` into line breaks, keeps `<strong>`, `<b>`, `<em>`, `<i>` and `<u>` when
-  they have no attributes, removes every other tag and says which in a warning. `--keep-html` keeps all
-  tags.
+- Text is passed to Qualtrics as HTML. An `&` that starts no character reference and a `<` that opens no
+  HTML element (`<None>`, `x<y`) are escaped for you; an HTML tag you type (`<strong>`, `<em>`, `<u>`, a
+  link) passes through unchanged. To show a literal `<b`, write `&lt;b`.
+- `to-md` turns `<br>`, `<p>` and `<div>` into line breaks, keeps `<strong>`, `<b>`, `<em>`, `<i>` and
+  `<u>` (without their attributes), drops `<style>` and `<script>` with their content, removes every other
+  tag and says which in a warning. `--keep-html` keeps all tags; a `<p>` or `<div>` with attributes is then
+  kept with its closing tag.
 - A text line that would look like another kind of line (it starts with `#`, `- `, `>`, `---`, `Rows:`,
   `Columns:` or `\`) is written with a leading backslash: `\- not an option`.
 - An option is one line.

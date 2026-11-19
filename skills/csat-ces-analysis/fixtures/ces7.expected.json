@@ -1,0 +1,8 @@
+{
+  "_source": "Worked by hand in fixtures/README.md section 3.",
+  "labels": "agree7",
+  "overall": {"n": 30, "positive": 17, "negative": 8, "mean": 4.7},
+  "first_contact": {"n": 15, "positive": 12, "positive_ci": [54.8146, 92.9525], "mean": 5.6666667},
+  "repeat_contact": {"n": 15, "positive": 5, "positive_ci": [15.1763, 58.2865], "mean": 3.7333333},
+  "comparison": {"difference_pct": 46.6666667, "difference_ci": [11.2130, 68.9701], "z": 2.5790664, "p_value": 0.0099068}
+}

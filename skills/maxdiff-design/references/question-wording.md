@@ -58,8 +58,9 @@ Rules:
 ## Optional anchor (to learn which items matter at all)
 
 An anchor changes the analysis: the scores are then estimated against a threshold, not only against each
-other. Decide before fielding, tell whoever analyses the data, and hand the anchor answers to the skill
-`maxdiff-analysis` together with the design.
+other. Decide before fielding and tell whoever analyses the data. The sibling skill `maxdiff-analysis` does
+not use anchor answers, so name the tool that will (for example Sawtooth Lighthouse Studio's anchored
+MaxDiff) before the anchor goes into the questionnaire.
 
 MaxDiff scores are relative: the top item of a weak list still comes out on top. Two ways to add an
 absolute reference, both described in the Sawtooth technical paper ([S2] in sources.md):

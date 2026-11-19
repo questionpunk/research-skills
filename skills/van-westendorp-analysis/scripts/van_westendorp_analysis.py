@@ -29,6 +29,7 @@ references/tool-conventions.md):
 import argparse
 import bisect
 import csv
+import io
 import json
 import math
 import random
@@ -37,7 +38,7 @@ import sys
 from fractions import Fraction
 from xml.sax.saxutils import escape
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_MIN_N = 100
 DEFAULT_INTENT_SCALE = "5,4,3,2,1"
 NMS_PRESETS = {
@@ -81,6 +82,17 @@ BOUNDARY_TEXT = {
                              "or 0% (rising)",
 }
 INTENT_WORDS = {"intent", "intention", "likelihood", "likely", "pi", "nms"}
+# Text accepted next to a price: a currency symbol, an ISO 4217 code, or one of a few short abbreviations.
+# Anything else (k, m, mo, /month) is a multiplier or a unit, which the script will not guess.
+ISO_CURRENCIES = set("""
+AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF
+CHF CLP CNY COP CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD
+HNL HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD
+MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN
+PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SYP SZL THB TJS TMT TND TOP TRY TTD
+TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD XOF XPF YER ZAR ZMW ZWL
+""".split())
+CURRENCY_ABBREVIATIONS = {"RS", "KR", "FR", "TL", "NT", "RMB"}
 
 
 class InputError(Exception):
@@ -90,6 +102,7 @@ class InputError(Exception):
 # ---------------------------------------------------------------- reading
 
 def _norm(name):
+    name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)  # piCheap, tooExpensive
     return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
 
 
@@ -100,9 +113,10 @@ def _is_intent(norm):
 def _price_kind(norm):
     """Which of the four price questions a normalised header names, or None."""
     squashed = norm.replace(" ", "")
-    if "toocheap" in squashed or "tooinexpensive" in squashed or norm == "tc":
+    if any(w in squashed for w in ("toocheap", "tooinexpensive", "soinexpensive", "socheap", "doubt", "toolow")) \
+            or norm == "tc":
         return "too_cheap"
-    if "tooexpensive" in squashed or norm == "te":
+    if any(w in squashed for w in ("tooexpensive", "soexpensive", "neverconsider", "toohigh")) or norm == "te":
         return "too_expensive"
     if "cheap" in squashed or "bargain" in squashed or "goodvalue" in squashed or "inexpensive" in squashed:
         return "cheap"
@@ -148,10 +162,6 @@ def detect_columns(header, args):
         else:
             raise InputError(f"several columns could be the {LABELS[role]!r} price: {', '.join(found[role])}. "
                              f"Pick one with {flag}.")
-    used = [v for v in columns.values() if v]
-    if len(set(used)) != len(used):
-        raise InputError("the price columns must be different columns; got " +
-                         ", ".join(f"{k}={v}" for k, v in columns.items()))
     for role in ("intent_cheap", "intent_expensive"):
         flag = "--" + role.replace("_", "-")
         if args.no_nms:
@@ -165,6 +175,10 @@ def detect_columns(header, args):
         else:
             raise InputError(f"several columns could be the purchase intent at the {role.split('_')[1]} price: "
                              f"{', '.join(found[role])}. Pick one with {flag}, or pass --no-nms.")
+    used = [v for v in columns.values() if v]
+    if len(set(used)) != len(used):
+        raise InputError("the price and purchase-intent columns must be different columns; got " +
+                         ", ".join(f"{k}={v}" for k, v in columns.items() if v))
     if (columns["intent_cheap"] is None) != (columns["intent_expensive"] is None):
         have = "intent_cheap" if columns["intent_cheap"] else "intent_expensive"
         raise InputError(f"found only one purchase-intent column ({columns[have]}). The Newton-Miller-Smith extension "
@@ -172,6 +186,8 @@ def detect_columns(header, args):
     columns["id"] = explicit["id"] if explicit["id"] is not None else (found["id"][0] if len(found["id"]) == 1 else None)
     columns["segment"] = explicit["segment"]
     columns["weight"] = explicit["weight"]
+    taken = {v for v in columns.values() if v}
+    args.unused_columns = [h for h in header if h not in taken] if columns["too_cheap"] is None else []
     return columns
 
 
@@ -189,7 +205,12 @@ def parse_price(text, decimal, where, markers):
     cleaned = match.group(4)
     for marker in (match.group(1), match.group(3), match.group(5)):
         if marker:
-            markers.add(marker.rstrip(".").upper())
+            code = marker.rstrip(".").upper()
+            if code not in ISO_CURRENCIES and code not in CURRENCY_ABBREVIATIONS and code not in CURRENCY_CHARS:
+                raise InputError(f"{where}: {text.strip()!r} carries {marker!r}, which is not a currency symbol or "
+                                 "code. If it is a multiplier or a unit (k, m, mo), write the price as a plain number "
+                                 "in one unit for every respondent.")
+            markers.add(code)
     thousands = "," if decimal == "point" else "."
     mark = "." if decimal == "point" else ","
     grouped = re.fullmatch(r"\d{1,3}(%s\d{3})+(%s\d+)?" % (re.escape(thousands), re.escape(mark)), cleaned)
@@ -231,19 +252,38 @@ def read_rows(path, args):
         raise InputError(f"cannot read {path}: {exc.strerror or exc}")
     except UnicodeDecodeError:
         raise InputError(f"{path} is not UTF-8 text. Export the data as a UTF-8 CSV.")
-    lines = text.splitlines()
-    if not lines or not lines[0].strip():
+    if not text.strip() or not text.splitlines()[0].strip():
         raise InputError(f"{path} is empty or has no header row.")
+
+    def records(sep):
+        # Records, not physical lines: a quoted cell may hold a line break (Qualtrics question text).
+        return csv.reader(io.StringIO(text, newline=""), delimiter=sep)
+
     delimiter = args.delimiter
     if delimiter is None:
-        counts = {d: lines[0].count(d) for d in (",", ";", "\t")}
-        delimiter = max(counts, key=lambda d: counts[d])
-        if counts[delimiter] == 0:
+        # Count fields with the csv reader, so separators inside quoted header names do not count.
+        counts = {d: len(next(records(d))) for d in (",", ";", "\t")}
+        best = max(counts.values())
+        if best == 1:
             raise InputError("the header row has a single column. Expected a CSV with the price columns; "
                              "set the separator with --delimiter if it is not a comma, semicolon or tab.")
+        delimiter = "," if counts[","] == best else max(counts, key=lambda d: counts[d])
     elif delimiter == "\\t":
         delimiter = "\t"
-    reader = csv.reader(lines, delimiter=delimiter)
+    try:
+        table = list(records(delimiter))
+    except csv.Error as exc:
+        raise InputError(f"{path} could not be read as CSV: {exc}")
+    skip = args.skip_rows
+    if skip is None:
+        # Qualtrics puts the question text and an {"ImportId": ...} row under the header.
+        skip = next((i + 1 for i, row in enumerate(table[1:3]) if any("ImportId" in c for c in row)), 0)
+        if skip:
+            args.skipped_note = (f"Skipped {skip} row(s) under the header: a Qualtrics export's question-text and "
+                                 "ImportId rows (pass --skip-rows 0 to keep them).")
+    if skip < 0:
+        raise InputError("--skip-rows must be 0 or more.")
+    reader = iter(table[:1] + table[1 + skip:])
     header = [h.strip() for h in next(reader)]
     if len(set(header)) != len(header):
         raise InputError("the header row repeats a column name; column names must be unique.")
@@ -251,10 +291,20 @@ def read_rows(path, args):
     index = {name: i for i, name in enumerate(header)}
     na = {t.strip().lower() for t in args.na.split(",") if t.strip()} if args.na else set()
     scale = parse_scale(args)
+    if columns["intent_cheap"] and not args.intent_scale_given:
+        raise InputError("purchase-intent columns found, but the scale direction is not stated. Read the codebook "
+                         "and pass --intent-scale with the answers highest intent first: --intent-scale 5,4,3,2,1 if 5 "
+                         "means 'definitely would buy', --intent-scale 1,2,3,4,5 if 1 does. Or pass --no-nms.")
     rows, markers = [], set()
-    for line_no, cells in enumerate(reader, start=2):
+    for line_no, cells in enumerate(reader, start=2 + skip):
         if not any(c.strip() for c in cells):
             continue
+        if len(cells) > len(header):
+            if any(c.strip() for c in cells[len(header):]):
+                raise InputError(f"line {line_no} has {len(cells)} fields but the header has {len(header)}. A price "
+                                 "written with a thousands separator that is also the delimiter (1,000 in a comma "
+                                 "file) splits the cell; quote it or remove the separator.")
+            cells = cells[:len(header)]
         if len(cells) < len(header):
             cells = cells + [""] * (len(header) - len(cells))
 
@@ -316,29 +366,38 @@ def classify(rows, keys, opts):
     return incomplete, outside, inconsistent, consistent, ties
 
 
+class CurveEvaluator:
+    """Weighted count on one question's curve at any price. The grid and the --at report both use it."""
+
+    def __init__(self, rows, key, boundary, total):
+        pairs = sorted((r[key], r["weight"]) for r in rows)
+        self.values = [v for v, _ in pairs]
+        self.prefix = [0]
+        for _, w in pairs:
+            self.prefix.append(self.prefix[-1] + w)
+        self.falling = key in FALLING
+        self.boundary = boundary
+        self.total = total
+
+    def __call__(self, p):
+        if self.falling:
+            cut = bisect.bisect_left(self.values, p) if self.boundary == "inclusive" else bisect.bisect_right(self.values, p)
+            value = self.total - self.prefix[cut]
+        else:
+            value = self.prefix[bisect.bisect_right(self.values, p)]
+        if self.boundary == "exclusive-forced-ends" and p <= self.values[0]:
+            value = self.total if self.falling else 0
+        return value
+
+
 def build_curves(rows, keys, boundary):
     """Weighted counts on the grid of all distinct prices. Counts stay exact (int or Fraction)."""
     grid = sorted({row[k] for row in rows for k in keys})
     total = sum(r["weight"] for r in rows)
     counts = {}
     for key in keys:
-        pairs = sorted((r[key], r["weight"]) for r in rows)
-        values = [v for v, _ in pairs]
-        prefix = [0]
-        for _, w in pairs:
-            prefix.append(prefix[-1] + w)
-        falling = key in FALLING
-        curve = []
-        for p in grid:
-            if falling:
-                cut = bisect.bisect_left(values, p) if boundary == "inclusive" else bisect.bisect_right(values, p)
-                value = total - prefix[cut]
-            else:
-                value = prefix[bisect.bisect_right(values, p)]
-            if boundary == "exclusive-forced-ends" and p <= values[0]:
-                value = total if falling else 0
-            curve.append(value)
-        counts[key] = curve
+        evaluate = CurveEvaluator(rows, key, boundary, total)
+        counts[key] = [evaluate(p) for p in grid]
     if "cheap" in counts:
         counts["not_cheap"] = [total - c for c in counts["cheap"]]
         counts["not_expensive"] = [total - c for c in counts["expensive"]]
@@ -405,23 +464,27 @@ def price_points(grid, counts, opts):
 
 
 def shares_at(rows, keys, price, boundary, total):
-    """Share on each curve at one candidate price, counted directly from the answers."""
-    def share(test):
-        return float(Fraction(sum(r["weight"] for r in rows if test(r))) / Fraction(total))
+    """Share on each curve at one candidate price, from the same evaluator as the curves (so --compat r's
+    pinned ends apply here too)."""
+    def share(count):
+        return float(Fraction(count) / Fraction(total))
 
-    strict_fall = boundary != "inclusive"
     out = {"price": price}
     for key in keys:
-        if key in FALLING:
-            out[key] = share(lambda r, k=key: r[k] > price if strict_fall else r[k] >= price)
-        else:
-            out[key] = share(lambda r, k=key: r[k] <= price)
+        out[key] = share(CurveEvaluator(rows, key, boundary, total)(price))
     out["not_cheap"] = 1 - out["cheap"]
     out["not_expensive"] = 1 - out["expensive"]
     if "too_cheap" in keys:
-        out["neither_too_cheap_nor_too_expensive"] = share(
-            lambda r: not (r["too_cheap"] > price if strict_fall else r["too_cheap"] >= price)
-            and not r["too_expensive"] <= price)
+        # Respondent by respondent: neither of the two rejections applies at this price.
+        pinned = boundary == "exclusive-forced-ends"
+        forced = pinned and price <= min(r["too_cheap"] for r in rows)
+        # The pinned lower end of the too-expensive curve: nobody rejects a price at or below its lowest value.
+        no_te = pinned and price <= min(r["too_expensive"] for r in rows)
+        strict_fall = boundary != "inclusive"
+        out["neither_too_cheap_nor_too_expensive"] = 0.0 if forced else share(sum(
+            r["weight"] for r in rows
+            if not (r["too_cheap"] > price if strict_fall else r["too_cheap"] >= price)
+            and (no_te or not r["too_expensive"] <= price)))
     return out
 
 
@@ -437,6 +500,7 @@ def bootstrap(rows, keys, opts):
     """Percentile intervals for the four points from seeded resampling of respondents."""
     rng = random.Random(opts.seed)
     draws = {k: [] for k in ("pmc", "opp", "ipp", "pme")}
+    widths = []
     for _ in range(opts.bootstrap):
         sample = rng.choices(rows, k=len(rows))
         if sum(r["weight"] for r in sample) == 0:
@@ -446,6 +510,9 @@ def bootstrap(rows, keys, opts):
         for key, value in points.items():
             if value["price"] is not None:
                 draws[key].append(value["price"])
+        if points["pmc"]["price"] is not None and points["pme"]["price"] is not None:
+            # The width is formed within each resample: the two ends move together.
+            widths.append(points["pme"]["price"] - points["pmc"]["price"])
     tail = (1 - CONFIDENCE) / 2
     intervals = {}
     for key, values in draws.items():
@@ -453,35 +520,51 @@ def bootstrap(rows, keys, opts):
         intervals[key] = {"low": quantile(values, tail), "high": quantile(values, 1 - tail),
                           "resamples_with_a_value": len(values)} if values else \
             {"low": None, "high": None, "resamples_with_a_value": 0}
+    widths.sort()
+    width = {"low": quantile(widths, tail), "high": quantile(widths, 1 - tail), "resamples_with_a_value": len(widths)} \
+        if widths else {"low": None, "high": None, "resamples_with_a_value": 0}
     return {"resamples": opts.bootstrap, "seed": opts.seed, "confidence": CONFIDENCE, "method": "percentile",
-            "intervals": intervals}
+            "intervals": intervals, "range_width": width}
 
 
 # ---------------------------------------------------------------- Newton-Miller-Smith
 
-def purchase_probability(row, price, variant, p_low, p_high):
-    """One respondent's purchase probability at a price.
+def purchase_probability(row, price, variant, p_low, p_high, side="at"):
+    """One respondent's purchase probability at a price, or its limit from just below or above (side).
 
     Stated answers win at the respondent's own cheap and expensive prices (the mean of the two when the
     prices are equal). Otherwise p_low at or below too cheap and p_high at or above too expensive, and
     linear in between. variant 'modified' (and any respondent without a too-cheap price) holds the
-    cheap-price probability for every price below cheap.
+    cheap-price probability for every price below cheap. Where two of a respondent's prices are equal the
+    function jumps, so the value at that price and its one-sided limits differ.
     """
     tc, c, e, te = (row[k] for k in PRICE_KEYS)
     pc, pe = row["intent_cheap"], row["intent_expensive"]
-    if price == c and price == e:
-        return (pc + pe) / 2
-    if price == c:
-        return pc
-    if price == e:
-        return pe
-    if price < c:
+    if side == "at":
+        if price == c and price == e:
+            return (pc + pe) / 2
+        if price == c:
+            return pc
+        if price == e:
+            return pe
+        below_c, below_e = price < c, price < e
+        low_end = tc is not None and price <= tc
+        high_end = price >= te
+    elif side == "below":  # limit as the price rises to this value
+        below_c, below_e = price <= c, price <= e
+        low_end = tc is not None and price <= tc
+        high_end = price > te
+    else:  # "above": limit as the price falls to this value
+        below_c, below_e = price < c, price < e
+        low_end = tc is not None and price < tc
+        high_end = price >= te
+    if below_c:
         if variant == "modified" or tc is None:
             return pc
-        return p_low if price <= tc else p_low + (pc - p_low) * (price - tc) / (c - tc)
-    if price < e:
+        return p_low if low_end else p_low + (pc - p_low) * (price - tc) / (c - tc)
+    if below_e:
         return pc + (pe - pc) * (price - c) / (e - c)
-    return p_high if price >= te else pe + (p_high - pe) * (price - e) / (te - e)
+    return p_high if high_end else pe + (p_high - pe) * (price - e) / (te - e)
 
 
 def nms_analysis(rows, grid, opts):
@@ -489,18 +572,26 @@ def nms_analysis(rows, grid, opts):
     total = float(sum(r["weight"] for r in usable))
     if not usable or total == 0:
         return None, 0, 0
-    trial = [sum(float(r["weight"]) * purchase_probability(r, p, opts.nms_variant, opts.nms_too_cheap_prob,
-                                                           opts.nms_too_expensive_prob) for r in usable) / total
-             for p in grid]
+
+    def mean_probability(price, side):
+        return sum(float(r["weight"]) * purchase_probability(r, price, opts.nms_variant, opts.nms_too_cheap_prob,
+                                                             opts.nms_too_expensive_prob, side) for r in usable) / total
+
+    # Every respondent's own prices are grid prices, so between two neighbouring grid prices each respondent
+    # (and so the mean) is linear: it runs from the limit just above the left price to the limit just below
+    # the right one. At a grid price the value can differ from both limits when a respondent gave two
+    # questions the same price.
+    trial = [mean_probability(p, "at") for p in grid]
+    below = [mean_probability(p, "below") for p in grid]
+    above = [mean_probability(p, "above") for p in grid]
     revenue = [p * t for p, t in zip(grid, trial)]
     best_trial = max(trial)
     trial_prices = [p for p, t in zip(grid, trial) if t == best_trial]
     grid_rev = max(revenue)
     at = revenue.index(grid_rev)
-    # Trial is linear between grid prices, so revenue is quadratic there and can peak inside a segment.
     best_price, best_rev, best_rev_trial = grid[at], grid_rev, trial[at]
     for i in range(len(grid) - 1):
-        x1, x2, t1, t2 = grid[i], grid[i + 1], trial[i], trial[i + 1]
+        x1, x2, t1, t2 = grid[i], grid[i + 1], above[i], below[i + 1]
         slope = (t2 - t1) / (x2 - x1)
         if slope >= 0:
             continue
@@ -509,17 +600,43 @@ def nms_analysis(rows, grid, opts):
             t = t1 + slope * (vertex - x1)
             if vertex * t > best_rev * (1 + 1e-12):
                 best_price, best_rev, best_rev_trial = vertex, vertex * t, t
+    # A one-sided limit can beat every price actually evaluated (a jump at a tied price). It is not attained,
+    # so it is reported separately, with the side from which a price approaches it.
+    approached = None
+    for i, p in enumerate(grid):
+        for side, values in (("below", below), ("above", above)):
+            if side == "above" and i == len(grid) - 1:  # above the highest price the curve is flat at p_high
+                continue
+            if p * values[i] > best_rev * (1 + 1e-9) and (approached is None or p * values[i] > approached["revenue_index"]):
+                approached = {"price": p, "side": side, "revenue_index": p * values[i], "trial": values[i]}
+    trial_approached = None
+    for i, p in enumerate(grid):
+        for side, values in (("below", below), ("above", above)):
+            if side == "above" and i == len(grid) - 1:  # above the highest price the curve is flat at p_high
+                continue
+            if values[i] > best_trial + 1e-12 and (trial_approached is None or values[i] > trial_approached["trial"]):
+                trial_approached = {"price": p, "side": side, "trial": values[i]}
     reversed_intent = sum(1 for r in usable if r["intent_expensive"] > r["intent_cheap"])
+    curve = []
+    for i, (p, t, r) in enumerate(zip(grid, trial, revenue)):
+        row = {"price": p, "trial": t, "revenue_index": r}
+        if i > 0 and abs(below[i] - t) > 1e-12:
+            row["trial_just_below"] = below[i]
+        if i < len(grid) - 1 and abs(above[i] - t) > 1e-12:
+            row["trial_just_above"] = above[i]
+        curve.append(row)
     result = {
         "n": len(usable),
         "variant": opts.nms_variant,
         "probability_at_too_cheap": opts.nms_too_cheap_prob,
         "probability_at_too_expensive": opts.nms_too_expensive_prob,
         "trial_max": {"price": trial_prices[0], "trial": best_trial, "tied_prices": trial_prices[1:]},
+        "trial_max_approached": trial_approached,
         "revenue_max": {"price": best_price, "revenue_index": best_rev, "trial": best_rev_trial,
                         "on_grid": best_price in grid},
+        "revenue_max_approached": approached,
         "revenue_max_on_grid": {"price": grid[at], "revenue_index": grid_rev},
-        "curve": [{"price": p, "trial": t, "revenue_index": r} for p, t, r in zip(grid, trial, revenue)],
+        "curve": curve,
     }
     return result, len(rows) - len(usable), reversed_intent
 
@@ -542,9 +659,18 @@ def analyse(rows, columns, opts, scale):
     total = sum(r["weight"] for r in analysed)
     if total == 0:
         raise InputError("the analysed respondents have a total weight of zero.")
+    # Zero-weight respondents are counted in the audit but take no part in the estimate: their prices would
+    # otherwise add grid points (and move interpolated crossings) and count toward the base.
+    estimated = [r for r in analysed if r["weight"] > 0]
+    zero_weight = len(analysed) - len(estimated)
+    if zero_weight:
+        warnings.append(f"{zero_weight} analysed respondent(s) have weight 0: counted here, left out of the curves, "
+                        "the price points, the bootstrap and the base.")
     if three:
         warnings.append("Three-question variant: there is no too-cheap price, so OPP (too cheap x too expensive) and "
-                        "PMC (too cheap x not cheap, or too cheap x expensive) cannot be computed. IPP and PME are reported.")
+                        "PMC (too cheap x not cheap, or too cheap x expensive) cannot be computed. IPP and PME are reported."
+                        + (f" Columns not used: {', '.join(opts.unused_columns)}; if one is the too-cheap question, "
+                           "name it with --too-cheap." if getattr(opts, "unused_columns", None) else ""))
     if incomplete:
         warnings.append(f"{len(incomplete)} respondent(s) left out: at least one price is missing.")
     if outside:
@@ -563,11 +689,11 @@ def analyse(rows, columns, opts, scale):
     if not_positive:
         warnings.append(f"{not_positive} analysed respondent(s) gave a price of zero or less. They are included "
                         "unchanged; exclude them with --min-price if they are not real answers.")
-    if len(analysed) < opts.min_n:
-        warnings.append(f"Small sample: n = {len(analysed)} analysed, below {opts.min_n}. "
+    if len(estimated) < opts.min_n:
+        warnings.append(f"Small sample: n = {len(estimated)} analysed with a positive weight, below {opts.min_n}. "
                         "Treat the result as directional.")
 
-    grid, counts, total = build_curves(analysed, keys, opts.boundary)
+    grid, counts, total = build_curves(estimated, keys, opts.boundary)
     points, alternative = price_points(grid, counts, opts)
     for key, point in points.items():
         name = key.upper()
@@ -592,7 +718,12 @@ def analyse(rows, columns, opts, scale):
 
     nms = None
     if columns["intent_cheap"]:
-        nms, missing_intent, reversed_intent = nms_analysis(analysed, grid, opts)
+        out_of_order = {id(r) for r in inconsistent}
+        nms, missing_intent, reversed_intent = nms_analysis([r for r in estimated if id(r) not in out_of_order], grid, opts)
+        kept_out = sum(1 for r in estimated if id(r) in out_of_order)
+        if kept_out:
+            warnings.append(f"Newton-Miller-Smith extension: {kept_out} kept inconsistent respondent(s) left out; with "
+                            "prices out of order their purchase-probability line is not defined.")
         if nms is None:
             warnings.append("Newton-Miller-Smith extension skipped: no analysed respondent answered both "
                             "purchase-intent questions.")
@@ -608,17 +739,27 @@ def analyse(rows, columns, opts, scale):
             if reversed_intent:
                 warnings.append(f"Newton-Miller-Smith extension: {reversed_intent} respondent(s) stated a higher "
                                 "purchase intent at their expensive price than at their cheap price.")
+            for key, what in (("revenue_max_approached", "revenue"), ("trial_max_approached", "trial")):
+                near = nms[key]
+                if near:
+                    where = "just below" if near["side"] == "below" else "just above"
+                    warnings.append(
+                        f"Newton-Miller-Smith extension: the highest {what} is approached {where} {fmt(near['price'])} "
+                        f"(trial {pct(near['trial'])}), where respondents who gave two questions the same price make "
+                        f"the purchase probability jump; at {fmt(near['price'])} itself it is lower. Report a price "
+                        f"{where} {fmt(near['price'])}, not {fmt(near['price'])}.")
             if nms["trial_max"]["tied_prices"]:
                 warnings.append("Newton-Miller-Smith extension: several prices share the maximum trial; "
                                 "the lowest is reported.")
 
     boot = None
     if opts.bootstrap:
-        boot = bootstrap(analysed, keys, opts)
-        low, high = boot["intervals"]["pmc"], boot["intervals"]["pme"]
-        if low["high"] is not None and high["low"] is not None and low["high"] >= high["low"]:
-            warnings.append(f"Bootstrap: the {pct(CONFIDENCE, 0)} intervals of PMC and PME overlap, so this sample "
-                            "does not separate the two ends of the acceptable range.")
+        boot = bootstrap(estimated, keys, opts)
+        width = boot["range_width"]
+        if width["low"] is not None and width["low"] <= 0:
+            warnings.append(f"Bootstrap: the {pct(CONFIDENCE, 0)} interval of the range width (PME minus PMC, "
+                            f"{fmt(width['low'])} to {fmt(width['high'])} over {width['resamples_with_a_value']} "
+                            "resamples) reaches zero or below, so this sample does not show a range of positive width.")
 
     def share(value):
         return float(Fraction(value) / Fraction(total))
@@ -634,6 +775,8 @@ def analyse(rows, columns, opts, scale):
             "inconsistent_kept": bool(opts.keep_inconsistent),
             "with_tied_prices": ties,
             "analysed": len(analysed),
+            "zero_weight": zero_weight,
+            "estimated": len(estimated),
             "weight_total": float(total),
             "consistency_rule": rule,
         },
@@ -643,10 +786,10 @@ def analyse(rows, columns, opts, scale):
         "alternative_range": {"low": alternative["pmc"]["price"], "high": alternative["pme"]["price"],
                               "definition": alternative["definition"],
                               "pmc_curves": alternative["pmc"]["curves"], "pme_curves": alternative["pme"]["curves"]},
-        "price_summary": {k: {"min": min(r[k] for r in analysed),
-                              "median": quantile(sorted(r[k] for r in analysed), 0.5),
-                              "max": max(r[k] for r in analysed)} for k in keys},
-        "at": [shares_at(analysed, keys, p, opts.boundary, total) for p in opts.at],
+        "price_summary": {k: {"min": min(r[k] for r in estimated),
+                              "median": quantile(sorted(r[k] for r in estimated), 0.5),
+                              "max": max(r[k] for r in estimated)} for k in keys},
+        "at": [shares_at(estimated, keys, p, opts.boundary, total) for p in opts.at],
         "bootstrap": boot,
         "curves": [dict({"price": p}, **{k: share(counts[k][i]) for k in CURVE_KEYS if k in counts})
                    for i, p in enumerate(grid)],
@@ -674,6 +817,8 @@ def run(rows, columns, markers, opts, scale):
         "tie": opts.tie,
         "weights": columns["weight"] or "none (every respondent counts once)",
     }
+    if getattr(opts, "skipped_note", None):
+        result["warnings"].insert(0, opts.skipped_note)
     if len(markers) > 1:
         result["warnings"].append("The prices carry different currency markers (" + ", ".join(markers) +
                                   "). The script does not convert currencies; analyse one currency at a time.")
@@ -928,9 +1073,14 @@ def render_svg(result):
     panels = [body]
     nms = result["nms"]
     if nms:
-        nx = [row["price"] for row in nms["curve"]]
-        trial = [row["trial"] for row in nms["curve"]]
-        revenue = [row["revenue_index"] for row in nms["curve"]]
+        # Draw the same curve the optimiser uses: vertical jumps at tied prices, straight lines between.
+        nx, trial = [], []
+        for row in nms["curve"]:
+            for key in ("trial_just_below", "trial", "trial_just_above"):
+                if key in row:
+                    nx.append(row["price"])
+                    trial.append(row[key])
+        revenue = [x * t for x, t in zip(nx, trial)]
         body, bottom = _panel(bottom, f"Newton-Miller-Smith trial: mean purchase probability (n = {nms['n']})",
                               nx, [("Trial", trial)], x_low, x_high, max(trial) or 1.0,
                               lambda y: f"{100 * y:.0f}%", [("Highest trial", nms["trial_max"]["price"])], None)
@@ -971,7 +1121,10 @@ def build_parser():
     g.add_argument("--segment", metavar="COLUMN", help="also analyse each value of this column on its own")
     g.add_argument("--weight", metavar="COLUMN", help="respondent weights (non-negative numbers) used in every curve")
     g = p.add_argument_group("reading")
-    g.add_argument("--delimiter", help="field separator (default: comma, semicolon or tab, whichever the header uses most)")
+    g.add_argument("--delimiter", help="field separator (default: comma, semicolon or tab, whichever splits the header into the most fields)")
+    g.add_argument("--skip-rows", type=int, metavar="N",
+                   help="rows under the header to skip (default: the 2 extra header rows of a Qualtrics export when "
+                        "detected, otherwise 0)")
     g.add_argument("--decimal", choices=("point", "comma"), default="point", help="decimal mark in prices (default: point)")
     g.add_argument("--na", metavar="TOKENS", help="comma-separated cell values that mean 'no answer', for example NA,N/A")
     g.add_argument("--min-price", type=float, metavar="PRICE", help="exclude (and count) respondents with any price below this")
@@ -1003,8 +1156,9 @@ def build_parser():
     g.add_argument("--seed", type=int, default=1, help="random seed for --bootstrap (default: 1)")
     g = p.add_argument_group("Newton-Miller-Smith extension")
     g.add_argument("--no-nms", action="store_true", help="skip the extension even when intent columns are present")
-    g.add_argument("--intent-scale", default=DEFAULT_INTENT_SCALE,
-                   help=f"intent answers as they appear in the file, highest intent first (default: {DEFAULT_INTENT_SCALE})")
+    g.add_argument("--intent-scale", default=None,
+                   help="intent answers as they appear in the file, highest intent first, for example 5,4,3,2,1 "
+                        "when 5 = definitely would buy. Required when the extension runs: the direction is never guessed")
     g.add_argument("--nms-preset", choices=tuple(NMS_PRESETS),
                    help="purchase probabilities for the five scale points: " +
                         "; ".join(f"{k} = {v}" for k, v in NMS_PRESETS.items()) + f" (default: {DEFAULT_NMS_PRESET})")
@@ -1038,6 +1192,9 @@ def main(argv=None):
         args.no_interpolate = args.no_interpolate or preset.get("no_interpolate", False)
         args.boundary = args.boundary or preset.get("boundary", "inclusive")
         args.tie = args.tie or preset.get("tie", "midpoint")
+        args.intent_scale_given = args.intent_scale is not None
+        args.intent_scale = args.intent_scale or DEFAULT_INTENT_SCALE
+        args.skipped_note = None
         rows, columns, markers = read_rows(args.input, args)
         result = run(rows, columns, markers, args, parse_scale(args))
         for path, writer in ((args.chart, write_chart), (args.curves_csv, write_curves_csv)):

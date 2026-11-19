@@ -13,6 +13,7 @@ Usage: python3 scripts/survey_sample_size.py SUBCOMMAND [options] [--json]
   check       what a given n supports: overall margin, smallest subgroup, detectable difference
   subgroups   total n and a quota table so every reported subgroup reaches its base or margin
   invites     invitations to send for a target number of completes
+  nps         Net Promoter Score: n for a margin in NPS points, the margin of an n, or n per group to compare two scores
   maxdiff     MaxDiff rules of thumb (sets per respondent, respondents)
   conjoint    choice-based conjoint rules of thumb (respondents)
   interviews  planning range for interviews or focus groups (guidance, not a formula)
@@ -22,6 +23,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import sys
 from statistics import NormalDist
 
@@ -33,11 +35,15 @@ CONJOINT_MIN_REPRESENTATIONS = 500  # Johnson's rule, Orme ch. 7: n*t*a/c >= 500
 CONJOINT_BETTER_REPRESENTATIONS = 1000  # Orme ch. 7: "1,000 or more" is better
 CONJOINT_MIN_TOTAL = 300  # Orme ch. 7: at least 300 when subgroups are not compared
 CHOICE_MIN_PER_SUBGROUP = 200  # Orme ch. 7 (conjoint), Sawtooth MaxDiff guidelines
-MAXDIFF_MIN_TOTAL = 200  # Sawtooth MaxDiff guidelines
+MAXDIFF_MIN_TOTAL = 300  # Sawtooth MaxDiff sample-size blog: at least 300 in total
+MAXDIFF_MIN_PER_SUBGROUP = 200  # ... and at least 200 in every separately reported subgroup
+MAXDIFF_MANY_ITEMS = 30  # ... raise both above about 30 items (doubled at 60 items in its example)
+MAXDIFF_PER_SET = 4  # same default as the maxdiff-design skill: 4, or 3 for 6 or 7 items
 MAXDIFF_TIMES_SHOWN = 3  # Sawtooth: each item 3 times per respondent, sets = 3K/k
 MAXDIFF_MIN_TIMES_SHOWN = 2  # Sawtooth warns below 2 times per respondent
 MAXDIFF_MIN_EXPOSURES = 500  # Sawtooth manual: each item seen at least 500 times
 MAXDIFF_BETTER_EXPOSURES = 1000  # ... and preferably 1000 times
+NPS_DEFAULT_VARIANCE = 0.67  # Lewis and Sauro 2021c: a realistic maximum of the NPS variance (range 0.40-0.76)
 SUBGROUP_MIN_BASE = 100  # Sudman 1976: 100 or more per major subgroup
 SMALL_COUNT = 10  # under 10 expected responses in the smaller category: Wilson, not Wald
 INTERVIEW_RANGES = {  # per fairly homogeneous segment
@@ -48,10 +54,15 @@ INTERVIEW_RANGES = {  # per fairly homogeneous segment
 SATURATION_BASE = 4  # Guest, Namey and Chen 2020: default base size of four interviews
 SATURATION_RUN = 2  # ... run length two (or three)
 SATURATION_THRESHOLD = 0.05  # ... <=5% (or 0%) new information
+# Subcommands whose statement carries a sampling margin or confidence level (relabelled by --opt-in).
+OPT_IN_LABELLED = ("proportion", "mean", "compare", "gap", "check", "subgroups", "nps")
 TABLE_MARGINS = (0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.10)
 TABLE_DIFFERENCES = (0.02, 0.03, 0.05, 0.075, 0.10, 0.15, 0.20)
 TABLE_D = (0.1, 0.2, 0.3, 0.4, 0.5, 0.8)
 TABLE_N_FACTORS = (0.5, 1, 2, 4)
+NPS_TABLE_MARGINS = (0.03, 0.05, 0.07, 0.10)  # +/-3, 5, 7 and 10 NPS points
+NPS_TABLE_DIFFERENCES = (0.05, 0.10, 0.15, 0.20)  # 5, 10, 15 and 20 NPS points
+Z_DIGITS = 6  # z printed as 1.959964, not 1.96: the script computes with the exact quantile
 
 
 class InputError(Exception):
@@ -146,9 +157,13 @@ def fpc_factor(n, population):
 
 
 def interval_n(n0, population, deff, notes=None):
-    """Apply the finite population correction, then the design effect, and round up."""
-    n = fpc_n(n0, population) if population else n0
-    n = ceil_n(n * deff)
+    """Inflate by the design effect, then apply the finite population correction, and round up.
+
+    With m = n0 deff, n = m N / (N - 1 + m) solves e = z sqrt(p q deff / n) sqrt((N - n)/(N - 1)) exactly,
+    so the n returned and the margin the reverse command prints for it agree.
+    """
+    m = n0 * deff
+    n = ceil_n(fpc_n(m, population) if population else m)
     if population and n >= population:
         n = int(population)
         if notes is not None:
@@ -188,6 +203,17 @@ def wilson_interval(p, n, z):
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
+def achieved_margin(p, n, z, deff, population):
+    """The precision the reverse proportion command reports for n: 0 for a census, the larger distance from p
+    to an end of the Wilson interval when the smaller category expects under 10 responses, else the Wald margin."""
+    if population and n >= population:
+        return 0.0
+    if (n / deff) * min(p, 1 - p) < SMALL_COUNT:
+        low, high = wilson_interval(p, n / deff, z)
+        return max(p - low, high - p)
+    return wald_margin(p, n, z, deff, population)
+
+
 def describe_sample(population, deff):
     text = "a simple random sample"
     text += " from a population of %d" % population if population else " from a large population"
@@ -214,7 +240,7 @@ def cmd_proportion(args):
         p = fraction(0.5 if args.p is None else args.p, "--p")
     z = z_value(0.5 + confidence / 2.0)
     notes = []
-    result = {"z": round(z, 4)}
+    result = {"z": round(z, Z_DIGITS)}
     assumptions = ["Proportion p = %g%s." % (round(p, 4), " (the most cautious value: it gives the largest n)" if p == 0.5 else "")]
     assumptions += interval_assumptions(confidence, deff, how, population)
     sample = describe_sample(population, deff)
@@ -225,24 +251,46 @@ def cmd_proportion(args):
             raise InputError("an observed proportion of %g cannot be used to plan n; pass --p instead of --x" % p)
         n0 = z * z * p * (1 - p) / (margin * margin)
         result["n_infinite_population"] = round(n0, 2)
-        result["n_required"] = interval_n(n0, population, deff, notes)
-        statement = (
-            "A sample of %d completed responses gives a margin of error of +/-%s percentage points at %g%% confidence for a proportion of %s%%, "
-            "assuming %s (Cochran's formula, n = z^2 p(1-p)/e^2%s)."
-            % (result["n_required"], pct(margin), confidence * 100, pct(p), sample, " with the finite population correction" if population else "")
-        )
+        n_req = interval_n(n0, population, deff, notes)
+        # The first whole n the reverse command calls sufficient, checked in both directions.
+        while n_req > 1 and achieved_margin(p, n_req - 1, z, deff, population) <= margin + EPS:
+            n_req -= 1
+        while achieved_margin(p, n_req, z, deff, population) > margin + EPS and not (population and n_req >= population):
+            n_req += 1
+        result["n_required"] = n_req
+        if (n_req / deff) * min(p, 1 - p) < SMALL_COUNT and not (population and n_req >= population):
+            result["planning_method"] = "wilson"
+            notes.append("Under %d expected responses in the smaller category: n is the smallest that keeps the Wilson score interval within +/-%s points of %s%% on both sides, because the +/- (Wald) formula claims far too much precision there (Brown, Cai and DasGupta 2001)." % (SMALL_COUNT, pct(margin), pct(p)))
+            statement = (
+                "A sample of %d completed responses keeps the %g%% Wilson score interval for a proportion of %s%% within +/-%s percentage points on both sides, "
+                "assuming %s (with fewer than %d expected responses in the smaller category a +/- margin from Cochran's formula would overstate the precision)."
+                % (n_req, confidence * 100, pct(p), pct(margin), sample, SMALL_COUNT)
+            )
+        else:
+            result["planning_method"] = "wald"
+            statement = (
+                "A sample of %d completed responses gives a margin of error of +/-%s percentage points at %g%% confidence for a proportion of %s%%, "
+                "assuming %s (Cochran's formula, n = z^2 p(1-p)/e^2%s)."
+                % (n_req, pct(margin), confidence * 100, pct(p), sample, " with the finite population correction" if population else "")
+            )
     if args.n is not None:
         n = positive(args.n, "--n")
         if population and n > population:
             raise InputError("--n (%d) is larger than --population (%d)" % (n, population))
         n_eff = n / deff
         result["n"] = n
-        if args.x is not None or n_eff * min(p, 1 - p) < SMALL_COUNT:
+        if population and n == population:
+            result.update({"interval_method": "census", "estimate": round(p, 4), "margin_of_error": 0.0})
+            notes.append("Every member of the population responded: the percentage is exact, with no sampling error. Nonresponse to the question and measurement error still apply.")
+            if args.margin is None:
+                statement = "With all %d members of the population responding, %s is the population's percentage itself: there is no sampling error to report." % (
+                    n, "%s%%" % pct(p) if args.x is not None else "every percentage")
+        elif args.x is not None or n_eff * min(p, 1 - p) < SMALL_COUNT:
             low, high = wilson_interval(p, n_eff, z)
             result.update({"interval_method": "wilson", "estimate": round(p, 4), "interval_low": round(low, 4), "interval_high": round(high, 4)})
             notes.append("Wilson score interval: with fewer than %d expected responses in the smaller category a symmetric +/- margin is misleading. Report the interval, or the raw count." % SMALL_COUNT)
             if population:
-                notes.append("The finite population correction is not applied to the Wilson interval; for a small population the true interval is somewhat narrower.")
+                notes.append("The finite population correction is not applied to the Wilson interval: it treats the %d responses as drawn from a much larger population, so with %d of %d sampled it is wider than the true interval." % (n, n, population))
             if args.margin is None:
                 statement = "With %d responses, an estimate of %s%% has a %g%% confidence interval from %s%% to %s%% (Wilson score interval), assuming %s." % (
                     n, pct(p), confidence * 100, pct(low), pct(high), sample)
@@ -254,7 +302,7 @@ def cmd_proportion(args):
                 statement = "With %d responses, a result of %s%% has a margin of error of +/-%s percentage points at %g%% confidence, assuming %s (e = z sqrt(p(1-p)/n))." % (
                     n, pct(p), pct(margin_given), confidence * 100, sample)
         if args.margin is not None:
-            result["sufficient"] = n >= result["n_required"]
+            result["sufficient"] = achieved_margin(p, n, z, deff, population) <= margin + EPS
     if args.table:
         if args.margin is None and 0 < p < 1:
             rows = []
@@ -266,15 +314,18 @@ def cmd_proportion(args):
             result["table"] = rows
         elif 0 < p < 1:
             result["table"] = [{"margin": m, "n_required": interval_n(z * z * p * (1 - p) / (m * m), population, deff)} for m in TABLE_MARGINS]
+            if any(row["n_required"] / deff * min(p, 1 - p) < SMALL_COUNT for row in result["table"]):
+                notes.append("Table rows with under %d expected responses in the smaller category use Cochran's formula only; run each margin on its own for the Wilson-based n." % SMALL_COUNT)
     return {
         "inputs": {"margin": args.margin, "n": args.n, "x": args.x, "p": round(p, 6), "confidence": confidence, "population": population, "deff": round(deff, 4)},
         "result": result,
         "statement": statement,
         "assumptions": assumptions,
         "notes": notes,
-        "formula": "n0 = z^2 p(1-p) / e^2; with a population N: n = n0 / (1 + (n0 - 1)/N); then n * deff. "
-        "Reverse: e = z sqrt(p(1-p) deff / n) sqrt((N - n)/(N - 1)); Wilson score interval when n min(p, 1-p) < 10 or a count is given.",
-        "sources": ["Cochran 1977, Sampling Techniques, ch. 4", "Israel 1992, Determining Sample Size", "Kish 1965, Survey Sampling (design effect)", "Wilson 1927, JASA 22(158) (score interval)"],
+        "formula": "n0 = z^2 p(1-p) / e^2; m = n0 deff; with a population N: n = m / (1 + (m - 1)/N). "
+        "Reverse: e = z sqrt(p(1-p) deff / n) sqrt((N - n)/(N - 1)); Wilson score interval when n min(p, 1-p) < 10 or a count is given; "
+        "planning in that region takes the smallest n whose Wilson interval stays within +/-e of p.",
+        "sources": ["Cochran 1977, Sampling Techniques, ch. 4", "Israel 1992, Determining Sample Size", "Kish 1965, Survey Sampling (design effect)", "Wilson 1927, JASA 22(158) (score interval)", "Brown, Cai and DasGupta 2001, Statistical Science 16(2)"],
     }
 
 
@@ -287,7 +338,7 @@ def cmd_mean(args):
     population = check_population(args.population)
     z = z_value(0.5 + confidence / 2.0)
     notes = []
-    result = {"z": round(z, 4)}
+    result = {"z": round(z, Z_DIGITS)}
     assumptions = ["Standard deviation %g, in the same units as the margin; it is a planning guess, so check it against a pilot or an earlier wave." % sd]
     assumptions += interval_assumptions(confidence, deff, how, population)
     sample = describe_sample(population, deff)
@@ -296,7 +347,18 @@ def cmd_mean(args):
         margin = positive(args.margin, "--margin")
         n0 = (z * sd / margin) ** 2
         result["n_infinite_population"] = round(n0, 2)
-        result["n_required"] = interval_n(n0, population, deff, notes)
+        n_req = interval_n(n0, population, deff, notes)
+
+        def mean_margin(count):
+            if population and count >= population:
+                return 0.0
+            return z * sd / math.sqrt(count / deff) * (fpc_factor(count, population) if population else 1.0)
+
+        while n_req > 1 and mean_margin(n_req - 1) <= margin + EPS:
+            n_req -= 1
+        while mean_margin(n_req) > margin + EPS and not (population and n_req >= population):
+            n_req += 1
+        result["n_required"] = n_req
         statement = "A sample of %d completed responses gives a margin of error of +/-%g on the mean at %g%% confidence, assuming a standard deviation of %g and %s (n = (z SD/e)^2)." % (
             result["n_required"], margin, confidence * 100, sd, sample)
     if args.n is not None:
@@ -308,7 +370,10 @@ def cmd_mean(args):
             se *= fpc_factor(n, population)
         result["n"] = n
         result["margin_of_error"] = round(z * se, 4)
-        if n < 30:
+        if population and n == population:
+            result["interval_method"] = "census"
+            notes.append("Every member of the population responded: the mean is exact, with no sampling error.")
+        if n < 30 and not (population and n == population):
             notes.append("n is under 30: use a t interval when you analyse, which is wider than this normal approximation.")
         if args.margin is not None:
             result["sufficient"] = n >= result["n_required"]
@@ -321,7 +386,7 @@ def cmd_mean(args):
         "statement": statement,
         "assumptions": assumptions,
         "notes": notes,
-        "formula": "n0 = (z sd / e)^2; with a population N: n = n0 / (1 + (n0 - 1)/N); then n * deff. "
+        "formula": "n0 = (z sd / e)^2; m = n0 deff; with a population N: n = m / (1 + (m - 1)/N). "
         "Reverse: e = z sd sqrt(deff / n) sqrt((N - n)/(N - 1)).",
         "sources": ["Cochran 1977, Sampling Techniques, ch. 4", "Illowsky and Dean, Introductory Statistics (OpenStax), section 8.1"],
     }
@@ -330,7 +395,8 @@ def cmd_mean(args):
 class TwoGroupTest:
     """n for group 1 is (z_a s0 + z_b s1)^2 / effect^2 (+ a correction); group 2 is ratio times that."""
 
-    def __init__(self, method, ratio, z_alpha, z_beta, continuity=False):
+    def __init__(self, method, ratio, z_alpha, z_beta, continuity=False, sides=2):
+        self.sides = sides
         self.method = method
         self.ratio = ratio
         self.z_alpha = z_alpha
@@ -363,7 +429,11 @@ class TwoGroupTest:
             if n <= shift:
                 return 0.0
             n = (n - shift) ** 2 / n
-        return phi((effect * math.sqrt(n) - self.z_alpha * s0) / s1)
+        power = phi((effect * math.sqrt(n) - self.z_alpha * s0) / s1)
+        if self.sides == 2:
+            # A two-sided test also rejects in the wrong direction (R's strict = TRUE).
+            power += phi((-effect * math.sqrt(n) - self.z_alpha * s0) / s1)
+        return power
 
     def n_props(self, p1, p2):
         return self.n_from_parts(*self.parts(p1, p2))
@@ -384,7 +454,10 @@ class TwoGroupTest:
         n = n - (self.correction() if t_test else 0.0)
         if n <= 0:
             return 0.0
-        return phi(effect * math.sqrt(n / self.k) - self.z_alpha)
+        power = phi(effect * math.sqrt(n / self.k) - self.z_alpha)
+        if self.sides == 2:
+            power += phi(-effect * math.sqrt(n / self.k) - self.z_alpha)
+        return power
 
     def detectable_standardised(self, n, t_test):
         n = n - (self.correction() if t_test else 0.0)
@@ -437,7 +510,7 @@ def cmd_compare(args):
     equal = abs(ratio - 1.0) < EPS
     sided = "two-sided" if args.sides == 2 else "one-sided"
     notes = []
-    result = {"z_alpha": round(z_alpha, 4), "z_beta": round(z_beta, 4)}
+    result = {"z_alpha": round(z_alpha, Z_DIGITS), "z_beta": round(z_beta, Z_DIGITS)}
     assumptions = ["Significance level alpha = %g, %s; power %g%%." % (alpha, sided, power * 100)]
     if comparisons > 1:
         result["alpha_per_comparison"] = round(alpha_each, 6)
@@ -458,7 +531,7 @@ def cmd_compare(args):
     method = args.variance
     if args.continuity and (not is_props or method == "arcsine"):
         raise InputError("--continuity applies to proportions with --variance pooled, unpooled or baseline")
-    test = TwoGroupTest(method, ratio, z_alpha, z_beta, args.continuity)
+    test = TwoGroupTest(method, ratio, z_alpha, z_beta, args.continuity, args.sides)
     inputs = {"alpha": alpha, "power": power, "sides": args.sides, "comparisons": comparisons, "ratio": round(ratio, 6), "deff": round(deff, 4), "n": args.n}
     n_given = None if args.n is None else args.n / deff
     key_n = "n_per_group" if equal else "n_group_1"
@@ -479,6 +552,8 @@ def cmd_compare(args):
 
     def report_power(value):
         result["power_at_n"] = round(value, 3)
+        if args.sides == 2:
+            notes.append("Two-sided power counts a significant result in either direction (R power.prop.test with strict = TRUE); R's default strict = FALSE leaves out the small chance of rejecting in the wrong direction. The required n uses the usual one-tail approximation, so power at that n can be slightly above the target.")
         result["sufficient"] = args.n >= result[key_n]
         notes.append("Power here is for the difference you assume before fielding. Do not compute it afterwards from the observed difference: that only restates the p-value.")
 
@@ -521,7 +596,8 @@ def cmd_compare(args):
             raw = test.n_props(p1, p2)
             result["difference"] = round(abs(p1 - p2), 4)
             n1, n2 = report_n(raw)
-            if raw * min(p1, 1 - p1, p2, 1 - p2) < 5:
+            # Expected counts in each group's smaller category, each at its own group size.
+            if min(raw * min(p1, 1 - p1), raw * ratio * min(p2, 1 - p2)) < 5:
                 notes.append("Fewer than 5 expected responses in a cell: the normal approximation is poor; plan with an exact method.")
             statement = "%s are needed to detect a difference between %s%% and %s%% (%s, %s%s)." % (
                 sizes_text(n1, n2).capitalize(), pct(p1), pct(p2), tail, described[2], ", continuity-corrected" if args.continuity else "")
@@ -663,13 +739,15 @@ def parse_shares(items):
 def cmd_subgroups(args):
     shares = parse_shares(args.share)
     confidence = fraction(args.confidence, "--confidence")
+    deff, how = resolve_deff(args)
     z = z_value(0.5 + confidence / 2.0)
     if args.margin is not None:
         if args.min_base is not None:
             raise InputError("give --margin or --min-base, not both")
         margin = fraction(args.margin, "--margin")
-        min_base = ceil_n(z * z * 0.25 / (margin * margin))
-        base_text = "Base per subgroup %d: the n for +/-%s points at p = 0.5, %g%% confidence." % (min_base, pct(margin), confidence * 100)
+        min_base = ceil_n(z * z * 0.25 / (margin * margin) * deff)
+        base_text = "Base per subgroup %d: the n for +/-%s points at p = 0.5, %g%% confidence%s." % (
+            min_base, pct(margin), confidence * 100, ", times the design effect %g" % round(deff, 4) if deff != 1 else "")
     else:
         min_base = positive(SUBGROUP_MIN_BASE if args.min_base is None else args.min_base, "--min-base")
         base_text = "Minimum base %d per reported subgroup%s." % (min_base, " (Sudman's rule for major subgroups)" if min_base == SUBGROUP_MIN_BASE else "")
@@ -683,7 +761,7 @@ def cmd_subgroups(args):
             "share": share,
             "required_total": ceil_n(min_base / share),
             "expected_n": round(expected, 1),
-            "margin_of_error": round(z * math.sqrt(0.25 / expected), 4),
+            "margin_of_error": round(z * math.sqrt(0.25 * deff / expected), 4),
         })
     notes = ["These are expected counts. Without a quota the smallest subgroup lands below %d about half the time: set quotas at the expected n, or add a margin." % min_base]
     if len(shares) > 1 and sum(share for _, share in shares) > 1 + EPS:
@@ -693,19 +771,20 @@ def cmd_subgroups(args):
         "min_base": min_base,
         "n_total": total,
         "expected_smallest_subgroup": round(total * smallest, 1),
-        "subgroup_margin_of_error_at_min_base": round(z * math.sqrt(0.25 / min_base), 4),
+        "subgroup_margin_of_error_at_min_base": round(z * math.sqrt(0.25 * deff / min_base), 4),
         "quota_table": table,
     }
     statement = "A total of %d completed responses gives an expected %d or more in every reported subgroup (smallest: %s at %s%% of the sample), which is +/-%s percentage points at %g%% confidence within that subgroup." % (
         total, min_base, smallest_name, pct(smallest), pct(result["subgroup_margin_of_error_at_min_base"]), confidence * 100)
     return {
-        "inputs": {"shares": [share for _, share in shares], "names": [name for name, _ in shares], "min_base": args.min_base, "margin": args.margin, "confidence": confidence},
+        "inputs": {"shares": [share for _, share in shares], "names": [name for name, _ in shares], "min_base": args.min_base, "margin": args.margin, "confidence": confidence, "deff": round(deff, 4)},
         "result": result,
         "statement": statement,
         "assumptions": [
             base_text,
             "Each subgroup's share of completes equals the share given here; no quota or oversample.",
             "Margins of error: p = 0.5, %g%% confidence, simple random sample within the subgroup." % (confidence * 100),
+            deff_text(deff, how),
         ],
         "notes": notes,
         "formula": "required total for a subgroup = base / its share; n_total = the largest of these",
@@ -727,6 +806,10 @@ def cmd_check(args):
     n_eff = n / deff
     result = {"n": n}
 
+    population = check_population(args.population)
+    if population and n > population:
+        raise InputError("--n (%d) is larger than --population (%d)" % (n, population))
+
     def describe(count, target):
         if count * min(p, 1 - p) < SMALL_COUNT:
             low, high = wilson_interval(p, count, z)
@@ -736,7 +819,14 @@ def cmd_check(args):
         return "+/-%s points" % pct(target["margin_of_error"])
 
     overall = {}
-    overall_text = describe(n_eff, overall)
+    if population and n == population:
+        overall.update({"interval_method": "census", "margin_of_error": 0.0})
+        overall_text = "no sampling error (every member of the population of %d responded)" % population
+    elif population and n_eff * min(p, 1 - p) >= SMALL_COUNT:
+        overall["margin_of_error"] = round(wald_margin(p, n, z, deff, population), 4)
+        overall_text = "+/-%s points" % pct(overall["margin_of_error"])
+    else:
+        overall_text = describe(n_eff, overall)
     result["overall"] = overall
     parts = ["overall percentages have %s" % overall_text]
     if args.share:
@@ -766,11 +856,11 @@ def cmd_check(args):
     statement = "With n = %d: %s (%g%% confidence; alpha %g two-sided, power %g%%; simple random sample%s)." % (
         n, "; ".join(parts), confidence * 100, alpha, power * 100, "" if deff == 1 else ", design effect %g" % round(deff, 4))
     return {
-        "inputs": {"n": n, "shares": args.share, "p": p, "confidence": confidence, "alpha": alpha, "power": power, "deff": round(deff, 4)},
+        "inputs": {"n": n, "shares": args.share, "p": p, "confidence": confidence, "alpha": alpha, "power": power, "deff": round(deff, 4), "population": population},
         "result": result,
         "statement": statement,
         "assumptions": [
-            "Percentages near p = %g; %g%% confidence; large population." % (p, confidence * 100),
+            "Percentages near p = %g; %g%% confidence; %s." % (p, confidence * 100, "finite population correction for the overall margin, population %d" % population if population else "large population"),
             "Detectable difference: two independent halves of the sample, alpha %g two-sided, power %g%%, pooled-variance test for percentages and a t test for means (d, in standard deviations)." % (alpha, power * 100),
             "Simple random sample; for an opt-in sample read every margin as a rough guide.",
             deff_text(deff, how),
@@ -825,15 +915,142 @@ def cmd_invites(args):
     }
 
 
+def cmd_nps(args):
+    """NPS = share of promoters - share of detractors, scored +1/0/-1 per respondent (Rocks 2016)."""
+    confidence = fraction(args.confidence, "--confidence")
+    deff, how = resolve_deff(args)
+    population = check_population(args.population)
+    given = (args.promoters is not None, args.detractors is not None)
+    if any(given) and not all(given):
+        raise InputError("--promoters and --detractors go together")
+    if all(given):
+        if args.variance is not None:
+            raise InputError("give --promoters with --detractors, or --variance, not both")
+        pro = fraction(args.promoters, "--promoters", allow_zero=True)
+        det = fraction(args.detractors, "--detractors", allow_zero=True)
+        if pro + det > 1 + EPS:
+            raise InputError("--promoters and --detractors are shares of one sample and cannot sum to more than 1")
+        variance = pro + det - (pro - det) ** 2
+        basis = "Variance %g from %s%% promoters and %s%% detractors: p_pro + p_det - NPS^2 (Rocks 2016)." % (round(variance, 4), pct(pro), pct(det))
+    elif args.variance is not None:
+        variance = fraction(args.variance, "--variance", allow_one=True)
+        basis = "Variance %g, as given (the score's variance on the +1/0/-1 scale, at most 1)." % variance
+    else:
+        variance = NPS_DEFAULT_VARIANCE
+        basis = "Variance %g: MeasuringU's realistic maximum (observed 0.40 to 0.76 across 18 data sets; Lewis and Sauro 2021c). Pass --promoters and --detractors from an earlier wave to use your own." % variance
+    if not variance > 0:
+        raise InputError("the variance is 0 (every answer in one category): there is no sampling spread to plan for")
+    z = z_value(0.5 + confidence / 2.0)
+    notes = []
+    result = {"variance": round(variance, 4), "z": round(z, Z_DIGITS)}
+    assumptions = [basis, "NPS in points = 100 x (share of promoters - share of detractors); margins below are in NPS points."]
+    sample = describe_sample(population, deff)
+    statement = ""
+    if args.diff is not None:
+        if args.margin is not None:
+            raise InputError("give --diff (compare two scores) or --margin (one score), not both")
+        alpha = fraction(args.alpha, "--alpha")
+        power = fraction(args.power, "--power")
+        if power <= 0.5:
+            raise InputError("--power must be above 0.5, got %g" % power)
+        diff = abs(args.diff)
+        if not 0 < diff <= 2:
+            raise InputError("--diff is a difference in NPS as a proportion (0.1 = 10 points), above 0 and at most 2")
+        z_alpha = z_value(1 - alpha / args.sides)
+        z_beta = z_value(power)
+        raw = (z_alpha + z_beta) ** 2 * 2 * variance / diff ** 2
+        n_group = ceil_n(raw * deff)
+        result.update({"difference": diff, "n_per_group": n_group, "n_total": 2 * n_group})
+        assumptions += ["Two independent groups of equal size with the same variance; alpha %g %s, power %g%%." % (alpha, "two-sided" if args.sides == 2 else "one-sided", power * 100),
+                        deff_text(deff, how)]
+        statement = "%d completed responses per group (%d in total) are needed to detect a difference of %s NPS points between two independent groups (alpha %g %s, power %g%%, NPS variance %g; normal approximation)." % (
+            n_group, 2 * n_group, pct(diff), alpha, "two-sided" if args.sides == 2 else "one-sided", power * 100, round(variance, 4))
+        if args.n is not None:
+            n_eff = positive(args.n, "--n") / deff
+            shift = diff * math.sqrt(n_eff / (2 * variance))
+            achieved = phi(shift - z_alpha) + (phi(-shift - z_alpha) if args.sides == 2 else 0.0)
+            result.update({"n": args.n, "power_at_n": round(achieved, 3), "sufficient": args.n >= n_group})
+            notes.append("Power is for the difference assumed before fielding, never for an observed one.")
+        if args.table:
+            rows = []
+            for step in NPS_TABLE_DIFFERENCES:
+                row = {"difference": step, "n_per_group": ceil_n((z_alpha + z_beta) ** 2 * 2 * variance / step ** 2 * deff)}
+                if args.n is not None:
+                    shift_row = step * math.sqrt(n_eff / (2 * variance))
+                    row["power_at_n"] = round(phi(shift_row - z_alpha) + (phi(-shift_row - z_alpha) if args.sides == 2 else 0.0), 3)
+                rows.append(row)
+            result["table"] = rows
+        notes.append("Lewis and Sauro (2021c) give the same formula and subtract 3 per group when the analysis uses the adjusted-Wald test (which adds 3); this keeps the 3 as a margin.")
+        formula = "n per group = (z_a + z_b)^2 (Var1 + Var2) / diff^2 with Var1 = Var2 (Lewis and Sauro 2021c, without their -3)"
+        sources = ["Rocks 2016, The American Statistician 70(4) (NPS variance)", "Lewis and Sauro 2021b, How to statistically compare two Net Promoter Scores (MeasuringU)", "Lewis and Sauro 2021c, Sample sizes for comparing Net Promoter Scores (MeasuringU)"]
+    else:
+        if args.margin is None and args.n is None:
+            raise InputError("give --margin (to get n), --n (to get the margin), or --diff (to compare two scores)")
+        assumptions += interval_assumptions(confidence, deff, how, population)
+        if args.margin is not None:
+            margin = fraction(args.margin, "--margin")
+            n0 = z * z * variance / (margin * margin)
+            result["n_infinite_population"] = round(n0, 2)
+            result["n_required"] = interval_n(n0, population, deff, notes)
+            statement = "A sample of %d completed responses gives a margin of error of +/-%s NPS points at %g%% confidence, assuming an NPS variance of %g and %s (n = z^2 Var / e^2)." % (
+                result["n_required"], pct(margin), confidence * 100, round(variance, 4), sample)
+        if args.n is not None:
+            n = positive(args.n, "--n")
+            if population and n > population:
+                raise InputError("--n (%d) is larger than --population (%d)" % (n, population))
+            margin_given = z * math.sqrt(variance * deff / n) * (fpc_factor(n, population) if population else 1.0)
+            result.update({"n": n, "margin_of_error": round(margin_given, 4)})
+            if args.margin is not None:
+                result["sufficient"] = margin_given <= args.margin + EPS
+            else:
+                statement = "With %d responses, an NPS has a margin of error of +/-%s points at %g%% confidence, assuming an NPS variance of %g and %s (e = z sqrt(Var/n))." % (
+                    n, pct(margin_given), confidence * 100, round(variance, 4), sample)
+            if n < 30:
+                notes.append("Under 30 responses: report the adjusted-Wald interval from the nps-analysis skill rather than this normal approximation (Rocks 2016).")
+        if args.table:
+            if args.margin is None:
+                rows = []
+                for factor in TABLE_N_FACTORS:
+                    n_row = max(1, int(round(args.n * factor)))
+                    if population and n_row > population:
+                        continue
+                    rows.append({"n": n_row, "margin_of_error": round(z * math.sqrt(variance * deff / n_row) * (fpc_factor(n_row, population) if population else 1.0), 4)})
+                result["table"] = rows
+            else:
+                result["table"] = [{"margin": m, "n_required": interval_n(z * z * variance / (m * m), population, deff)} for m in NPS_TABLE_MARGINS]
+        formula = "n0 = z^2 Var / e^2, Var = p_pro + p_det - (p_pro - p_det)^2; m = n0 deff; with a population N: n = m / (1 + (m - 1)/N)"
+        sources = ["Rocks 2016, The American Statistician 70(4) (NPS variance and Wald interval)", "Lewis and Sauro 2021c, Sample sizes for comparing Net Promoter Scores (MeasuringU)", "Cochran 1977, Sampling Techniques, ch. 4"]
+    notes.append("A proportion's +/-5 points (n = 385) is not an NPS's +/-5 points: the NPS is a difference of two shares and needs about %.1f times as many responses at this variance." % (variance / 0.25))
+    return {
+        "inputs": {"promoters": args.promoters, "detractors": args.detractors, "variance": args.variance, "margin": args.margin, "n": args.n,
+                   "diff": args.diff, "confidence": confidence, "population": population, "deff": round(deff, 4)},
+        "result": result,
+        "statement": statement,
+        "assumptions": assumptions,
+        "notes": notes,
+        "formula": formula,
+        "sources": sources,
+    }
+
+
 def cmd_maxdiff(args):
     items = args.items
     if items < 4:
         raise InputError("--items must be at least 4, got %d" % items)
-    per_set = args.per_set if args.per_set is not None else (5 if items >= 10 else max(2, min(4, items // 2)))
+    # Same default as maxdiff-design: 4 per set, or 3 when 4 would be more than half the list.
+    if args.per_set is not None:
+        per_set = args.per_set
+    elif items >= 2 * MAXDIFF_PER_SET:
+        per_set = MAXDIFF_PER_SET
+    else:
+        per_set = max(2, min(3, items // 2))
     if per_set < 2 or per_set >= items:
         raise InputError("--per-set must be at least 2 and fewer than --items, got %d" % per_set)
     subgroups = positive(args.subgroups, "--subgroups")
     notes = []
+    if args.per_set is None or args.sets is None:
+        notes.append("Using %s; if the design is already built (maxdiff-design), pass its --per-set and --sets so this sizes that design." % (
+            "the default items per set (%d)" % per_set if args.per_set is None else "the default sets per respondent (3K/k)"))
     if per_set > items / 2.0:
         notes.append("More than half the items appear in each set; Sawtooth advises at most half.")
     if per_set > 5:
@@ -841,11 +1058,16 @@ def cmd_maxdiff(args):
     recommended_sets = ceil_n(MAXDIFF_TIMES_SHOWN * items / float(per_set))
     sets = positive(args.sets, "--sets") if args.sets is not None else recommended_sets
     times_shown = sets * per_set / float(items)
-    if times_shown < MAXDIFF_MIN_TIMES_SHOWN:
-        notes.append("Each respondent sees each item %.2f times (under 2): a sparse design. Scores for individual respondents are imprecise; report totals and large segments only." % times_shown)
+    sparse = times_shown < MAXDIFF_MIN_TIMES_SHOWN
+    if sparse:
+        notes.append("Each respondent sees each item %.2f times (under 2): a sparse design for pooled analysis only, so the 500-exposure rule applies. Scores for individual respondents are not supported." % times_shown)
     elif times_shown < MAXDIFF_TIMES_SHOWN:
         notes.append("Each respondent sees each item %.2f times (under 3): individual-level scores are less precise." % times_shown)
-    floor = MAXDIFF_MIN_TOTAL * subgroups
+    scale = max(1.0, items / float(MAXDIFF_MANY_ITEMS))
+    if scale > 1:
+        notes.append("More than %d items: the respondent floors are raised in proportion (x%.2f), following Sawtooth's advice to raise them for long lists (doubled at 60 items)." % (MAXDIFF_MANY_ITEMS, scale))
+    per_group = ceil_n(MAXDIFF_MIN_PER_SUBGROUP * scale)
+    floor = max(ceil_n(MAXDIFF_MIN_TOTAL * scale), per_group * subgroups if subgroups > 1 else 0)
     n_min = ceil_n(MAXDIFF_MIN_EXPOSURES / times_shown) * subgroups
     n_better = ceil_n(MAXDIFF_BETTER_EXPOSURES / times_shown) * subgroups
     result = {
@@ -854,18 +1076,22 @@ def cmd_maxdiff(args):
         "sets_recommended": recommended_sets,
         "sets_used": sets,
         "times_each_item_shown_per_respondent": round(times_shown, 2),
+        "sparse_design": sparse,
         "n_for_500_exposures_per_item": n_min,
         "n_for_1000_exposures_per_item": n_better,
         "n_floor": floor,
-        "n_recommended": max(floor, n_min),
+        "n_recommended": max(floor, n_min) if sparse else floor,
     }
     if args.n is not None:
         n = positive(args.n, "--n")
         result["n"] = n
         result["exposures_per_item_per_subgroup"] = int(round(n * times_shown / subgroups))
         result["sufficient"] = n >= result["n_recommended"]
-    statement = "For a MaxDiff with %d items shown %d at a time in %d sets, plan at least %d respondents (rule of thumb from Sawtooth Software: at least 200 per group compared and each item seen at least 500 times; not a power calculation)." % (
-        items, per_set, sets, result["n_recommended"])
+    rule = "at least %d respondents in total%s" % (ceil_n(MAXDIFF_MIN_TOTAL * scale), " and %d in each of %d subgroups reported" % (per_group, subgroups) if subgroups > 1 else "")
+    if sparse:
+        rule += ", and, because the design is sparse, each item seen at least 500 times (exposures, not respondents) in each group"
+    statement = "For a MaxDiff with %d items shown %d at a time in %d sets, plan at least %d respondents (rule of thumb from Sawtooth Software: %s; not a power calculation)." % (
+        items, per_set, sets, result["n_recommended"], rule)
     return {
         "inputs": {"items": items, "per_set": args.per_set, "sets": args.sets, "subgroups": subgroups, "n": args.n},
         "result": result,
@@ -873,13 +1099,13 @@ def cmd_maxdiff(args):
         "assumptions": [
             "Rules of thumb from Sawtooth Software, not a power calculation.",
             "Sets per respondent = 3K/k so each of K items is shown 3 times, k items per set.",
-            "At least 200 respondents, and 200 in each of %d subgroup(s) compared." % subgroups,
-            "Each item seen at least 500 times (preferably 1000) within each group analysed.",
+            "At least 300 respondents in total and 200 in each subgroup reported separately (the same rule as the maxdiff-design and maxdiff-analysis skills), raised in proportion above 30 items.",
+            "Sparse designs (each item under 2 times per respondent, pooled analysis only): each item seen at least 500 times (preferably 1000) within each group analysed. These are item exposures, not respondents.",
             "Totals assume subgroups of equal size; for unequal ones size the smallest with the subgroups command.",
         ],
         "notes": notes,
-        "formula": "sets = 3K/k; times shown = sets x k / K; per subgroup: n >= 500 / times shown and n >= 200",
-        "sources": ["Sawtooth Software, MaxDiff calculator and design guidelines", "Sawtooth Software, Lighthouse Studio manual, Designing a MaxDiff study"],
+        "formula": "sets = 3K/k; times shown t = sets x k / K; n >= 300 in total and 200 per subgroup (x K/30 above 30 items); if t < 2, also n >= 500 / t per subgroup",
+        "sources": ["Sawtooth Software, MaxDiff sample size calculation best practices (blog)", "Sawtooth Software, MaxDiff calculator and design guidelines", "Sawtooth Software, Lighthouse Studio manual, Designing a MaxDiff study"],
     }
 
 
@@ -976,26 +1202,40 @@ def read_new_codes(args):
     if (args.new_codes is None) == (args.file is None):
         raise InputError("give --new-codes (a comma list) or --file (a CSV), one of them")
     if args.new_codes is not None:
-        cells = [c.strip() for c in args.new_codes.split(",") if c.strip()]
+        cells = [c.strip() for c in args.new_codes.split(",")]
+        while cells and cells[-1] == "":
+            cells.pop()  # a trailing comma
     else:
         try:
-            with open(args.file, newline="") as handle:
-                rows = [row for row in csv.reader(handle) if any(cell.strip() for cell in row)]
+            with open(args.file, encoding="utf-8-sig", newline="") as handle:
+                text = handle.read()
         except OSError as error:
             raise InputError("cannot read %s: %s" % (args.file, error.strerror))
-        if not rows:
+        except UnicodeDecodeError:
+            raise InputError("%s is not UTF-8 text" % args.file)
+        lines = [line for line in text.splitlines() if line.strip()]
+        if not lines:
             raise InputError("%s is empty" % args.file)
-        column = len(rows[0]) - 1
-        try:
-            float(rows[0][column])
-        except ValueError:
-            header = [cell.strip().lower() for cell in rows[0]]
-            if "new_codes" in header:
-                column = header.index("new_codes")
-            rows = rows[1:]
+        counts = {d: len(next(csv.reader([lines[0]], delimiter=d))) for d in (",", ";", "\t")}
+        delimiter = "," if counts[","] == max(counts.values()) else max(counts, key=counts.get)
+        rows = list(csv.reader(lines, delimiter=delimiter))
+        first = [cell.strip() for cell in rows[0]]
+        has_header = any(cell and not re.fullmatch(r"-?\d+(\.\d+)?", cell) for cell in first)
+        header = [cell.lower() for cell in first] if has_header else None
+        wanted = (args.column or "new_codes").strip().lower()
+        if header is not None and wanted in header:
+            column = header.index(wanted)
+        elif len(first) == 1 and args.column is None:
+            column = 0
+        else:
+            raise InputError("%s has %d columns; name the one with the counts new_codes or pass --column NAME%s" % (
+                args.file, len(first), " (found: %s)" % ", ".join(first) if header is not None else ""))
+        rows = rows[1:] if has_header else rows
         cells = [row[column].strip() if column < len(row) else "" for row in rows]
     values = []
     for position, cell in enumerate(cells, 1):
+        if cell == "":
+            raise InputError("interview %d has no count of new codes; give 0 if it added none" % position)
         try:
             value = int(cell)
         except ValueError:
@@ -1118,6 +1358,8 @@ def render(report):
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", help="print the result as JSON")
+    common.add_argument("--opt-in", action="store_true",
+                        help="respondents opted in (panel, customer list, social post): label margins as a simple-random-sample benchmark, not a property of this sample")
     parser = argparse.ArgumentParser(description="Survey sample size calculator (see references/sources.md for the formulas).")
     sub = parser.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
     sub.required = True
@@ -1185,6 +1427,7 @@ def build_parser():
     p.add_argument("--confidence", type=float, default=0.95, help="confidence level (default 0.95)")
     p.add_argument("--alpha", type=float, default=0.05, help="significance level for the detectable difference (default 0.05)")
     p.add_argument("--power", type=float, default=0.80, help="power for the detectable difference (default 0.80)")
+    p.add_argument("--population", type=int, help="population size: finite population correction for the overall margin")
     design_options(p)
     p.set_defaults(func=cmd_check)
 
@@ -1193,6 +1436,7 @@ def build_parser():
     p.add_argument("--min-base", type=int, help="minimum responses per subgroup (default %d)" % SUBGROUP_MIN_BASE)
     p.add_argument("--margin", type=float, help="target margin of error within every subgroup, instead of --min-base")
     p.add_argument("--confidence", type=float, default=0.95, help="confidence level for the margins (default 0.95)")
+    design_options(p)
     p.set_defaults(func=cmd_subgroups)
 
     p = sub.add_parser("invites", parents=[common], help="invitations needed for a target number of completes")
@@ -1204,9 +1448,25 @@ def build_parser():
     p.add_argument("--removal-rate", type=float, default=0.0, help="share of completes you expect to remove in cleaning (default 0)")
     p.set_defaults(func=cmd_invites)
 
+    p = sub.add_parser("nps", parents=[common], help="Net Promoter Score: margin in NPS points, or n per group to compare two scores")
+    p.add_argument("--promoters", type=float, help="expected share of promoters (9-10), for example 0.4")
+    p.add_argument("--detractors", type=float, help="expected share of detractors (0-6), for example 0.2")
+    p.add_argument("--variance", type=float, help="NPS variance instead of the shares (default %g)" % NPS_DEFAULT_VARIANCE)
+    p.add_argument("--margin", type=float, help="target margin in NPS points as a proportion (0.05 = +/-5 points)")
+    p.add_argument("--n", type=int, help="a sample size (per group with --diff) to check")
+    p.add_argument("--diff", type=float, help="difference in NPS to detect between two groups, as a proportion (0.1 = 10 points)")
+    p.add_argument("--confidence", type=float, default=0.95, help="confidence level (default 0.95)")
+    p.add_argument("--population", type=int, help="population size, for the finite population correction")
+    p.add_argument("--alpha", type=float, default=0.05, help="with --diff: significance level (default 0.05)")
+    p.add_argument("--power", type=float, default=0.80, help="with --diff: power (default 0.80)")
+    p.add_argument("--sides", type=int, choices=[1, 2], default=2, help="with --diff: one- or two-sided test (default 2)")
+    p.add_argument("--table", action="store_true", help="add a sensitivity table: n at +/-3, 5, 7 and 10 points, the margin at other n, or n per group for 5 to 20 point differences")
+    design_options(p)
+    p.set_defaults(func=cmd_nps)
+
     p = sub.add_parser("maxdiff", parents=[common], help="MaxDiff rules of thumb")
     p.add_argument("--items", type=int, required=True, help="number of items (K)")
-    p.add_argument("--per-set", type=int, help="items shown per set (k); default 5, or fewer for short lists")
+    p.add_argument("--per-set", type=int, help="items shown per set (k); default 4, or 3 for 6 or 7 items (as maxdiff-design)")
     p.add_argument("--sets", type=int, help="sets each respondent answers; default 3K/k")
     p.add_argument("--subgroups", type=int, default=1, help="number of subgroups to compare (default 1)")
     p.add_argument("--n", type=int, help="a sample size to check")
@@ -1229,7 +1489,8 @@ def build_parser():
 
     p = sub.add_parser("saturation", parents=[common], help="saturation check from new codes per interview")
     p.add_argument("--new-codes", help="new codes per interview, in order, comma-separated: 12,9,8,8,4,3,1,0")
-    p.add_argument("--file", help="CSV, one row per interview in order; the column new_codes, or the last column")
+    p.add_argument("--file", help="CSV, one row per interview in order: a single column, or the column new_codes (or --column)")
+    p.add_argument("--column", help="name of the column with the counts in --file (default new_codes)")
     p.add_argument("--base", type=int, default=SATURATION_BASE, help="base size (default %d)" % SATURATION_BASE)
     p.add_argument("--run", type=int, default=SATURATION_RUN, help="run length (default %d)" % SATURATION_RUN)
     p.add_argument("--threshold", type=float, default=SATURATION_THRESHOLD, help="new-information threshold (default %g)" % SATURATION_THRESHOLD)
@@ -1240,8 +1501,15 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
+        for name, value in vars(args).items():
+            if isinstance(value, float) and not math.isfinite(value):
+                raise InputError("--%s must be a finite number, got %s" % (name.replace("_", "-"), value))
         report = {"subcommand": args.subcommand}
         report.update(args.func(args))
+        if args.opt_in and args.subcommand in OPT_IN_LABELLED:
+            report["statement"] = ("Benchmark only, not a margin of error for this sample: " + report["statement"]
+                                   + " The respondents opted in rather than being sampled at random, so no design-based margin of error or confidence level applies to them (AAPOR); quote these numbers as what a simple random sample of the same size would give.")
+            report["assumptions"].insert(0, "Opt-in sample (--opt-in): the numbers are a simple-random-sample benchmark, not the precision of this sample.")
     except InputError as error:
         sys.stderr.write("survey-sample-size: error: %s\n" % error)
         return EXIT_BAD_INPUT

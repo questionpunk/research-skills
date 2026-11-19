@@ -28,8 +28,9 @@ substantial". The abstract gives no kappa values.
 - **The comparison that matters is with a person.** Both studies measure the model against human coding.
   A second run of the same model is a consistency check, not that comparison.
 - **Ask for the reason.** Have the model write a one-line rationale per row citing the words that
-  triggered the code (Dunivin's finding). Keep the rationale column out of the file given to a second
-  coder.
+  triggered the code (Dunivin's finding), in a `rationale` column of the batch file next to `id,codes`;
+  `merge` ignores it. Keep the rationale column out of the file given to a second coder (`sample` writes
+  only id and answer).
 - **The codebook does the work.** Both studies used expert-written codebooks. Vague definitions cost
   agreement with any coder; `include` and `exclude` with borderline cases are where a model gains most.
 - **Limits of this evidence.** Two studies, two tasks, models from 2023; neither is about short survey

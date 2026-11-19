@@ -14,10 +14,12 @@ Exit codes: 0 ok, 1 validate found problems, 2 bad input.
 """
 import argparse
 import csv
+import io
 import json
 import math
 import os
 import random
+import re
 import sys
 from collections import Counter
 from fractions import Fraction
@@ -46,6 +48,10 @@ DEFAULT_OTHER_ABOVE = 10.0
 PARADOX_AGREEMENT = 80.0  # percent agreement at or above this ...
 PARADOX_KAPPA = 0.40  # ... with kappa below this is flagged
 Z_95 = 1.959964
+# Leading or trailing marks that show a quote was trimmed; removed before the word-for-word check.
+TRIM_MARKS = ("[...]", "[…]", "...", "…")
+# File delimiter: None = detect from the header line (comma, then semicolon, tab or pipe). Set by --csv-delimiter.
+CSV_DELIMITER = None
 
 
 class InputError(Exception):
@@ -55,49 +61,103 @@ class InputError(Exception):
 # ---------------------------------------------------------------- reading files
 
 
-def read_csv(path):
+def header_line(content):
+    """The header row with quoted text removed, so a comma inside a quoted question does not count."""
+    unquoted = re.sub(r'"(?:[^"]|"")*"', "", content[:65536])
+    return re.split(r"[\r\n]", unquoted, maxsplit=1)[0]
+
+
+def detect_delimiter(content):
+    """Comma unless the header line has none and holds a semicolon, tab or pipe (European Excel exports)."""
+    header = header_line(content)
+    if "," in header:
+        return ","
+    priority = (";", "\t", "|")
+    found = [(header.count(d), -priority.index(d), d) for d in priority if d in header]
+    return max(found)[2] if found else ","
+
+
+def read_csv(path, delimiter=None):
+    forced = delimiter or CSV_DELIMITER
     try:
         with open(path, newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle)
-            if not reader.fieldnames:
-                raise InputError(f"{path}: empty file or no header row")
-            fields = [f.strip() for f in reader.fieldnames]
-            if len(set(fields)) != len(fields):
-                raise InputError(f"{path}: duplicate column names in the header")
-            rows = []
-            for raw in reader:
-                if None in raw:
-                    raise InputError(f"{path}: line {reader.line_num} has more cells than the header")
-                rows.append({k.strip(): (v or "") for k, v in raw.items()})
+            content = handle.read()
+        if forced and forced not in header_line(content):
+            forced = None  # --csv-delimiter names the separator of the files that use it; files this script wrote use commas
+        reader = csv.DictReader(io.StringIO(content, newline=""), delimiter=forced or detect_delimiter(content))
+        if not reader.fieldnames:
+            raise InputError(f"{path}: empty file or no header row")
+        fields = [f.strip() for f in reader.fieldnames]
+        if len(set(fields)) != len(fields):
+            raise InputError(f"{path}: duplicate column names in the header")
+        rows = []
+        for raw in reader:
+            if None in raw:
+                raise InputError(f"{path}: line {reader.line_num} has more cells than the header")
+            rows.append({k.strip(): (v or "") for k, v in raw.items()})
     except FileNotFoundError:
         raise InputError(f"{path}: file not found")
     except UnicodeDecodeError:
         raise InputError(f"{path}: not UTF-8 text; re-save the file as UTF-8 CSV")
     except csv.Error as exc:
         raise InputError(f"{path}: not a readable CSV ({exc})")
+    except OSError as exc:
+        raise InputError(f"{path}: cannot be read ({exc.strerror or exc})")
     return fields, rows
 
 
+def guard_output(out, inputs, option="--out"):
+    """Refuse to write over a file the command reads."""
+    if not out:
+        return
+    target = os.path.realpath(out)
+    for path in inputs:
+        if path and (os.path.realpath(path) == target or (os.path.exists(out) and os.path.exists(path) and os.path.samefile(out, path))):
+            raise InputError(f"{option} {out} is also an input file; write to a new file so the input is kept")
+
+
 def write_csv(path, columns, rows):
-    with open(path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+    try:
+        with open(path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+    except OSError as exc:
+        raise InputError(f"{path}: cannot be written ({exc.strerror or exc})")
 
 
 def need_column(path, fields, name, what):
     if name not in fields:
-        raise InputError(f"{path}: no {what} column named '{name}'. Columns found: {', '.join(fields)}")
+        hint = ""
+        if len(fields) == 1:
+            seps = [d for d in (";", "\t", "|", ",") if d in fields[0]]
+            if seps:
+                hint = f" The header looks separated by {seps[0]!r}: pass --csv-delimiter {seps[0]!r}."
+        raise InputError(f"{path}: no {what} column named '{name}'. Columns found: {', '.join(fields)}.{hint}")
 
 
 def squash(text):
     return " ".join(text.split())
 
 
-def read_codebook(path):
+def untrim(quote):
+    """The quote without the '...' marks that show it was trimmed at either end."""
+    quote = squash(quote)
+    changed = True
+    while changed and quote:
+        changed = False
+        for mark in TRIM_MARKS:
+            if quote.startswith(mark):
+                quote, changed = quote[len(mark):].strip(), True
+            if quote.endswith(mark):
+                quote, changed = quote[: -len(mark)].strip(), True
+    return quote
+
+
+def read_codebook(path, separator=";"):
     """Returns (ordered list of entries, list of problems). Reserved codes need not be listed.
 
-    An optional `parent` column groups codes into nets.
+    An optional `parent` column groups codes into nets. `separator` is the code separator of the coded files.
     """
     fields, rows = read_csv(path)
     missing = [c for c in CODEBOOK_COLUMNS if c not in fields]
@@ -114,6 +174,11 @@ def read_codebook(path):
         if code in seen:
             problems.append(f"codebook line {number}: code '{code}' is defined twice")
             continue
+        if "," in code or (separator and separator in code) or any(ch.isspace() for ch in code):
+            problems.append(
+                f"codebook line {number}: code '{code}' contains a space, a comma or the code separator "
+                f"'{separator}'; use a short name such as SLOW_SUPPORT"
+            )
         seen.add(code)
         if code.upper() in RESERVED and code not in RESERVED:
             problems.append(f"codebook line {number}: reserved code must be written '{code.upper()}'")
@@ -142,13 +207,22 @@ def nets_from(entries):
     return nets
 
 
+def add_csv_option(parser):
+    parser.add_argument(
+        "--csv-delimiter",
+        help="delimiter between the columns of every CSV read (default: detected; a comma unless the header has none "
+        "and holds ';', a tab or '|'). Output files use commas",
+    )
+
+
 def add_coded_options(parser, text_help="column with the answer text; a blank answer counts as NO_ANSWER"):
     parser.add_argument("--id-col", default="id", help="column with the row id (default: id)")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--codes-col", help="one column holding all codes of the row (default: codes)")
     group.add_argument("--code-cols", help="comma-separated names of 0/1 columns, one per code")
     group.add_argument("--code-prefix", help="prefix of the 0/1 code columns, e.g. code_ (code = the rest)")
-    parser.add_argument("--delimiter", default=";", help="separator inside --codes-col (default: ;)")
+    parser.add_argument("--delimiter", "--code-sep", dest="delimiter", default=";", help="separator between codes inside --codes-col (default: ;). Not the file delimiter: see --csv-delimiter")
+    add_csv_option(parser)
     parser.add_argument("--text-col", help=text_help)
     parser.add_argument("--codebook", help="codebook CSV (code,label,definition,include,exclude,example_quote[,parent])")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
@@ -235,7 +309,12 @@ def coding_problems(rows, known):
             problems.append(f"{where}: no code (code it, or use {OTHER} / {UNCODABLE} / {NO_ANSWER})")
             continue
         for code in codes:
-            if known is not None and code not in known and code not in RESERVED:
+            if "," in code and (known is None or code not in known):
+                problems.append(
+                    f"{where}: code '{code}' contains a comma; separate codes with the code separator "
+                    f"(';' by default, --delimiter to change it)"
+                )
+            elif known is not None and code not in known and code not in RESERVED:
                 hint = lowered.get(code.lower())
                 problems.append(f"{where}: unknown code '{code}'" + (f" (did you mean '{hint}'?)" if hint else ""))
             elif code.upper() in RESERVED and code not in RESERVED:
@@ -400,6 +479,11 @@ def crosses(interval, band):
     return bool(interval) and band(interval[0]) != band(interval[1])
 
 
+def kappa_crosses_band(interval):
+    """True when a kappa interval spans an edge of either scale printed beside it (Landis-Koch or McHugh)."""
+    return crosses(interval, landis_koch) or crosses(interval, mchugh)
+
+
 def number(value, digits=4):
     return None if value is None else round(float(value), digits)
 
@@ -472,6 +556,19 @@ def cmd_sample(args):
         if args.top_up_min < 1:
             raise InputError("--top-up-min must be at least 1")
         need_column(args.input, fields, args.codes_col, "codes (needed for --top-up-min)")
+        if not args.top_up_out:
+            raise InputError(
+                "--top-up-min needs --top-up-out FILE: the rare-code rows are chosen from the first coder's codes, "
+                "so they go to their own file and stay out of the random sample used for kappa and alpha"
+            )
+    if args.top_up_out and args.top_up_min is None:
+        raise InputError("--top-up-out needs --top-up-min")
+    if args.top_up_out and args.out and os.path.realpath(args.top_up_out) == os.path.realpath(args.out):
+        raise InputError("--top-up-out must differ from --out")
+    if args.top_up_out and not args.out:
+        raise InputError("--top-up-out needs --out for the random sample")
+    guard_output(args.out, [args.input] + list(args.exclude or []))
+    guard_output(args.top_up_out, [args.input] + list(args.exclude or []), "--top-up-out")
     ids = [r[args.id_col].strip() for r in rows]
     if any(not i for i in ids):
         raise InputError(f"{args.input}: some rows have an empty id")
@@ -487,16 +584,33 @@ def cmd_sample(args):
     pool = [
         r for r in rows if r[args.id_col].strip() not in excluded and (args.include_blank or r[args.text_col].strip())
     ]
+    adjusted = None
     if args.fraction is not None:
         if not 0 < args.fraction <= 1:
             raise InputError("--fraction must be above 0 and at most 1")
         size = max(1, round(len(pool) * args.fraction))
+        if args.at_least is not None:
+            if args.at_least < 1:
+                raise InputError("--at-least must be at least 1")
+            floor = min(args.at_least, len(pool))
+            if size < floor:
+                adjusted = f"{args.fraction:g} of {len(pool)} is {size}, raised to {floor} by --at-least {args.at_least}"
+                size = floor
     elif args.n is not None:
         size = args.n
+        if args.at_least is not None:
+            raise InputError("--at-least goes with --fraction")
     else:
         raise InputError("give --n or --fraction")
+    if args.all_if_fewer and args.n is None:
+        raise InputError("--all-if-fewer goes with --n")
     if size < 1:
         raise InputError("--n must be at least 1")
+    if size > len(pool) and args.all_if_fewer:
+        adjusted = f"asked for {size}, only {len(pool)} eligible: took them all"
+        size = len(pool)
+    if not pool:
+        raise InputError(f"{args.input}: no eligible answers ({len(rows)} rows, {len(blank)} blank, {len(excluded)} ids excluded)")
     if size > len(pool):
         raise InputError(
             f"asked for {size} answers but only {len(pool)} are eligible "
@@ -515,6 +629,7 @@ def cmd_sample(args):
         strata = {name: {"eligible": len(groups[name]), "sampled": quota[name]} for name in sorted(groups)}
     else:
         chosen = set(rng.sample(range(len(pool)), size))
+    random_rows = set(chosen)
     topped = {}
     if args.top_up_min is not None:
         carried = [
@@ -529,7 +644,10 @@ def cmd_sample(args):
             if add:
                 chosen.update(rng.sample(spare, add))
                 topped[code] = add
-    picked = [row for index, row in enumerate(pool) if index in chosen]  # file order, not draw order
+    picked = [row for index, row in enumerate(pool) if index in random_rows]  # file order unless --shuffle
+    audit = [row for index, row in enumerate(pool) if index in chosen and index not in random_rows]
+    if args.shuffle:
+        random.Random(args.seed).shuffle(picked)
     columns = fields if args.all_columns else [args.id_col, args.text_col]
     summary = {
         "input": args.input,
@@ -538,16 +656,22 @@ def cmd_sample(args):
         "excluded_ids": len(excluded),
         "eligible": len(pool),
         "requested": size,
+        "size_note": adjusted,
         "sampled": len(picked),
         "seed": args.seed,
+        "order": "shuffled (seeded)" if args.shuffle else "file order",
         "strata": strata,
         "topped_up": topped,
         "columns": columns,
         "ids": [r[args.id_col].strip() for r in picked],
         "out": args.out,
+        "top_up_ids": [r[args.id_col].strip() for r in audit],
+        "top_up_out": args.top_up_out,
     }
     if args.out:
         write_csv(args.out, columns, picked)
+    if args.top_up_out:
+        write_csv(args.top_up_out, columns, audit)
     if args.json:
         print(json.dumps(summary, indent=2, ensure_ascii=False))
     elif args.out:
@@ -555,14 +679,21 @@ def cmd_sample(args):
             f"Sampled {len(picked)} of {len(pool)} eligible answers (seed {args.seed}) from {len(rows)} rows; "
             f"{len(blank)} blank {'included' if args.include_blank else 'left out'}, {len(excluded)} ids excluded."
         )
+        if adjusted:
+            print(f"Sample size: {adjusted}.")
+        if args.shuffle:
+            print(f"Rows are in a seeded random order (seed {args.seed}): read and code them in this order.")
         if strata:
             print("By " + args.stratify_col + ": " + ", ".join(f"{k} {v['sampled']} of {v['eligible']}" for k, v in strata.items()))
-        if topped:
-            print(
-                "Topped up rare codes: " + ", ".join(f"{k} +{v}" for k, v in topped.items()) + ". The sample is no longer "
-                "a simple random one: use it for per-code agreement, not for shares or overall figures."
-            )
         print(f"Wrote {args.out} with columns: {', '.join(columns)}")
+        if args.top_up_out:
+            print(
+                f"Rare-code audit: {len(audit)} extra row(s) written to {args.top_up_out} ("
+                + (", ".join(f"{k} +{v}" for k, v in topped.items()) or "none needed")
+                + "). They were chosen from the first coder's codes, so they cannot find rows that coder missed and "
+                "they change the code shares kappa depends on. Have them coded blind too, but compute kappa and "
+                "alpha on the random sample only; read the audit rows as a disagreement check."
+            )
     else:
         writer = csv.DictWriter(sys.stdout, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
@@ -574,60 +705,90 @@ def cmd_sample(args):
 
 
 def cmd_saturation(args):
-    if args.base < 1 or args.run < 1 or args.threshold < 0:
+    """Guest, Namey and Chen (2020): new codes in a run of answers divided by the codes found in the base.
+
+    A code is new in a run when it first appears in one of the run's rows. With the default --step 1 the run
+    moves forward one answer at a time, as in Guest et al.; --step equal to --run gives non-overlapping runs.
+    """
+    if args.base < 1 or args.run < 1 or not args.threshold >= 0:
         raise InputError("--base and --run must be at least 1 and --threshold must not be negative")
-    rows, _ = read_coded(args.input, args)
+    step = args.step
+    if step < 1:
+        raise InputError("--step must be at least 1")
+    known = None
+    if args.codebook:
+        entries, problems = read_codebook(args.codebook, args.delimiter)
+        if problems:
+            raise InputError(f"{args.codebook}: " + "; ".join(problems))
+        known = {e["code"] for e in entries}
+    rows, _ = read_coded(args.input, args, text_col=args.text_col)
+    fill_blank_answers(rows)
+    uncoded = [row["id"] for row in rows if not row["codes"]]
+    if uncoded:
+        raise InputError(
+            f"{args.input}: {len(uncoded)} row(s) have no code (for example id '{uncoded[0]}'). An uncoded row is not "
+            "evidence that no new code turned up: finish coding them, or remove the rows you have not read yet."
+        )
+    stop_on(coding_problems(rows, known), args.input)
+    blank_rows = sum(1 for row in rows if row["codes"] == [NO_ANSWER])
+    rows = [row for row in rows if row["codes"] != [NO_ANSWER]]  # a blank answer cannot show a new code
     if len(rows) < args.base + args.run:
         raise InputError(
             f"{args.input}: {len(rows)} rows; a base of {args.base} and one run of {args.run} need {args.base + args.run}"
         )
-    seen, batches = [], []
-    edges = [(0, args.base)] + [(s, s + args.run) for s in range(args.base, len(rows) - args.run + 1, args.run)]
-    base_codes, reached = 0, None
-    for index, (start, end) in enumerate(edges):
-        new = []
-        for row in rows[start:end]:
-            for code in row["codes"]:
-                if code not in RESERVED and code not in seen:
-                    seen.append(code)
-                    new.append(code)
-        if index == 0:
-            base_codes = len(new)
-            if base_codes == 0:
-                raise InputError(f"{args.input}: the base rows carry no codes")
-        share = None if index == 0 else round(100.0 * len(new) / base_codes, 1)
-        if share is not None and reached is None and 100.0 * len(new) <= args.threshold * base_codes:
-            reached = index
+    first_seen = {}  # code -> index of the row where it first appears
+    for index, row in enumerate(rows):
+        for code in row["codes"]:
+            if code not in RESERVED and code not in first_seen:
+                first_seen[code] = index
+    base_new = [c for c, i in first_seen.items() if i < args.base]
+    base_codes = len(base_new)
+    if base_codes == 0:
+        raise InputError(f"{args.input}: the base rows carry no codes")
+    batches = [{"batch": "base", "rows": f"1-{args.base}", "new_codes": base_new, "codes_so_far": base_codes, "new_pct_of_base": None}]
+    edges = [(s, s + args.run) for s in range(args.base, len(rows) - args.run + 1, step)]
+    reached = None
+    for number_, (start, end) in enumerate(edges, start=1):
+        new = [c for c, i in first_seen.items() if start <= i < end]
+        share = round(100.0 * len(new) / base_codes, 1)
+        if reached is None and 100.0 * len(new) <= args.threshold * base_codes:
+            reached = number_
         batches.append(
             {
-                "batch": "base" if index == 0 else f"run {index}",
+                "batch": f"run {number_}",
                 "rows": f"{start + 1}-{end}",
                 "new_codes": new,
-                "codes_so_far": len(seen),
+                "codes_so_far": sum(1 for i in first_seen.values() if i < end),
                 "new_pct_of_base": share,
             }
         )
     leftover = len(rows) - edges[-1][1]
+    point = edges[reached - 1][0] if reached else None
     result = {
         "input": args.input,
         "base": args.base,
         "run": args.run,
+        "step": step,
         "threshold_pct": args.threshold,
         "base_codes": base_codes,
         "batches": batches,
         "rows_not_evaluated": leftover,
+        "blank_answers_skipped": blank_rows,
         "reached_at_run": reached,
-        "reached_after_rows": edges[reached][1] if reached else None,
+        "reached_after_rows": edges[reached - 1][1] if reached else None,
+        "saturation_point": point,
     }
     verdict = (
-        f"Stopping rule met in run {reached} (after {edges[reached][1]} answers): new codes are at most "
-        f"{args.threshold:g}% of the {base_codes} base codes."
+        f"Stopping rule met in run {reached} (rows {point + 1}-{point + args.run}): new codes are at most "
+        f"{args.threshold:g}% of the {base_codes} base codes. Saturation at answer {point} (+{args.run}), "
+        "in Guest et al.'s notation."
         if reached
         else f"Stopping rule not met: every run added more than {args.threshold:g}% of the {base_codes} base codes. "
         "Sample more answers and continue."
     )
     result["verdict"] = verdict
-    text = f"Saturation log: {args.input} (rows in the order read)\n\n" + table(
+    how = "moving one answer at a time, as in Guest et al. 2020" if step == 1 else f"moving {step} answers at a time"
+    text = f"Saturation log: {args.input} (rows in the order read; runs of {args.run}, {how})\n\n" + table(
         ["Batch", "Rows", "New codes", "Codes so far", "New / base codes"],
         [
             [b["batch"], b["rows"], len(b["new_codes"]), b["codes_so_far"], "" if b["new_pct_of_base"] is None else f"{b['new_pct_of_base']:.1f}%"]
@@ -635,6 +796,8 @@ def cmd_saturation(args):
         ],
     )
     text += f"\n\n{verdict}"
+    if blank_rows:
+        text += f"\n{blank_rows} blank answer(s) ({NO_ANSWER}) were skipped: rows are numbered among the answers only."
     if leftover:
         text += f"\n{leftover} trailing row(s) do not fill a run and were not evaluated."
     return emit(args, result, text)
@@ -643,8 +806,48 @@ def cmd_saturation(args):
 # ---------------------------------------------------------------- validate
 
 
+def source_problems(args, rows):
+    """Every source respondent must be in the coded file once, with the same answer text."""
+    fields, source = read_csv(args.source)
+    need_column(args.source, fields, args.id_col, "id")
+    text_col = args.source_text_col or args.text_col
+    if text_col:
+        need_column(args.source, fields, text_col, "answer text")
+    problems, coded = [], {row["id"]: row for row in rows}
+    source_ids = [r[args.id_col].strip() for r in source]
+    empty = sum(1 for i in source_ids if not i)
+    if empty:
+        problems.append(f"{empty} source row(s) have an empty id: every respondent needs an id to be matched")
+    duplicated = sorted(i for i, c in Counter(source_ids).items() if i and c > 1)
+    if duplicated:
+        problems.append(
+            f"{len(duplicated)} id(s) appear more than once in the source file (for example '{duplicated[0]}'): "
+            "those respondents cannot be matched one to one"
+        )
+    missing = [i for i in source_ids if i not in coded]
+    extra = [row["id"] for row in rows if row["id"] not in set(source_ids)]
+    if missing:
+        problems.append(
+            f"{len(missing)} of {len(source_ids)} source row(s) are missing from the coded file "
+            f"(for example id '{missing[0]}'): every respondent must be coded, blanks as {NO_ANSWER}"
+        )
+    if extra:
+        problems.append(f"{len(extra)} coded row(s) are not in the source file (for example id '{extra[0]}')")
+    if text_col and args.text_col:
+        changed = [r[args.id_col].strip() for r in source if r[args.id_col].strip() in coded
+                   and squash(r[text_col]) != squash(coded[r[args.id_col].strip()]["text"])]
+        if changed:
+            problems.append(
+                f"{len(changed)} row(s) have answer text that differs from the source (for example id '{changed[0]}'): "
+                "the codes may belong to another answer; never retype answers, copy codes in by id (merge)"
+            )
+    return problems, len(source)
+
+
 def cmd_validate(args):
-    entries, errors = read_codebook(args.codebook)
+    if args.source_text_col and not args.text_col:
+        raise InputError("--source-text-col needs --text-col: the answer column of the coded file to compare with")
+    entries, errors = read_codebook(args.codebook, args.delimiter)
     known = {e["code"] for e in entries}
     rows, _ = read_coded(args.input, args, text_col=args.text_col)
     filled = fill_blank_answers(rows)
@@ -655,6 +858,10 @@ def cmd_validate(args):
         if entry["code"] not in RESERVED and not used[entry["code"]]:
             warnings.append(f"code '{entry['code']}' is in the codebook but no row uses it")
     by_id = {row["id"]: row for row in rows}
+    source_rows = None
+    if args.source:
+        found, source_rows = source_problems(args, rows)
+        errors += found
     if args.text_col:
         texts = [squash(row["text"]) for row in rows]
         for row in rows:
@@ -662,7 +869,7 @@ def cmd_validate(args):
             if typed in NON_ANSWER_TEXT and not set(row["codes"]) & {UNCODABLE, NO_ANSWER}:
                 warnings.append(f"row {row['id']}: the answer is '{typed}' but it is coded {', '.join(row['codes'])}")
         for entry in entries:
-            quote = squash(entry["example_quote"])
+            quote = untrim(entry["example_quote"])
             if entry["code"] not in RESERVED and quote and not any(quote in text for text in texts):
                 warnings.append(f"code '{entry['code']}': example_quote is not found word for word in any answer")
     checked_quotes = 0
@@ -675,7 +882,7 @@ def cmd_validate(args):
         for number_, quote_row in enumerate(q_rows, start=2):
             where = f"quotes line {number_}"
             row = by_id.get(quote_row["id"].strip())
-            quote = squash(quote_row["quote"])
+            quote = untrim(quote_row["quote"])
             checked_quotes += 1
             if row is None:
                 errors.append(f"{where}: row id '{quote_row['id'].strip()}' is not in the coded file")
@@ -690,6 +897,9 @@ def cmd_validate(args):
         "rows": len(rows),
         "codes_in_codebook": len([e for e in entries if e["code"] not in RESERVED]),
         "nets": nets_from(entries),
+        "source": args.source,
+        "source_rows": source_rows,
+        "source_text_checked": bool(args.source and args.text_col),
         "blank_rows_set_to_NO_ANSWER": filled,
         "quotes_checked": checked_quotes,
         "errors": errors,
@@ -702,6 +912,13 @@ def cmd_validate(args):
         print(f"Validate: {len(rows)} rows against {result['codes_in_codebook']} codes in {args.codebook}")
         if filled:
             print(f"{filled} blank answer(s) with no code are treated as {NO_ANSWER}.")
+        if args.source:
+            print(
+                f"Checked against the source file {args.source} ({source_rows} rows): "
+                + ("ids and answer text." if args.text_col else "ids only; pass --text-col to also check the answer text.")
+            )
+        else:
+            print("Not checked against the source responses: pass --source to confirm every respondent is in the file.")
         if checked_quotes:
             print(f"{checked_quotes} quote(s) checked against the answers.")
         for label, items in (("ERROR", errors), ("warning", warnings)):
@@ -732,7 +949,7 @@ def count_block(rows, codes, min_base, nets, mentions):
             "ci95_of_answered": percent_ci(used[code], answered, min_base),
         }
         if mentions:
-            line["pct_of_mentions"] = None if code == UNCODABLE else percent(used[code], assignments, min_base)
+            line["pct_of_mentions"] = None if code == UNCODABLE or answered < min_base else percent(used[code], assignments, min_base)
         lines.append(line)
     net_lines = []
     for parent, children in nets.items():
@@ -829,8 +1046,8 @@ def sentiment_block(rows, column, min_base):
             problems.append(f"row {row['id']}: '{column}' is empty on a coded answer")
         elif value and value not in SENTIMENTS:
             problems.append(f"row {row['id']}: '{column}' is '{row['extra']}', expected one of {', '.join(SENTIMENTS)}")
-        elif value and NO_ANSWER in row["codes"]:
-            problems.append(f"row {row['id']}: '{column}' is set on a blank answer")
+        elif value and empty_ok:
+            problems.append(f"row {row['id']}: '{column}' is set on {'a blank' if NO_ANSWER in row['codes'] else 'an uncodable'} answer")
         elif value:
             values.append(value)
     if problems:
@@ -847,6 +1064,12 @@ def sentiment_block(rows, column, min_base):
     }
 
 
+def segment_cell(line):
+    if line["pct_of_answered"] is None:
+        return f"{line['n']} (--)"
+    return f"{line['n']} ({show_percent(line['pct_of_answered'])}, {show_percent_ci(line['ci95_of_answered'])})"
+
+
 def cmd_counts(args):
     if args.min_base < 1:
         raise InputError("--min-base must be at least 1")
@@ -854,7 +1077,7 @@ def cmd_counts(args):
         raise InputError("--rare-below and --top-pairs must not be negative; --broad-above and --other-above are percentages")
     labels, known, order, nets = dict(RESERVED_LABELS), None, [], {}
     if args.codebook:
-        entries, problems = read_codebook(args.codebook)
+        entries, problems = read_codebook(args.codebook, args.delimiter)
         if problems:
             raise InputError(f"{args.codebook}: " + "; ".join(problems))
         known = {e["code"] for e in entries}
@@ -878,7 +1101,7 @@ def cmd_counts(args):
         f"'% of answered' uses the {overall['answered']} respondents who typed something; "
         f"'% of all' uses all {overall['all_respondents']} rows, including {overall['no_answer']} blank.",
         "95% intervals are Wilson score intervals on '% of answered'. They describe sampling error only and "
-        "assume the respondents are a random sample. Test differences between segments with survey-crosstabs.",
+        "assume the respondents are a random sample. They are not a test of the difference between segments.",
     ]
     if nets:
         notes.append("A net counts each respondent once, however many of its codes the answer carries; it is not the sum of its codes.")
@@ -970,11 +1193,13 @@ def cmd_counts(args):
         ]
         for index, code in enumerate(codes):
             lines = [result["segments"][name]["codes"][index] for name in names]
-            seg_rows.append([code] + [f"{l['n']} ({show_percent(l['pct_of_answered'])})" for l in lines])
+            seg_rows.append([code] + [segment_cell(l) for l in lines])
         for index, parent in enumerate(nets):
             lines = [result["segments"][name]["nets"][index] for name in names]
-            seg_rows.append([f"NET {parent}"] + [f"{l['n']} ({show_percent(l['pct_of_answered'])})" for l in lines])
-        out.append(f"\nBy {args.segment_col}: n (% of answered in the segment)\n\n" + table(["Code"] + names, seg_rows))
+            seg_rows.append([f"NET {parent}"] + [segment_cell(l) for l in lines])
+        out.append(
+            f"\nBy {args.segment_col}: n (% of answered in the segment, 95% interval)\n\n" + table(["Code"] + names, seg_rows)
+        )
     out.append("\nCodebook health\n" + "\n".join(f"- {line}" for line in health_lines(result["health"], overall["answered"])))
     out.append("\nNotes\n" + "\n".join(f"- {note}" for note in notes))
     print("\n".join(out))
@@ -1111,15 +1336,18 @@ def bootstrap_pair(units, set_x, set_y, report, replicates, rng):
     for index, line in enumerate(report["lines"]):
         line["kappa_ci95"] = bootstrap_interval(kappas[index], replicates) if line["kappa"] is not None else None
         line["alpha_ci95"] = bootstrap_interval(alphas[index], replicates) if line["alpha"] is not None else None
-        line["ci_crosses_band"] = crosses(line["kappa_ci95"], landis_koch) or crosses(line["alpha_ci95"], krippendorff_band)
+        line["ci_crosses_band"] = (
+            kappa_crosses_band(line["kappa_ci95"]) or crosses(line["alpha_ci95"], krippendorff_band)
+        )
     overall = report["overall"]
     overall["mean_kappa_ci95"] = bootstrap_interval(means, replicates) if overall["mean_kappa"] is not None else None
     overall["pooled_kappa_ci95"] = bootstrap_interval(pooled, replicates) if overall["pooled_kappa"] is not None else None
+    overall["pooled_kappa_ci_crosses_band"] = crosses(overall["pooled_kappa_ci95"], landis_koch)  # only Landis-Koch is printed for it
     overall["exact_code_set_match_pct_ci95"] = [round(v, 1) for v in bootstrap_interval(exact, replicates)]
     if single:
         report["single"]["kappa_ci95"] = bootstrap_interval(cat_kappa, replicates) if report["single"]["kappa"] is not None else None
         report["single"]["alpha_ci95"] = bootstrap_interval(cat_alpha, replicates) if report["single"]["alpha"] is not None else None
-        report["single"]["ci_crosses_band"] = crosses(report["single"]["kappa_ci95"], landis_koch) or crosses(
+        report["single"]["ci_crosses_band"] = kappa_crosses_band(report["single"]["kappa_ci95"]) or crosses(
             report["single"]["alpha_ci95"], krippendorff_band
         )
 
@@ -1136,6 +1364,8 @@ def parse_coder_info(values, count, paths):
                 raise InputError(f"--coder-info '{values[index]}': expected ID,human or ID,llm,MODEL")
             if parts[1].lower() == "llm" and (len(parts) < 3 or not parts[2]):
                 raise InputError(f"--coder-info '{values[index]}': an llm coder needs the model name: ID,llm,MODEL")
+            if parts[1].lower() == "human" and len(parts) == 3:
+                raise InputError(f"--coder-info '{values[index]}': a human coder takes no model: ID,human")
             coder.update({"id": parts[0], "kind": parts[1].lower(), "model": parts[2] if len(parts) == 3 else None})
         coders.append(coder)
     return coders
@@ -1157,18 +1387,57 @@ def cmd_agreement(args):
     coders = parse_coder_info(args.coder_info, len(paths), paths)
     known, order = None, []
     if args.codebook:
-        entries, problems = read_codebook(args.codebook)
+        entries, problems = read_codebook(args.codebook, args.delimiter)
         if problems:
             raise InputError(f"{args.codebook}: " + "; ".join(problems))
         known = {e["code"] for e in entries}
         order = [e["code"] for e in entries if e["code"] not in RESERVED]
-    loaded, listed = [], []
+    guard_output(args.disagreements, paths + [args.codebook, args.sample], "--disagreements")
+    loaded, listed, without_text = [], [], []
     for path in paths:
         rows, wide_codes = read_coded(path, args, text_col=args.text_col, text_optional=True)
         loaded.append({r["id"]: r for r in rows})
         listed += wide_codes
-    all_ids = list(dict.fromkeys(i for by_id in loaded for i in by_id))
+        if args.text_col and rows[0]["text"] is None:
+            without_text.append(path)
+    sample_text = {}
+    if args.sample:
+        s_fields, s_rows = read_csv(args.sample)
+        need_column(args.sample, s_fields, args.id_col, "id")
+        sample_ids = list(dict.fromkeys(r[args.id_col].strip() for r in s_rows if r[args.id_col].strip()))
+        if not sample_ids:
+            raise InputError(f"{args.sample}: no ids")
+        if args.text_col and args.text_col in s_fields:
+            sample_text = {r[args.id_col].strip(): r[args.text_col] for r in s_rows}
+        elif args.text_col:
+            without_text.append(args.sample)
+        for path, by_id in zip(paths, loaded):
+            missing = [i for i in sample_ids if i not in by_id]
+            if missing:
+                raise InputError(
+                    f"{path}: {len(missing)} of the {len(sample_ids)} sampled id(s) are not coded "
+                    f"(for example '{missing[0]}'); every coder codes every row of {args.sample}"
+                )
+        all_ids = sample_ids
+    else:
+        all_ids = list(dict.fromkeys(i for by_id in loaded for i in by_id))
+    if args.text_col and len(without_text) == len(paths) + (1 if args.sample else 0):
+        raise InputError(
+            f"no file has an answer column named '{args.text_col}': check the name, or leave out --text-col"
+        )
     holders = {i: [j for j, by_id in enumerate(loaded) if i in by_id] for i in all_ids}
+    mismatched = []
+    for i in all_ids:
+        texts = {squash(loaded[j][i]["text"]) for j in holders[i] if loaded[j][i]["text"] is not None}
+        if i in sample_text:
+            texts.add(squash(sample_text[i]))
+        if len(texts) > 1:
+            mismatched.append(i)
+    if mismatched:
+        raise InputError(
+            f"{len(mismatched)} id(s) carry different answer text in different files (for example '{mismatched[0]}'): "
+            "the coders did not code the same answers. Rebuild the second coder's file from the sample by id."
+        )
     partial = [i for i in all_ids if len(holders[i]) < len(paths)]
     if partial and not args.allow_unmatched:
         raise InputError(
@@ -1210,6 +1479,15 @@ def cmd_agreement(args):
         notes.append("Coder type not stated (--coder-info): say in the report who or what coded, with the model name for an LLM.")
     if blank:
         notes.append(f"{len(blank)} row(s) that every coder marked {NO_ANSWER} were left out: they would inflate agreement.")
+    if args.sample:
+        notes.append(f"Compared on the {len(all_ids)} id(s) of the sample {args.sample}; rows outside it were left out.")
+    if not args.text_col:
+        notes.append("No --text-col: the script could not check that the coders saw the same answer text.")
+    elif without_text:
+        notes.append(
+            f"No '{args.text_col}' column in {', '.join(without_text)}: the answer text in that file could not be "
+            "checked against the others."
+        )
     if partial:
         notes.append(f"{len(partial)} id(s) were not coded by every coder; {len(all_ids) - len(comparable)} of them by one coder only (ignored).")
     result = {
@@ -1249,7 +1527,7 @@ def cmd_agreement(args):
             everyone = set.intersection(*[sets[j][u] for j in present])
             anyone = set.union(*[sets[j][u] for j in present])
             text = next((loaded[j][u]["text"] for j in present if loaded[j][u]["text"] is not None), "")
-            row = {"id": u, "text": text}
+            row = {args.id_col: u, "text": text}
             for j in range(len(paths)):
                 row[f"codes_{coders[j]['key']}"] = args.delimiter.join(loaded[j][u]["codes"]) if j in present else ""
             row["in_dispute"] = args.delimiter.join(sorted(anyone - everyone, key=lambda c: (codes.index(c) if c in codes else len(codes), c)))
@@ -1257,7 +1535,7 @@ def cmd_agreement(args):
             disputed.append(row)
     result["disagreements"] = {"rows": len(disputed), "out": args.disagreements}
     if args.disagreements:
-        write_csv(args.disagreements, ["id", "text"] + [f"codes_{c['key']}" for c in coders] + ["in_dispute", "final_codes"], disputed)
+        write_csv(args.disagreements, [args.id_col, "text"] + [f"codes_{c['key']}" for c in coders] + ["in_dispute", "final_codes"], disputed)
     result["notes"] = notes
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -1268,7 +1546,7 @@ def cmd_agreement(args):
     if args.bootstrap:
         out.append(f"Intervals: 95% percentile bootstrap over responses, {args.bootstrap} replicates, seed {args.seed}")
     out.append("")
-    out.append(text_two(result, coders, bool(args.gold)) if two else text_multi(result, coders))
+    out.append(text_two(result, coders, bool(args.gold)) if two else text_multi(result, coders, bool(args.gold)))
     out.append(
         f"\n{len(disputed)} response(s) with different code sets"
         + (f"; written to {args.disagreements} for adjudication (fill final_codes, then run merge)." if args.disagreements else " (list them with --disagreements FILE).")
@@ -1368,7 +1646,7 @@ def text_two(result, coders, gold):
     for l in lines:
         flags = []
         if l["kappa"] is None:
-            flags.append("not tested")
+            flags.append("not tested" if l["used_by_a"] + l["used_by_b"] == 0 else "on every row")
         if l.get("ci_crosses_band"):
             flags.append("* interval crosses a band")
         if l["high_agreement_low_kappa"]:
@@ -1408,6 +1686,7 @@ def text_two(result, coders, gold):
             f"{overall['pooled_percent_agreement']:.1f}% agreement, kappa {show(overall['pooled_kappa'])}"
             + (f" (95% interval {show_ci(overall.get('pooled_kappa_ci95'))})" if overall.get("pooled_kappa_ci95") else "")
             + (f", {overall['pooled_landis_koch']}" if overall["pooled_kappa"] is not None else "")
+            + (" (* interval crosses a band)" if overall.get("pooled_kappa_ci_crosses_band") else "")
         )
     if single:
         out.append(
@@ -1422,7 +1701,12 @@ def text_two(result, coders, gold):
     return "\n".join(out)
 
 
-def text_multi(result, coders):
+def undefined_flag(line):
+    """Flag for a code whose alpha is undefined: nobody used it, or every coder used it on every row."""
+    return "not tested" if sum(line["used_by"].values()) == 0 else "on every row"
+
+
+def text_multi(result, coders, gold=False):
     keys = [c["key"] for c in coders]
     out = [
         table(
@@ -1436,12 +1720,16 @@ def text_multi(result, coders):
                     l["krippendorff_band"] or "-",
                     show(l["mean_pairwise_kappa"]) if l["mean_pairwise_kappa"] is not None else "-",
                     f"{show(l['min_pairwise_kappa'])} ({l['min_pairwise_kappa_pair']})" if l["min_pairwise_kappa"] is not None else "-",
-                    "not tested" if l["alpha"] is None else ("* interval crosses a band" if l.get("ci_crosses_band") else ""),
+                    undefined_flag(l) if l["alpha"] is None else ("* interval crosses a band" if l.get("ci_crosses_band") else ""),
                 ]
                 for l in result["per_code"]
             ],
         )
     ]
+    for l in result["per_code"]:
+        if l["alpha"] is None:
+            reason = "no coder used this code" if undefined_flag(l) == "not tested" else "every coder gave this code to every row"
+            out.append(f"  {l['code']}: {reason}: the values do not vary, so alpha is undefined.")
     head = ["Pair", "responses", "identical code set", "mean kappa", "lowest kappa (code)"]
     single = result["single_coded"]
     if single:
@@ -1459,6 +1747,20 @@ def text_multi(result, coders):
             row.append(show(p["categorical_kappa"]))
         rows.append(row)
     out.append("\nPairwise Cohen's kappa (each pair on the responses both coded)\n\n" + table(head, rows))
+    if gold:
+        a = keys[0]
+        for p in result["pairwise"]:
+            if not p["pair"].startswith(f"{a}-"):
+                continue
+            b = p["pair"].split("-", 1)[1]
+            out.append(
+                f"\nAgainst the reference coder {a}: coder {b} (precision: share of {b}'s uses that {a} also coded; "
+                f"recall: share of {a}'s uses that {b} found)\n\n"
+                + table(
+                    ["Code", f"{a} used", f"{b} used", "precision", "recall", "F1", "kappa"],
+                    [[l["code"], l["used_by_a"], l["used_by_b"], show(l["precision"]), show(l["recall"]), show(l["f1"]), show(l["kappa"])] for l in p["per_code"]],
+                )
+            )
     overall = result["overall"]
     out.append("\nOverall")
     if overall["mean_alpha"] is not None:
@@ -1476,54 +1778,82 @@ def text_multi(result, coders):
 
 
 def cmd_merge(args):
+    """Write decided codes into the coded file by id. Also the batch-coding path: a responses file with no codes
+    column gets one, filled from `id,codes` batch files, so answer text is never retyped."""
+    guard_output(args.out, [args.input] + list(args.adjudicated) + [args.codebook])
     fields, rows = read_csv(args.input)
     need_column(args.input, fields, args.id_col, "id")
-    need_column(args.input, fields, args.codes_col, "codes")
-    adj_fields, adj_rows = read_csv(args.adjudicated)
-    need_column(args.adjudicated, adj_fields, args.id_col, "id")
-    need_column(args.adjudicated, adj_fields, args.final_col, "final codes")
+    added_column = args.codes_col not in fields
+    if added_column:
+        fields = fields + [args.codes_col]
+        for row in rows:
+            row[args.codes_col] = ""
     known = None
     if args.codebook:
-        entries, problems = read_codebook(args.codebook)
+        entries, problems = read_codebook(args.codebook, args.delimiter)
         if problems:
             raise InputError(f"{args.codebook}: " + "; ".join(problems))
         known = {e["code"] for e in entries} | set(RESERVED)
     by_id = {}
-    for row in rows:
+    for number_, row in enumerate(rows, start=2):
         row_id = row[args.id_col].strip()
+        if not row_id:
+            raise InputError(f"{args.input}: line {number_} has an empty id")
         if row_id in by_id:
             raise InputError(f"{args.input}: id '{row_id}' appears more than once")
         by_id[row_id] = row
-    changed, same, pending, seen = [], [], [], set()
-    for number_, adj in enumerate(adj_rows, start=2):
-        row_id = adj[args.id_col].strip()
-        if row_id not in by_id:
-            raise InputError(f"{args.adjudicated}: line {number_}: id '{row_id}' is not in {args.input}")
-        if row_id in seen:
-            raise InputError(f"{args.adjudicated}: id '{row_id}' appears more than once")
-        seen.add(row_id)
-        final = list(dict.fromkeys(c.strip() for c in adj[args.final_col].split(args.delimiter) if c.strip()))
-        if not final:
-            pending.append(row_id)
-            continue
-        if known is not None and [c for c in final if c not in known]:
-            raise InputError(f"{args.adjudicated}: line {number_}: unknown code in '{adj[args.final_col]}'")
-        if len(final) > 1 and set(final) & set(EXCLUSIVE):
-            raise InputError(f"{args.adjudicated}: line {number_}: {UNCODABLE} and {NO_ANSWER} cannot be combined with other codes")
-        current = [c.strip() for c in by_id[row_id][args.codes_col].split(args.delimiter) if c.strip()]
-        (same if set(current) == set(final) else changed).append(row_id)
-        by_id[row_id][args.codes_col] = args.delimiter.join(final)
+    changed, same, pending, seen, total = [], [], [], set(), 0
+    for path in args.adjudicated:
+        adj_fields, adj_rows = read_csv(path)
+        need_column(path, adj_fields, args.id_col, "id")
+        need_column(path, adj_fields, args.final_col, "final codes")
+        total += len(adj_rows)
+        for number_, adj in enumerate(adj_rows, start=2):
+            row_id = adj[args.id_col].strip()
+            if not row_id:
+                raise InputError(f"{path}: line {number_} has an empty id")
+            if row_id not in by_id:
+                raise InputError(f"{path}: line {number_}: id '{row_id}' is not in {args.input}")
+            if row_id in seen:
+                raise InputError(f"{path}: id '{row_id}' appears more than once across the --adjudicated files")
+            seen.add(row_id)
+            final = list(dict.fromkeys(c.strip() for c in adj[args.final_col].split(args.delimiter) if c.strip()))
+            if not final:
+                pending.append(row_id)
+                continue
+            if known is not None and [c for c in final if c not in known]:
+                raise InputError(f"{path}: line {number_}: unknown code in '{adj[args.final_col]}'")
+            if len(final) > 1 and set(final) & set(EXCLUSIVE):
+                raise InputError(f"{path}: line {number_}: {UNCODABLE} and {NO_ANSWER} cannot be combined with other codes")
+            current = [c.strip() for c in by_id[row_id][args.codes_col].split(args.delimiter) if c.strip()]
+            (same if set(current) == set(final) else changed).append(row_id)
+            by_id[row_id][args.codes_col] = args.delimiter.join(final)
     if pending and not args.allow_pending:
         raise InputError(
-            f"{args.adjudicated}: {len(pending)} row(s) have no {args.final_col} (for example id '{pending[0]}'). "
+            f"{len(pending)} row(s) have no {args.final_col} (for example id '{pending[0]}'). "
             "Decide them, or pass --allow-pending to leave those rows as they are."
         )
+    uncoded = [r[args.id_col].strip() for r in rows if not r[args.codes_col].strip()]
     write_csv(args.out, fields, rows)
-    result = {"input": args.input, "adjudicated": args.adjudicated, "out": args.out, "rows": len(rows), "changed": changed, "confirmed": same, "pending": pending}
+    result = {
+        "input": args.input,
+        "adjudicated": args.adjudicated,
+        "out": args.out,
+        "rows": len(rows),
+        "codes_column_added": added_column,
+        "changed": changed,
+        "confirmed": same,
+        "pending": pending,
+        "rows_without_codes": len(uncoded),
+    }
     text = (
-        f"Merged {len(adj_rows)} adjudicated row(s) into {args.out} ({len(rows)} rows): {len(changed)} changed, "
+        f"Merged {total} row(s) from {len(args.adjudicated)} file(s) into {args.out} ({len(rows)} rows): {len(changed)} changed, "
         f"{len(same)} confirmed as they were, {len(pending)} left pending."
     )
+    if added_column:
+        text += f" Added the '{args.codes_col}' column."
+    if uncoded:
+        text += f" {len(uncoded)} row(s) still have no codes; validate lists them."
     return emit(args, result, text)
 
 
@@ -1544,13 +1874,18 @@ def build_parser():
     size = p.add_mutually_exclusive_group()
     size.add_argument("--n", type=int, help="number of answers to draw")
     size.add_argument("--fraction", type=float, help="share of eligible answers to draw, e.g. 0.2")
+    p.add_argument("--all-if-fewer", action="store_true", help="with --n: take every eligible answer when there are fewer than N")
+    p.add_argument("--at-least", type=int, help="with --fraction: draw at least this many, or all eligible answers if fewer")
+    p.add_argument("--shuffle", action="store_true", help="write the rows in a seeded random order (read the codebook sample in this order) instead of file order")
     p.add_argument("--seed", type=int, default=1, help="random seed (default: 1); report it")
     p.add_argument("--exclude", action="append", help="CSV whose ids must not be drawn again (repeatable)")
     p.add_argument("--include-blank", action="store_true", help="blank answers may be drawn (default: left out)")
     p.add_argument("--stratify-col", help="draw proportionally within the values of this column")
-    p.add_argument("--top-up-min", type=int, help="after the draw, add rows until every code is carried by at least this many sampled rows (needs --codes-col)")
+    p.add_argument("--top-up-min", type=int, help="rare-code audit: pick extra rows until every code of the first coder is carried by at least this many rows (needs --codes-col and --top-up-out)")
+    p.add_argument("--top-up-out", help="CSV for the --top-up-min rows; kept apart from the random sample in --out")
     p.add_argument("--codes-col", default="codes", help="codes column used by --top-up-min (default: codes)")
-    p.add_argument("--delimiter", default=";", help="separator inside --codes-col (default: ;)")
+    p.add_argument("--delimiter", "--code-sep", dest="delimiter", default=";", help="separator between codes inside --codes-col (default: ;)")
+    add_csv_option(p)
     p.add_argument("--all-columns", action="store_true", help="keep every column (default: id and text only, so a second coder cannot see earlier codes)")
     p.add_argument("--out", help="write the sample to this CSV (default: stdout)")
     p.add_argument("--json", action="store_true", help="print a JSON summary with the sampled ids")
@@ -1561,13 +1896,16 @@ def build_parser():
     add_coded_options(p)
     p.add_argument("--base", type=int, default=50, help="answers in the base (default: 50)")
     p.add_argument("--run", type=int, default=25, help="answers per run (default: 25)")
+    p.add_argument("--step", type=int, default=1, help="answers the run moves forward each time (default: 1, as in Guest et al. 2020; set it equal to --run for non-overlapping runs)")
     p.add_argument("--threshold", type=float, default=5.0, help="stop when a run's new codes are at most this percent of the base codes (default: 5)")
     p.set_defaults(func=cmd_saturation)
 
     p = sub.add_parser("validate", help="check a coded file against the codebook")
     p.add_argument("input", help="coded CSV, one row per response")
     add_coded_options(p)
-    p.add_argument("--quotes", help="CSV with columns id,code,quote: each quote must be word for word in that row")
+    p.add_argument("--quotes", help="CSV with columns id,code,quote: each quote must be word for word in that row ('...' at either end is allowed)")
+    p.add_argument("--source", help="the original responses CSV: every id must be coded once, with the same answer text")
+    p.add_argument("--source-text-col", help="answer column in --source if it differs from --text-col")
     p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("counts", help="code frequencies with explicit denominators")
@@ -1592,17 +1930,19 @@ def build_parser():
     p.add_argument("--bootstrap", type=int, default=DEFAULT_BOOTSTRAP, help=f"bootstrap replicates for 95%% intervals; 0 turns them off (default: {DEFAULT_BOOTSTRAP})")
     p.add_argument("--seed", type=int, default=1, help="bootstrap seed (default: 1)")
     p.add_argument("--allow-unmatched", action="store_true", help="rows missing from a file are treated as not coded by that coder")
+    p.add_argument("--sample", help="the sample file the second coder was given: compare on its ids only, and every coder file must hold all of them with the same answer text")
     p.add_argument("--disagreements", help="write the rows with different code sets to this CSV for adjudication")
     p.set_defaults(func=cmd_agreement)
 
     p = sub.add_parser("merge", help="write adjudicated codes back into the coded file")
     p.add_argument("input", help="coded CSV")
-    p.add_argument("--adjudicated", required=True, help="CSV with the id column and the final codes (the --disagreements file, filled in)")
+    p.add_argument("--adjudicated", required=True, action="append", help="CSV with the id column and the final codes: the --disagreements file filled in, or an id,codes batch file with --final-col codes (repeatable)")
     p.add_argument("--out", required=True, help="where to write the merged coded file")
     p.add_argument("--id-col", default="id", help="column with the row id (default: id)")
     p.add_argument("--codes-col", default="codes", help="codes column in the coded file (default: codes)")
     p.add_argument("--final-col", default="final_codes", help="column with the decided codes (default: final_codes)")
-    p.add_argument("--delimiter", default=";", help="separator between codes (default: ;)")
+    p.add_argument("--delimiter", "--code-sep", dest="delimiter", default=";", help="separator between codes (default: ;)")
+    add_csv_option(p)
     p.add_argument("--codebook", help="codebook CSV; final codes must be in it")
     p.add_argument("--allow-pending", action="store_true", help="rows with no final codes stay as they are")
     p.add_argument("--json", action="store_true", help="print machine-readable JSON")
@@ -1611,7 +1951,17 @@ def build_parser():
 
 
 def main(argv=None):
+    global CSV_DELIMITER
     args = build_parser().parse_args(argv)
+    CSV_DELIMITER = args.csv_delimiter
+    if CSV_DELIMITER is not None:
+        CSV_DELIMITER = {"\\t": "\t", "tab": "\t", "semicolon": ";", "comma": ",", "pipe": "|"}.get(CSV_DELIMITER, CSV_DELIMITER)
+        if len(CSV_DELIMITER) != 1:
+            print("open-ended-coding: error: --csv-delimiter must be one character (or tab, semicolon, comma, pipe)", file=sys.stderr)
+            return 2
+    if getattr(args, "delimiter", ";") == "":
+        print("open-ended-coding: error: --delimiter must not be empty", file=sys.stderr)
+        return 2
     if args.command == "validate" and not args.codebook:
         print("open-ended-coding: error: validate needs --codebook", file=sys.stderr)
         return 2

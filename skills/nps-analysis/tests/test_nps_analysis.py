@@ -110,7 +110,7 @@ class BasicFixtureTest(unittest.TestCase):
         self.assertAlmostEqual(got["z"], want["adjusted_wald"]["z"], delta=0.001)
         self.assertAlmostEqual(got["p_value"], want["adjusted_wald"]["p_value"], delta=0.0001)
         self.assertFalse(got["significant"])
-        self.assertEqual(got["verdict"], "underpowered")  # not significant on a small base
+        self.assertEqual(got["verdict"], "inconclusive, small base")  # not significant on a small base
 
     def test_not_significant_on_a_large_enough_base(self):
         out = run_json(*self.args, "--min-base", "10")
@@ -259,7 +259,7 @@ class EdgeCaseTest(unittest.TestCase):
     def test_zero_variance_on_both_sides_is_not_tested(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "zero.csv"
-            path.write_text("nps,team\n10,a\n9,a\n0,b\n3,b\n")
+            path.write_text("nps,team\n" + "10,a\n9,a\n" * 3 + "0,b\n3,b\n" * 3)
             out = run_json(path, "--segment-col", "team", "--compare", "a", "b", "--interval", "wald")
         self.assertFalse(out["comparisons"][0]["tested"])
         self.assertIn("undefined", out["comparisons"][0]["note"])
@@ -314,7 +314,8 @@ class EdgeCaseTest(unittest.TestCase):
         out = run_json(FIXTURES / "dates.input.csv", "--period-col", "submitted_at", "--period-grain", "quarter")
         self.assertEqual([p["label"] for p in out["periods"]], ["2026-Q1", "2026-Q2"])
         self.assertEqual([p["n"] for p in out["periods"]], [3, 3])
-        self.assertEqual(out["input"]["excluded"]["bad_period"], 1)
+        self.assertEqual(out["input"]["without_period"]["bad_period"], 1)
+        self.assertEqual(out["overall"]["n"], 7)  # the row with the bad date still counts overall
         months = run_json(FIXTURES / "dates.input.csv", "--period-col", "submitted_at", "--period-grain", "month")
         self.assertEqual(months["periods"][0]["label"], "2026-01")
 
@@ -424,7 +425,8 @@ class BadInputTest(unittest.TestCase):
         )
 
     def test_bad_confidence(self):
-        self.assert_fails(run(FIXTURES / "basic.input.csv", "--confidence", "95"), "between 0 and 1")
+        self.assert_fails(run(FIXTURES / "basic.input.csv", "--confidence", "150"), "0.95 or 95")
+        self.assert_fails(run(FIXTURES / "basic.input.csv", "--confidence", "0"), "0.95 or 95")
 
 
 class CountsInputTest(unittest.TestCase):
@@ -517,7 +519,10 @@ class CountsInputTest(unittest.TestCase):
 
     def test_response_rate(self):
         out = run_json(FIXTURES / "basic.input.csv", "--invited", "200")
-        self.assertEqual(out["response"], {"invited": 200, "valid": 40, "response_rate": 20.0})
+        self.assertEqual(
+            out["response"],
+            {"invited": 200, "responses": 40, "valid": 40, "response_rate": 20.0, "valid_score_rate": 20.0},
+        )
         self.assertTrue(any("sampling error only" in w for w in out["warnings"]))
         self.assertEqual(run(FIXTURES / "basic.input.csv", "--invited", "10").returncode, 2)
 
@@ -677,3 +682,204 @@ class ThemeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewFindingsTest(unittest.TestCase):
+    """Regression tests for the 2026-11-19 review findings. Inputs are synthetic and written per test."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def csv(self, text, name="in.csv"):
+        path = pathlib.Path(self.tmp.name) / name
+        path.write_text(text)
+        return path
+
+    def test_benchmark_at_the_end_of_the_scale_is_tested_exactly(self):
+        # One promoter is certain under a population NPS of +100, so +100 cannot be rejected.
+        got = run_json("--counts", "1,0,0", "--benchmark", "100")
+        self.assertEqual(got["benchmark"]["p_value"], 1.0)
+        self.assertFalse(got["benchmark"]["significant"])
+        self.assertEqual(got["overall"]["ci_high"], 100.0)
+        got = run_json("--counts", "0,0,1", "--benchmark", "-100")
+        self.assertFalse(got["benchmark"]["significant"])
+        self.assertEqual(got["overall"]["ci_low"], -100.0)
+        # One passive is impossible under +100.
+        got = run_json("--counts", "9,1,0", "--benchmark", "100")["benchmark"]
+        self.assertEqual(got["p_value"], 0.0)
+        self.assertTrue(got["significant"])
+
+    def test_fewer_than_five_responses_get_no_verdict(self):
+        got = run_json("--counts", "3,0,1", "--benchmark", "0")["benchmark"]
+        self.assertFalse(got["tested"])
+        self.assertIn("n = 5", got["note"])
+        path = self.csv("nps,plan\n" + "10,a\n" * 4 + "0,b\n" * 20)
+        got = run_json(path, "--segment-col", "plan", "--compare", "a", "b")["comparisons"][0]
+        self.assertFalse(got["tested"])
+
+    def test_same_ids_in_two_segments_are_not_tested_as_independent(self):
+        path = self.csv("id,plan,nps\n" + "".join(f"u{i},A,{10 if i % 2 else 0}\nu{i},B,10\n" for i in range(8)))
+        got = run_json(path, "--id-col", "id", "--segment-col", "plan", "--pairwise")["comparisons"][0]
+        self.assertFalse(got["tested"])
+        self.assertEqual(got["shared_respondents"], 8)
+
+    def test_repeated_ids_within_a_group_are_not_tested_as_independent(self):
+        rows = "".join(f"u{i % 3},A,10\n" for i in range(9)) + "".join(f"v{i},B,0\n" for i in range(9))
+        out = run_json(self.csv("id,plan,nps\n" + rows), "--id-col", "id", "--segment-col", "plan", "--pairwise")
+        got = out["comparisons"][0]
+        self.assertFalse(got["tested"])
+        self.assertEqual(got["repeated_answers"], 6)
+        self.assertEqual(out["input"]["ids"]["repeated"], 6)
+
+    def test_p_value_is_not_rounded_before_the_verdict(self):
+        # Unrounded two-sided p = 0.050000073: not significant at 95%, though it rounds to 0.0500.
+        path = self.csv("plan,promoters,passives,detractors\nA,5,42,19\nB,17,1,48\n")
+        for adjust in ("none", "holm"):
+            got = run_json(path, "--segment-col", "plan", "--compare", "A", "B", "--min-base", "10", "--adjust", adjust)
+            c = got["comparisons"][0]
+            self.assertGreater(c.get("p_adjusted", c["p_value"]), 0.05)
+            self.assertFalse(c["significant"], adjust)
+            self.assertEqual(c["verdict"], "not significant")
+        text = run(path, "--segment-col", "plan", "--compare", "A", "B", "--min-base", "10").stdout
+        self.assertIn("p = 0.05000007", text)
+
+    def test_benchmark_shows_observed_and_adjusted_differences(self):
+        got = run_json("--counts", "61,30,16", "--benchmark", "30")
+        self.assertAlmostEqual(got["benchmark"]["difference"], 12.06, delta=0.01)  # 45/107 = 42.06, minus 30
+        self.assertAlmostEqual(got["benchmark"]["difference_adjusted"], 10.91, delta=0.01)
+        self.assertTrue(any("fixed number" in w for w in got["warnings"]))
+
+    def test_unreadable_date_does_not_change_the_overall_score(self):
+        path = self.csv("nps,date\n10,2026-01-05\n0,notadate\n")
+        got = run_json(path, "--period-col", "date", "--period-grain", "month", "--invited", "2")
+        self.assertEqual(got["overall"]["n"], 2)
+        self.assertEqual(got["overall"]["nps"], 0.0)
+        self.assertEqual(got["response"]["response_rate"], 100.0)
+        self.assertEqual(got["input"]["excluded_examples"], [])
+
+    def test_response_rate_and_valid_score_rate_are_separate(self):
+        got = run_json(FIXTURES / "dirty.input.csv", "--invited", "24")["response"]
+        self.assertEqual((got["responses"], got["valid"]), (12, 7))
+        self.assertEqual(got["response_rate"], 50.0)
+
+    def test_duplicate_headers_and_ragged_rows_stop(self):
+        proc = run(self.csv("nps,nps\n0,10\n0,10\n"), "--score-col", "nps")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("more than one column named 'nps'", proc.stderr)
+        proc = run(self.csv("nps,plan\n10,a\n9,b,extra\n"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("row 3 has 3 cells", proc.stderr)
+
+    def test_comments_out_cannot_overwrite_the_input(self):
+        path = self.csv("nps,comment\n10,great\n")
+        proc = run(path, "--comment-col", "comment", "--comments-out", path)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(path.read_text(), "nps,comment\n10,great\n")
+
+    def test_scores_exported_with_their_labels_are_read(self):
+        path = self.csv("nps\n10 - Extremely likely\n9\n0 - Not at all likely\n8\n10 = Extremely likely\n")
+        got = run_json(path)
+        self.assertEqual(got["overall"]["n"], 5)
+        self.assertEqual(got["input"]["scores_read_from_labels"], 3)
+        self.assertEqual(got["score_distribution"]["0"], 1)
+
+    def test_many_unreadable_answers_stop_unless_allowed(self):
+        path = self.csv("nps\nVery likely\nVery likely\n10\n9\n0\n")
+        proc = run(path)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("'Very likely'", proc.stderr)
+        self.assertEqual(run_json(path, "--allow-non-numeric")["overall"]["n"], 3)
+
+    def test_periods_are_put_in_time_order(self):
+        rows = "".join(f"{s},wave{w}\n" for w in (1, 2, 10) for s in (10, 9, 0, 7, 8))
+        got = run_json(self.csv("nps,wave\n" + rows), "--period-col", "wave")
+        self.assertEqual([p["label"] for p in got["periods"]], ["wave1", "wave2", "wave10"])
+        months = self.csv("nps,month\n" + "".join(f"10,{m}\n0,{m}\n" for m in ("Jan", "Feb", "Mar")) + "5,\n")
+        proc = run(months, "--period-col", "month")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--period-order", proc.stderr)
+        got = run_json(months, "--period-col", "month", "--period-order", "Jan,Feb,Mar")
+        self.assertEqual([p["label"] for p in got["periods"]], ["Jan", "Feb", "Mar"])
+        self.assertEqual(got["input"]["without_period"]["blank_period"], 1)
+        self.assertEqual(got["overall"]["n"], 7)
+        quarters = self.csv("nps,q\n10,Q4 2025\n0,Q1 2026\n9,Q2 2025\n")
+        got = run_json(quarters, "--period-col", "q")
+        self.assertEqual([p["label"] for p in got["periods"]], ["Q2 2025", "Q4 2025", "Q1 2026"])
+
+    def test_qualtrics_nps_group_is_not_taken_for_the_score(self):
+        proc = run(self.csv("Q1,Q1_NPS_GROUP\n10,3\n0,1\n"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("NPS group", proc.stderr)
+        self.assertEqual(run_json(self.csv("Q1,Q1_NPS_GROUP\n10,3\n0,1\n"), "--score-col", "Q1")["overall"]["n"], 2)
+
+    def test_semicolon_files_and_delimiter_names(self):
+        path = self.csv("id;nps;comment\n1;10;x\n2;0;y\n")
+        self.assertEqual(run_json(path)["overall"]["n"], 2)
+        self.assertEqual(run_json(path, "--delimiter", "semicolon")["overall"]["n"], 2)
+        proc = run(path, "--delimiter", "semi")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--delimiter takes one character", proc.stderr)
+
+    def test_one_tailed_below(self):
+        got = run_json("--counts", "10,30,60", "--benchmark", "30", "--tail", "below")["benchmark"]
+        self.assertTrue(got["significant"])
+        self.assertIn("upper_bound", got)
+        above = run_json("--counts", "10,30,60", "--benchmark", "30", "--tail", "one")["benchmark"]
+        self.assertEqual(above["tail"], "above")
+        self.assertFalse(above["significant"])
+
+    def test_confidence_given_as_a_percent(self):
+        a = run_json("--counts", "18,10,12", "--confidence", "95")
+        b = run_json("--counts", "18,10,12", "--confidence", "0.95")
+        self.assertEqual(a["overall"], b["overall"])
+        self.assertEqual(a["settings"]["confidence"], 0.95)
+
+
+class GeminiReviewFindingsTest(unittest.TestCase):
+    """Regression tests for the late 2026-11-19 review: the adjustment must not supply a verdict the data do not."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def csv(self, text, name="in.csv"):
+        path = pathlib.Path(self.tmp.name) / name
+        path.write_text(text)
+        return path
+
+    def test_identical_groups_of_very_unequal_size_are_not_called_different(self):
+        # Both groups are all promoters (observed difference 0). Adding 3 to n = 5 pulls the small group to +62.5,
+        # so at 80% the adjusted test would call the identical groups different.
+        path = self.csv("nps,plan\n" + "10,A\n" * 5 + "10,B\n" * 1000)
+        got = run_json(path, "--segment-col", "plan", "--compare", "A", "B", "--confidence", "0.8")["comparisons"][0]
+        self.assertFalse(got["tested"])
+        self.assertNotEqual(got.get("verdict"), "significant")
+        self.assertIn("adjustment", got["note"])
+
+    def test_adjustment_that_reverses_the_observed_difference_gets_no_verdict(self):
+        # Observed A - B = +1 point; the adjusted difference is about -36 points.
+        path = self.csv("nps,plan\n" + "10,A\n" * 5 + "10,B\n" * 990 + "8,B\n" * 10)
+        got = run_json(path, "--segment-col", "plan", "--compare", "A", "B", "--confidence", "0.8")["comparisons"][0]
+        self.assertFalse(got["tested"])
+        # An agreeing direction is still tested and can be significant.
+        path = self.csv("nps,plan\n" + "10,A\n" * 40 + "0,B\n" * 40)
+        got = run_json(path, "--segment-col", "plan", "--compare", "A", "B")["comparisons"][0]
+        self.assertTrue(got["tested"])
+        self.assertEqual(got["verdict"], "significant")
+
+    def test_benchmark_direction_comes_from_the_data_not_the_adjustment(self):
+        # Observed +100 is 1 point above +99, but the adjusted score (+62.5) is far below it.
+        for tail in ("two", "below"):
+            got = run_json("--counts", "5,0,0", "--benchmark", "99", "--confidence", "0.8", "--tail", tail)["benchmark"]
+            self.assertFalse(got["tested"], tail)
+            self.assertIn("adjustment", got["note"])
+        got = run_json("--counts", "10,30,60", "--benchmark", "30", "--tail", "below")["benchmark"]
+        self.assertTrue(got["significant"])
+
+    def test_wald_comparison_with_a_zero_variance_group_is_flagged(self):
+        path = self.csv("nps,plan\n" + "10,A\n" * 5 + "10,B\n" * 990 + "8,B\n" * 10)
+        got = run_json(path, "--segment-col", "plan", "--compare", "A", "B", "--interval", "wald")["comparisons"][0]
+        self.assertIn("variance is 0", got.get("note", ""))
+        text = run(path, "--segment-col", "plan", "--compare", "A", "B", "--interval", "wald").stdout
+        self.assertIn("variance is 0", text)
