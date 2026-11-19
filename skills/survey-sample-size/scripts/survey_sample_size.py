@@ -81,7 +81,7 @@ def phi(value):
 
 def ceil_n(value):
     """Round a sample size up; the epsilon keeps 385.0000000001 from becoming 386."""
-    return int(math.ceil(value - EPS))
+    return max(1, int(math.ceil(value - EPS)))  # a sample size is at least one response
 
 
 def pct(value):
@@ -168,7 +168,7 @@ def interval_n(n0, population, deff, notes=None):
         n = int(population)
         if notes is not None:
             notes.append("The required n reaches the whole population of %d: survey everyone (a census)." % population)
-    elif population and n0 / population < 0.05 and notes is not None:
+    elif population and m / population < 0.05 and notes is not None:
         notes.append("n is under 5% of the population, so the finite population correction barely changes it.")
     return n
 
@@ -252,18 +252,26 @@ def cmd_proportion(args):
         n0 = z * z * p * (1 - p) / (margin * margin)
         result["n_infinite_population"] = round(n0, 2)
         n_req = interval_n(n0, population, deff, notes)
+        cochran_n = n_req
         # The first whole n the reverse command calls sufficient, checked in both directions.
         while n_req > 1 and achieved_margin(p, n_req - 1, z, deff, population) <= margin + EPS:
             n_req -= 1
         while achieved_margin(p, n_req, z, deff, population) > margin + EPS and not (population and n_req >= population):
             n_req += 1
         result["n_required"] = n_req
-        if (n_req / deff) * min(p, 1 - p) < SMALL_COUNT and not (population and n_req >= population):
+        if population and n_req >= population:
+            result["planning_method"] = "census"
+            if cochran_n < population:
+                notes.append("The required n reaches the whole population of %d: survey everyone (a census)." % population)
+            statement = (
+                "Survey all %d members of the population (a census): no smaller sample keeps the estimate of %s%% within +/-%s percentage points at %g%% confidence, "
+                "and a census has no sampling error." % (population, pct(p), pct(margin), confidence * 100))
+        elif (n_req / deff) * min(p, 1 - p) < SMALL_COUNT:
             result["planning_method"] = "wilson"
             notes.append("Under %d expected responses in the smaller category: n is the smallest that keeps the Wilson score interval within +/-%s points of %s%% on both sides, because the +/- (Wald) formula claims far too much precision there (Brown, Cai and DasGupta 2001)." % (SMALL_COUNT, pct(margin), pct(p)))
             statement = (
                 "A sample of %d completed responses keeps the %g%% Wilson score interval for a proportion of %s%% within +/-%s percentage points on both sides, "
-                "assuming %s (with fewer than %d expected responses in the smaller category a +/- margin from Cochran's formula would overstate the precision)."
+                "assuming %s (with fewer than %d expected responses in the smaller category the Wilson interval is used instead of Cochran's +/- formula)."
                 % (n_req, confidence * 100, pct(p), pct(margin), sample, SMALL_COUNT)
             )
         else:
@@ -273,6 +281,10 @@ def cmd_proportion(args):
                 "assuming %s (Cochran's formula, n = z^2 p(1-p)/e^2%s)."
                 % (n_req, pct(margin), confidence * 100, pct(p), sample, " with the finite population correction" if population else "")
             )
+            if n_req > cochran_n:
+                statement = statement[:-1] + (
+                    "; Cochran's formula alone gives %d, but below %d the smaller category expects fewer than %d responses, where the Wilson interval "
+                    "is wider than the target, so %d is the first n with %d or more)." % (cochran_n, n_req, SMALL_COUNT, n_req, SMALL_COUNT))
     if args.n is not None:
         n = positive(args.n, "--n")
         if population and n > population:
@@ -288,7 +300,10 @@ def cmd_proportion(args):
         elif args.x is not None or n_eff * min(p, 1 - p) < SMALL_COUNT:
             low, high = wilson_interval(p, n_eff, z)
             result.update({"interval_method": "wilson", "estimate": round(p, 4), "interval_low": round(low, 4), "interval_high": round(high, 4)})
-            notes.append("Wilson score interval: with fewer than %d expected responses in the smaller category a symmetric +/- margin is misleading. Report the interval, or the raw count." % SMALL_COUNT)
+            if n_eff * min(p, 1 - p) < SMALL_COUNT:
+                notes.append("Wilson score interval: with fewer than %d expected responses in the smaller category a symmetric +/- margin is misleading. Report the interval, or the raw count." % SMALL_COUNT)
+            else:
+                notes.append("An observed count (--x) is reported with its Wilson score interval.")
             if population:
                 notes.append("The finite population correction is not applied to the Wilson interval: it treats the %d responses as drawn from a much larger population, so with %d of %d sampled it is wider than the true interval." % (n, n, population))
             if args.margin is None:
@@ -424,15 +439,12 @@ class TwoGroupTest:
         return n
 
     def power_from_parts(self, effect, s0, s1, n):
-        if self.continuity:
-            shift = self.k / (2.0 * effect)
-            if n <= shift:
-                return 0.0
-            n = (n - shift) ** 2 / n
-        power = phi((effect * math.sqrt(n) - self.z_alpha * s0) / s1)
+        # The continuity correction shrinks the observed difference by k/(2n) in either tail (Fleiss).
+        cc = self.k / (2.0 * n) if self.continuity else 0.0
+        power = phi(((effect - cc) * math.sqrt(n) - self.z_alpha * s0) / s1)
         if self.sides == 2:
             # A two-sided test also rejects in the wrong direction (R's strict = TRUE).
-            power += phi((-effect * math.sqrt(n) - self.z_alpha * s0) / s1)
+            power += phi(((-effect - cc) * math.sqrt(n) - self.z_alpha * s0) / s1)
         return power
 
     def n_props(self, p1, p2):
@@ -495,6 +507,8 @@ def cmd_compare(args):
     comparisons = positive(args.comparisons, "--comparisons")
     alpha_each = alpha / comparisons
     z_alpha = z_value(1 - alpha_each / args.sides)
+    if z_alpha <= 0:
+        raise InputError("--alpha %g one-sided puts the critical value at or below 0; a one-sided alpha must be under 0.5" % alpha_each)
     z_beta = z_value(power)
     if args.n is not None:
         positive(args.n, "--n")
@@ -612,7 +626,10 @@ def cmd_compare(args):
                         if args.n is not None:
                             row["power_at_n"] = round(test.power_props(p1, p_row, n_given), 3)
                         rows.append(row)
-                result["table"] = rows
+                if rows:
+                    result["table"] = rows
+                else:
+                    notes.append("No table rows: every tabulated difference (2 to 20 points) would take p2 past 0 or 1.")
         elif args.n is not None:
             found = test.detectable_p2(p1, n_given, args.direction)
             if found is None:
@@ -685,6 +702,9 @@ def cmd_compare(args):
                 args.n, "each group" if equal else "group 1 and %d in group 2" % int(round(args.n * ratio)), round(found, 4), tail)
         else:
             raise InputError("give --p1 with --p2 or --lift (proportions), --d or --diff with --sd (means), or --n for the reverse")
+    if "power_at_n" in result:
+        statement += " With %s, power for that difference is %s%%." % (
+            "%d per group" % args.n if equal else "%d and %d in the two groups" % (args.n, int(round(args.n * ratio))), pct(result["power_at_n"]))
     return {"inputs": inputs, "result": result, "statement": statement, "assumptions": assumptions, "notes": notes, "formula": formula, "sources": sources}
 
 
@@ -713,11 +733,12 @@ def cmd_gap(args):
         "result": result,
         "statement": statement,
         "assumptions": [
-            "Both shares come from the same question in the same sample (one answer per respondent), so they are negatively correlated.",
+            "Both shares come from the same single-select question in the same sample (one answer per respondent), so they are negatively correlated; a multi-select question needs McNemar's test instead.",
             "Confidence level %g%% (two-sided), simple random sample." % (confidence * 100),
             deff_text(deff, how),
         ],
-        "notes": ["The margin for the gap is not the survey's usual margin (+/-%s points here) and not twice it; it depends on how much of the sample chose either answer." % pct(single)],
+        "notes": ["The margin for the gap is not the survey's usual margin (+/-%s points here) and not twice it; it depends on how much of the sample chose either answer." % pct(single)]
+        + (["n_for_this_gap_to_exceed_margin puts a true gap of this size at the edge of its margin: a new survey of that n finds it significant only about half the time. To plan for 80% power, use (z_alpha + z_beta)^2 in place of z^2."] if difference > 0 else []),
         "formula": "e = z sqrt((p1 + p2 - (p1 - p2)^2) / (n - 1))",
         "sources": ["Franklin 2007, The 'Margin of Error' for Differences in Polls (adapted from Kish 1965, pp. 498-501)"],
     }
@@ -749,8 +770,11 @@ def cmd_subgroups(args):
         base_text = "Base per subgroup %d: the n for +/-%s points at p = 0.5, %g%% confidence%s." % (
             min_base, pct(margin), confidence * 100, ", times the design effect %g" % round(deff, 4) if deff != 1 else "")
     else:
-        min_base = positive(SUBGROUP_MIN_BASE if args.min_base is None else args.min_base, "--min-base")
-        base_text = "Minimum base %d per reported subgroup%s." % (min_base, " (Sudman's rule for major subgroups)" if min_base == SUBGROUP_MIN_BASE else "")
+        stated = positive(SUBGROUP_MIN_BASE if args.min_base is None else args.min_base, "--min-base")
+        min_base = ceil_n(stated * deff)
+        base_text = "Minimum base %d per reported subgroup%s%s." % (
+            stated, " (Sudman's rule for major subgroups)" if stated == SUBGROUP_MIN_BASE else "",
+            ", times the design effect %g: %d completes" % (round(deff, 4), min_base) if deff != 1 else "")
     smallest_name, smallest = min(shares, key=lambda item: item[1])
     total = ceil_n(min_base / smallest)
     table = []
@@ -840,13 +864,14 @@ def cmd_check(args):
     test = TwoGroupTest("pooled", 1.0, z_value(1 - alpha / 2.0), z_value(power))
     halves = {"n_per_half": half}
     if half >= 2:
-        found = test.detectable_p2(p, half / deff, "up")
-        if found is None:
-            found = test.detectable_p2(p, half / deff, "down")
+        # Both directions; the larger difference holds whichever way the halves differ.
+        candidates = [f for f in (test.detectable_p2(p, half / deff, "up"), test.detectable_p2(p, half / deff, "down"))
+                      if f is not None]
+        found = max(candidates, key=lambda f: abs(f - p)) if candidates else None
         if found is not None:
             halves["detectable_p2"] = round(found, 4)
             halves["minimum_detectable_difference"] = round(abs(found - p), 4)
-            parts.append("two halves of %d can detect a difference of %s points or more from %s%%" % (half, pct(abs(found - p)), pct(p)))
+            parts.append("two halves of %d can detect a difference of %s points or more from %s%% in either direction" % (half, pct(abs(found - p)), pct(p)))
         else:
             notes.append("Two halves of %d cannot detect any difference in a percentage at this alpha and power." % half)
         d_min = test.detectable_standardised(half / deff, True)
@@ -943,7 +968,7 @@ def cmd_nps(args):
     z = z_value(0.5 + confidence / 2.0)
     notes = []
     result = {"variance": round(variance, 4), "z": round(z, Z_DIGITS)}
-    assumptions = [basis, "NPS in points = 100 x (share of promoters - share of detractors); margins below are in NPS points."]
+    assumptions = [basis, "NPS in points = 100 x (share of promoters - share of detractors); margins and differences below are proportions of 1 (0.05 = 5 NPS points)."]
     sample = describe_sample(population, deff)
     statement = ""
     if args.diff is not None:
@@ -956,8 +981,14 @@ def cmd_nps(args):
         diff = abs(args.diff)
         if not 0 < diff <= 2:
             raise InputError("--diff is a difference in NPS as a proportion (0.1 = 10 points), above 0 and at most 2")
+        if population:
+            raise InputError("--population applies to one score's margin, not to --diff (two independent groups)")
         z_alpha = z_value(1 - alpha / args.sides)
+        if z_alpha <= 0:
+            raise InputError("--alpha %g one-sided puts the critical value at or below 0; a one-sided alpha must be under 0.5" % alpha)
         z_beta = z_value(power)
+        del result["z"]  # --confidence plays no part in a difference test
+        result.update({"z_alpha": round(z_alpha, Z_DIGITS), "z_beta": round(z_beta, Z_DIGITS)})
         raw = (z_alpha + z_beta) ** 2 * 2 * variance / diff ** 2
         n_group = ceil_n(raw * deff)
         result.update({"difference": diff, "n_per_group": n_group, "n_total": 2 * n_group})
@@ -970,6 +1001,7 @@ def cmd_nps(args):
             shift = diff * math.sqrt(n_eff / (2 * variance))
             achieved = phi(shift - z_alpha) + (phi(-shift - z_alpha) if args.sides == 2 else 0.0)
             result.update({"n": args.n, "power_at_n": round(achieved, 3), "sufficient": args.n >= n_group})
+            statement += " With %d per group, power for that difference is %s%%." % (args.n, pct(round(achieved, 3)))
             notes.append("Power is for the difference assumed before fielding, never for an observed one.")
         if args.table:
             rows = []
@@ -1176,8 +1208,10 @@ def cmd_interviews(args):
         "segments": segments,
         "total_low": low * segments,
         "total_high": high * segments,
-        "first_saturation_check_after": SATURATION_BASE + SATURATION_RUN,
     }
+    code_saturation = args.method == "interviews" and args.goal == "codes"
+    if code_saturation:
+        result["first_saturation_check_after"] = SATURATION_BASE + SATURATION_RUN
     statement = "Plan %d to %d %s%s as a starting range (%s), and check saturation during fieldwork rather than treating the range as a target." % (
         low * segments, high * segments, unit, " (%d to %d in each of %d segments)" % (low, high, segments) if segments > 1 else "", source)
     return {
@@ -1190,7 +1224,10 @@ def cmd_interviews(args):
             "Goal '%s': %s." % (args.goal, "hearing the range of issues (code saturation)" if args.goal == "codes" else "understanding the issues in depth (meaning saturation)"),
         ],
         "notes": [
-            "Assess saturation from interview %d in each segment (saturation command), and stop on evidence, not on the count." % (SATURATION_BASE + SATURATION_RUN),
+            ("Assess saturation from interview %d in each segment (saturation command), and stop on evidence, not on the count." % (SATURATION_BASE + SATURATION_RUN))
+            if code_saturation else
+            "The saturation command tracks code saturation in individual interviews (Guest et al. 2020); for %s judge saturation from the analysis itself." % (
+                "focus groups" if args.method != "interviews" else "meaning saturation"),
             "Do not attach percentages or margins of error to these counts. Some methodologists reject fixed counts altogether (see references/sources.md).",
         ],
         "formula": "cited range per segment x number of segments",
@@ -1213,7 +1250,7 @@ def read_new_codes(args):
             raise InputError("cannot read %s: %s" % (args.file, error.strerror))
         except UnicodeDecodeError:
             raise InputError("%s is not UTF-8 text" % args.file)
-        lines = [line for line in text.splitlines() if line.strip()]
+        lines = [line for line in text.splitlines() if line.strip().strip(",;\t")]  # Excel can leave ",," rows
         if not lines:
             raise InputError("%s is empty" % args.file)
         counts = {d: len(next(csv.reader([lines[0]], delimiter=d))) for d in (",", ";", "\t")}
@@ -1237,7 +1274,7 @@ def read_new_codes(args):
         if cell == "":
             raise InputError("interview %d has no count of new codes; give 0 if it added none" % position)
         try:
-            value = int(cell)
+            value = int(float(cell)) if re.fullmatch(r"\d+\.0*", cell) else int(cell)  # "14.0" from a spreadsheet
         except ValueError:
             raise InputError("interview %d: %r is not a whole number of new codes" % (position, cell))
         if value < 0:
@@ -1326,6 +1363,8 @@ def show(value):
 
 
 def render_table(rows, indent):
+    if not rows:
+        return []
     keys = list(rows[0])
     widths = [max(len(key.replace("_", " ")), max(len(show(row.get(key, ""))) for row in rows)) for key in keys]
     lines = [indent + "  ".join(key.replace("_", " ").ljust(width) for key, width in zip(keys, widths)).rstrip()]

@@ -590,5 +590,39 @@ class GeminiReviewRegressions(unittest.TestCase):
         self.assertAlmostEqual(nms["revenue_max_approached"]["revenue_index"], 7.0)
 
 
+class AgainstRRun(unittest.TestCase):
+    """--compat r against numbers printed by R pricesensitivitymeter 1.3.3 (fixtures/r_psm_1_3_3.expected.json)."""
+
+    def test_every_r_case(self):
+        doc = json.loads((FIXTURES / "r_psm_1_3_3.expected.json").read_text())
+        for case in doc["cases"]:
+            label = f"{case['input']} {case['acceptable_range']} {case['intersection_method']}"
+            nms = "nms_reach" in case
+            proc = run(FIXTURES / case["input"], "--json", *doc["script_args"], "--range-definition",
+                       case["acceptable_range"], "--tie", case["intersection_method"],
+                       *(INTENT if nms else ("--no-nms",)))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            result = json.loads(proc.stdout)
+            self.assertEqual(result["respondents"]["analysed"], case["total_sample"] - case["invalid_cases"], label)
+            got = {"pricerange_lower": result["acceptable_range"]["low"], "pricerange_upper": result["acceptable_range"]["high"],
+                   "opp": result["price_points"]["opp"]["price"], "idp": result["price_points"]["ipp"]["price"]}
+            if nms:
+                got["price_optimal_reach"] = result["nms"]["trial_max"]["price"]
+                got["price_optimal_revenue"] = result["nms"]["revenue_max_on_grid"]["price"]
+                self.assertEqual([row["price"] for row in result["nms"]["curve"]], case["nms_price"], label)
+                for row, want in zip(result["nms"]["curve"], case["nms_reach"]):
+                    self.assertAlmostEqual(row["trial"], want, places=9, msg=label)
+            for key, value in got.items():
+                if case[key] is None:
+                    self.assertIsNone(value, f"{label} {key}")
+                else:
+                    self.assertAlmostEqual(value, case[key], places=9, msg=f"{label} {key}")
+
+    def test_r_rejects_what_compat_r_rejects(self):
+        proc = run(FIXTURES / "no_width.input.csv", "--compat", "r")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("no respondent is left", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

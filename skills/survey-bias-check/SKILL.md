@@ -3,7 +3,7 @@ name: survey-bias-check
 description: "Reviews a survey or questionnaire for question wording and design problems: leading, loaded, double-barreled, assumptive and hypothetical questions, double negatives, unbalanced scales, overlapping or gapped answer ranges, missing \"none\" or \"other\" options, recall periods, agree/disagree grids and length, with a rewrite for each problem question. Use for checking, auditing or linting survey questions, a feedback form, an NPS or CSAT survey, a Google Form, Typeform or Qualtrics draft, or pasted questions before launch, or for \"what is wrong with my survey\"."
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -89,7 +89,7 @@ This survey has 4 questions and takes about 1 minute.
 - Required: `*` at the end, `(required)` or `[required]`. `(optional)` is removed from the stem.
 - Type tag, optional, on the question line or a line of its own: `[single]`, `[multi]`, `[scale]`, `[grid]`,
   `[number]`, `[open]` or `[text]` (`[number, 0 to 3]` works too). Without a tag: lettered rows mean grid, no
-  options means open, "select all that apply" means multi, anything else single.
+  options means open (numeric entry when it asks how many, how much, how long, an age or a year), "select all that apply" means multi, anything else single.
 - Skip-logic lines such as `(If 0, go to question 6.)`, closing lines starting "Thank you" and headings
   (`#`) are not read as question text; skip logic is listed in a warning.
 
@@ -98,7 +98,7 @@ JSON is also accepted: a list, or an object with `questions` and optionally `int
 
 ## Steps
 
-1. **Convert the questionnaire** to the input format and save it to a temporary file. A Google Form,
+1. **Convert the questionnaire** to the input format and save it to a file (`survey.md` below). A Google Form,
    Typeform or Qualtrics draft arrives as pasted text, a link's page text, a PDF or a CSV/JSON export: copy
    out the introduction, question text, options, required flags and order exactly as written, tag the types
    you can see (`[multi]`, `[scale]`, `[number]`, `[grid]`), and note any skip logic. For a `.qsf` file run
@@ -112,7 +112,8 @@ JSON is also accepted: a list, or an object with `questions` and optionally `int
    python3 <skill-dir>/scripts/survey_bias_check.py survey.md --json
    ```
 
-   `-` instead of a file name reads standard input. Exit code 0 means it ran, with or without findings; 2
+   With skip logic, add `--route-skip` with the questions off the longest route, so the length is that
+   route's. `-` instead of a file name reads standard input. Exit code 0 means it ran, with or without findings; 2
    means the input could not be read (fix the format, do not guess). Options: `--mode phone`,
    `--audience expert`, `--keep Q7,Q9`, `--route-skip Q5,Q6` (questions off the longest route, for the
    length), `--language en|other` (override the per-question English check), `--ignore SB011,SB013`,
@@ -127,8 +128,10 @@ JSON is also accepted: a list, or an object with `questions` and optionally `int
 4. **Read the questionnaire for what rules miss** (catalogue section "What no rule checks"): assumptions in
    other wording, social desirability outside the word list, undefined terms, loaded wording outside the
    word lists, options that do not fit the audience, missing open-ended ranges, and order: general before
-   specific, behaviour before attitude, earlier questions that prime later ones, nominal lists that should be
-   randomised with "Other" and "None" kept last, ordinal options in logical order. Add what you find with the
+   specific, earlier questions that prime later ones (a specific behaviour or attribute before an overall
+   rating), nominal lists that should be randomised with "Other" and "None" kept last, ordinal options in
+   logical order. Also: "None of these" set as exclusive in a `[multi]`, required questions with no way out,
+   intro claims (time, anonymity) that the questionnaire contradicts, and skip logic with dead ends. Add what you find with the
    rule column set to `judgment`.
 5. **Handle what the script could not check.** Questions under `unchecked` (not English), any `warnings`,
    a missing introduction (`has_intro: false`) and skip logic need your own reading. Say so in the answer.
@@ -157,7 +160,7 @@ JSON is also accepted: a list, or an object with `questions` and optionally `int
 | SB006 | Vague quantifiers: regularly, often, sometimes | low |
 | SB007 | Undefined acronyms and trade terms | low |
 | SB008 | Stem longer than 20 words | low |
-| SB009 | Unequal numbers of positive and negative scale labels | high |
+| SB009 | Unequal numbers of positive and negative scale labels | high / medium / low |
 | SB010 | Numeric ranges that overlap, leave a gap or are reversed; gaps in a continuous measure | high / medium |
 | SB011 | No "None of these" (select-all), "Other" (lists) or "Not sure" (narrow) | medium / low |
 | SB012 | Scale direction or length that changes between questions | medium |
@@ -167,13 +170,13 @@ JSON is also accepted: a list, or an object with `questions` and optionally `int
 | SB016 | Sensitive or demographic questions first; required with no opt-out | low / medium |
 | SB017 | No reference period; long recall window for a count | low |
 | SB018 | Built-in assumption: no "Never" / "Does not apply" and no filter question | medium / low |
-| SB019 | Options that do not answer the stem; one-sided stem over a two-sided scale | high / low |
+| SB019 | Options that do not answer the stem; one-sided stem over a two-sided scale | high / medium / low |
 | SB020 | Numeric scale with no verbal labels | medium |
 | SB021 | Sensitive or socially desirable behaviour (word list) | low |
 | SB022 | Merged opt-outs such as "None / Other" | medium |
 | SB023 | Mental computation: averages, percentages, totals | low |
 | SB024 | Introduction that leads or gives no time estimate | medium / low |
-| SB025 | More than 10 grid rows, more than 3 open questions, open question first | low |
+| SB025 | More than 10 grid rows (5 by phone), more than 3 open questions, open question first | low |
 | SB026 | Syntax load: conditions, exclusions, parentheticals, inline lists | low |
 | SB027 | Even-point two-sided scale (a note, not counted) | info |
 | SB028 | The same option twice | high |
@@ -197,11 +200,11 @@ Always this shape, in this order:
 Assumed: <audience>, <mode>, <language>. Checked <N> questions; <C> confirmed problems
 (<H> high, <M> medium, <L> low); <D> rule candidates dismissed.
 
-| Q | Problem | Rule | Rewritten question |
-|---|---|---|---|
-| 2 | Asks about speed and reliability in one question; 3 positive labels against 1 negative | SB001, SB009 | "How satisfied or dissatisfied are you with the speed of the app?" (Very satisfied / Somewhat satisfied / Neither satisfied nor dissatisfied / Somewhat dissatisfied / Very dissatisfied). Ask reliability as a separate question with the same options. |
-| 5 | Assumes the respondent has contacted support | judgment | Add a filter question first: "In the past 3 months, have you contacted support?" |
-| 7 | Agree/disagree grid from a validated instrument | SB014 | keep as is (changing it breaks comparison with the published norms) |
+| Q | Problem | Rule | Severity | Rewritten question |
+|---|---|---|---|---|
+| 2 | Asks about speed and reliability in one question; 3 positive labels against 1 negative | SB001, SB009 | high | "How satisfied or dissatisfied are you with the speed of the app?" (Very satisfied / Somewhat satisfied / Neither satisfied nor dissatisfied / Somewhat dissatisfied / Very dissatisfied). Ask reliability as a separate question with the same options. |
+| 5 | Assumes the respondent has contacted support | judgment | medium | Add a filter question first: "In the past 3 months, have you contacted support?" |
+| 7 | Agree/disagree grid from a validated instrument | SB014 | medium | keep as is (changing it breaks comparison with the published norms) |
 
 **Dismissed candidates:** Q4 SB001 ("terms and conditions" is one concept); ...
 
@@ -209,16 +212,20 @@ Assumed: <audience>, <mode>, <language>. Checked <N> questions; <C> confirmed pr
 
 **Verdict:** <Ready to field | Fix before fielding | Not ready>. <One or two sentences: the main reason.>
 
-**Length:** about <minutes_rounded> minutes (<points> points at 8 points per minute; <every question
-counted | longest route only>). <Under 10 minutes | Above 10 minutes, the median ideal length web-panel
-respondents report | Above 20 minutes, their median maximum.>
+**Length:** about <minutes_rounded> minutes (<points> points at 8 points per minute<, times 1.5 by phone>;
+<every question counted | longest route only>). <Under 10 minutes | Above 10 minutes, the median ideal length
+web-panel respondents report | Above 20 minutes, their median maximum.> (The thresholds come from web
+panels; by phone say so.)
 
 **Pretest:** this is a desk review; try the questionnaire on a few people from the target group before
 fielding.
 ```
 
 - One row per question with a confirmed problem, in questionnaire order; grid rows as `11b`, the
-  introduction as `intro`.
+  introduction as `intro`, a problem with the whole questionnaire (length, order, open-question count) as
+  `survey`. Severity is the rule's (catalogue); for `judgment`, high when the answers would be unusable,
+  medium when biased, low when only harder to answer. `<C>` counts confirmed problems, a row with two rules
+  as two, `keep as is` rows not at all. An SB027 note goes under "Not checked by rules".
 - Verdict: **Not ready** if any high-severity problem is confirmed; **Fix before fielding** if only medium
   ones are; **Ready to field** if only low ones or none are. Judgment findings take the severity you
   assign. Notes (SB027) and "keep as is" questions do not change the verdict.
@@ -243,4 +250,4 @@ fielding.
 
 ## Field it (optional)
 
-To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Tools: `survey_list` and `survey_get` (find a survey and read its questions to check), `question_update_text` and `question_update` (apply the rewrites the user accepts). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.
+To run this on QuestionPunk, connect its MCP server (`https://app.questionpunk.com/api/v1`, OAuth sign-in). Tools: `survey_list` and `survey_get` (find a survey and read its questions to check), `question_update_text` and `question_update` (apply the rewrites the user accepts), `question_create` (a filter question a rewrite adds). Ask the user before creating, changing or publishing anything. If a tool says a permission is missing, reconnect and approve the requested access.

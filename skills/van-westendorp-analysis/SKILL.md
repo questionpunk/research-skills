@@ -3,7 +3,7 @@ name: van-westendorp-analysis
 description: "Computes a Van Westendorp price sensitivity meter (PSM) from a CSV of survey answers: optimal (OPP) and indifference (IPP/IDP) price points, PMC, PME and the acceptable price range, plus the optional Newton-Miller-Smith purchase-intent extension. Flags inconsistent respondents and prints the convention used, so results can be compared with R, Conjointly or Sawtooth. Use for \"Van Westendorp\", \"price sensitivity meter\", \"PSM analysis\", \"acceptable price range\", \"willingness to pay survey\" or \"what should we charge\" when you have four-question pricing survey data."
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -115,8 +115,8 @@ question: "Are these prices in <currency> per <period>?" Everything else has a d
    of each question and every warning. Zero or absurd prices: tell the user and let them choose a limit.
 5. **Comparing with another tool.** Tools differ in five conventions (consistency rule, curve boundary,
    interpolation, tie rule, PMC/PME definition); [references/tool-conventions.md](references/tool-conventions.md)
-   has the table and the flags. For R `pricesensitivitymeter` run `--compat r` (read from the package
-   source, not yet checked against an R run, so say so); for Conjointly read the narrower range. Say which
+   has the table and the flags. For R `pricesensitivitymeter` run `--compat r` (checked against R
+   1.3.3; R's revenue price is the "highest among the observed prices only" line); for Conjointly read the narrower range. Say which
    conventions each number uses; do not call either tool wrong.
 6. **Write the answer** in the shape below. Copy numbers from the script; do not recompute or re-round.
 

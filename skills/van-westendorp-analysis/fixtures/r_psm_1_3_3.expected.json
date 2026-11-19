@@ -1,0 +1,1143 @@
+{
+  "source": "R 4.5.1 (2025-06-13), CRAN package pricesensitivitymeter 1.3.3, psm_analysis() with default arguments except acceptable_range and intersection_method, run on 2026-11-19 by the R script in fixtures/README.md section 14. These numbers were printed by R, not worked out by hand or by this script.",
+  "script_args": [
+    "--compat",
+    "r"
+  ],
+  "maps": {
+    "pricerange_lower": "acceptable_range.low (with --range-definition = acceptable_range)",
+    "pricerange_upper": "acceptable_range.high",
+    "opp": "price_points.opp.price",
+    "idp": "price_points.ipp.price",
+    "intersection_method": "--tie",
+    "total_sample - invalid_cases": "respondents.analysed",
+    "price_optimal_reach": "nms.trial_max.price",
+    "price_optimal_revenue": "nms.revenue_max_on_grid.price (R searches the observed prices only)",
+    "nms_reach": "nms.curve[].trial"
+  },
+  "not_run_in_r": "no_width.input.csv: R stops with 'All respondents have intransitive preference structures'; the script exits 2 with 'no respondent is left to analyse'.",
+  "cases": [
+    {
+      "input": "basic.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "basic.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "basic.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "basic.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "basic.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "basic.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "conjointly_published.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 1,
+      "pricerange_lower": 4.6,
+      "opp": 7,
+      "idp": 6.5,
+      "pricerange_upper": 9
+    },
+    {
+      "input": "conjointly_published.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 1,
+      "pricerange_lower": 4.6,
+      "opp": 7,
+      "idp": 6.5,
+      "pricerange_upper": 9
+    },
+    {
+      "input": "conjointly_published.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 1,
+      "pricerange_lower": 4.6,
+      "opp": 7,
+      "idp": 6.5,
+      "pricerange_upper": 9
+    },
+    {
+      "input": "conjointly_published.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 1,
+      "pricerange_lower": 5.5,
+      "opp": 7,
+      "idp": 6.5,
+      "pricerange_upper": 8.16666666666667
+    },
+    {
+      "input": "conjointly_published.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 1,
+      "pricerange_lower": 5.5,
+      "opp": 7,
+      "idp": 6.5,
+      "pricerange_upper": 8.16666666666667
+    },
+    {
+      "input": "conjointly_published.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 1,
+      "pricerange_lower": 5.5,
+      "opp": 7,
+      "idp": 6.5,
+      "pricerange_upper": 8.16666666666667
+    },
+    {
+      "input": "inconsistent.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 13,
+      "invalid_cases": 3,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "inconsistent.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 13,
+      "invalid_cases": 3,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "inconsistent.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 13,
+      "invalid_cases": 3,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "inconsistent.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 13,
+      "invalid_cases": 3,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "inconsistent.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 13,
+      "invalid_cases": 3,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "inconsistent.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 13,
+      "invalid_cases": 3,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "ipp_below_opp.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 3,
+      "invalid_cases": 0,
+      "pricerange_lower": 2.5,
+      "opp": 8,
+      "idp": 5.5,
+      "pricerange_upper": 9.5
+    },
+    {
+      "input": "ipp_below_opp.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 3,
+      "invalid_cases": 0,
+      "pricerange_lower": 2.5,
+      "opp": 8,
+      "idp": 5.5,
+      "pricerange_upper": 9.5
+    },
+    {
+      "input": "ipp_below_opp.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 3,
+      "invalid_cases": 0,
+      "pricerange_lower": 2.5,
+      "opp": 8,
+      "idp": 5.5,
+      "pricerange_upper": 9.5
+    },
+    {
+      "input": "ipp_below_opp.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 3,
+      "invalid_cases": 0,
+      "pricerange_lower": 4.66666666666667,
+      "opp": 8,
+      "idp": 5.5,
+      "pricerange_upper": 9
+    },
+    {
+      "input": "ipp_below_opp.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 3,
+      "invalid_cases": 0,
+      "pricerange_lower": 4.66666666666667,
+      "opp": 8,
+      "idp": 5.5,
+      "pricerange_upper": 9
+    },
+    {
+      "input": "ipp_below_opp.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 3,
+      "invalid_cases": 0,
+      "pricerange_lower": 4.66666666666667,
+      "opp": 8,
+      "idp": 5.5,
+      "pricerange_upper": 9
+    },
+    {
+      "input": "nms.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 43.3333333333333,
+      "price_optimal_reach": 30,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60
+      ],
+      "nms_reach": [
+        0,
+        0.3,
+        0.4,
+        0.1875,
+        0.0625,
+        0
+      ]
+    },
+    {
+      "input": "nms.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 40,
+      "idp": 30,
+      "pricerange_upper": 43.3333333333333,
+      "price_optimal_reach": 30,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60
+      ],
+      "nms_reach": [
+        0,
+        0.3,
+        0.4,
+        0.1875,
+        0.0625,
+        0
+      ]
+    },
+    {
+      "input": "nms.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 30,
+      "idp": 30,
+      "pricerange_upper": 43.3333333333333,
+      "price_optimal_reach": 30,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60
+      ],
+      "nms_reach": [
+        0,
+        0.3,
+        0.4,
+        0.1875,
+        0.0625,
+        0
+      ]
+    },
+    {
+      "input": "nms.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 30,
+      "price_optimal_reach": 30,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60
+      ],
+      "nms_reach": [
+        0,
+        0.3,
+        0.4,
+        0.1875,
+        0.0625,
+        0
+      ]
+    },
+    {
+      "input": "nms.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 30,
+      "opp": 40,
+      "idp": 30,
+      "pricerange_upper": 40,
+      "price_optimal_reach": 30,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60
+      ],
+      "nms_reach": [
+        0,
+        0.3,
+        0.4,
+        0.1875,
+        0.0625,
+        0
+      ]
+    },
+    {
+      "input": "nms.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 25,
+      "opp": 30,
+      "idp": 30,
+      "pricerange_upper": 35,
+      "price_optimal_reach": 30,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60
+      ],
+      "nms_reach": [
+        0,
+        0.3,
+        0.4,
+        0.1875,
+        0.0625,
+        0
+      ]
+    },
+    {
+      "input": "nms_interior.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 100,
+      "price_optimal_reach": 20,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        100
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.5,
+        0
+      ]
+    },
+    {
+      "input": "nms_interior.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 100,
+      "price_optimal_reach": 20,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        100
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.5,
+        0
+      ]
+    },
+    {
+      "input": "nms_interior.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 100,
+      "price_optimal_reach": 20,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        100
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.5,
+        0
+      ]
+    },
+    {
+      "input": "nms_interior.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 20,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 30,
+      "price_optimal_reach": 20,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        100
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.5,
+        0
+      ]
+    },
+    {
+      "input": "nms_interior.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 30,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 30,
+      "price_optimal_reach": 20,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        100
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.5,
+        0
+      ]
+    },
+    {
+      "input": "nms_interior.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 25,
+      "opp": 20,
+      "idp": 30,
+      "pricerange_upper": 30,
+      "price_optimal_reach": 20,
+      "price_optimal_revenue": 30,
+      "nms_price": [
+        10,
+        20,
+        30,
+        100
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.5,
+        0
+      ]
+    },
+    {
+      "input": "orme_smith.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 130,
+      "opp": 130,
+      "idp": 175,
+      "pricerange_upper": 200,
+      "price_optimal_reach": 130,
+      "price_optimal_revenue": 130,
+      "nms_price": [
+        100,
+        130,
+        175,
+        200
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.3,
+        0
+      ]
+    },
+    {
+      "input": "orme_smith.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 130,
+      "opp": 130,
+      "idp": 175,
+      "pricerange_upper": 200,
+      "price_optimal_reach": 130,
+      "price_optimal_revenue": 130,
+      "nms_price": [
+        100,
+        130,
+        175,
+        200
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.3,
+        0
+      ]
+    },
+    {
+      "input": "orme_smith.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 130,
+      "opp": 130,
+      "idp": 175,
+      "pricerange_upper": 200,
+      "price_optimal_reach": 130,
+      "price_optimal_revenue": 130,
+      "nms_price": [
+        100,
+        130,
+        175,
+        200
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.3,
+        0
+      ]
+    },
+    {
+      "input": "orme_smith.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 130,
+      "opp": 130,
+      "idp": 175,
+      "pricerange_upper": 175,
+      "price_optimal_reach": 130,
+      "price_optimal_revenue": 130,
+      "nms_price": [
+        100,
+        130,
+        175,
+        200
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.3,
+        0
+      ]
+    },
+    {
+      "input": "orme_smith.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 175,
+      "opp": 130,
+      "idp": 175,
+      "pricerange_upper": 175,
+      "price_optimal_reach": 130,
+      "price_optimal_revenue": 130,
+      "nms_price": [
+        100,
+        130,
+        175,
+        200
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.3,
+        0
+      ]
+    },
+    {
+      "input": "orme_smith.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 1,
+      "invalid_cases": 0,
+      "pricerange_lower": 152.5,
+      "opp": 130,
+      "idp": 175,
+      "pricerange_upper": 175,
+      "price_optimal_reach": 130,
+      "price_optimal_revenue": 130,
+      "nms_price": [
+        100,
+        130,
+        175,
+        200
+      ],
+      "nms_reach": [
+        0,
+        0.7,
+        0.3,
+        0
+      ]
+    },
+    {
+      "input": "segments.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "segments.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "segments.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 6.5,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "segments.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "segments.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "segments.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": 7.66666666666667,
+      "opp": 9,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "three_question.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": null,
+      "opp": null,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "three_question.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": null,
+      "opp": null,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "three_question.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": null,
+      "opp": null,
+      "idp": 9.25,
+      "pricerange_upper": 11.5
+    },
+    {
+      "input": "three_question.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": null,
+      "opp": null,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "three_question.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": null,
+      "opp": null,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "three_question.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 10,
+      "invalid_cases": 0,
+      "pricerange_lower": null,
+      "opp": null,
+      "idp": 9.25,
+      "pricerange_upper": 10
+    },
+    {
+      "input": "tie_run.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 2,
+      "invalid_cases": 0,
+      "pricerange_lower": 2,
+      "opp": 2,
+      "idp": 3,
+      "pricerange_upper": 6
+    },
+    {
+      "input": "tie_run.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 2,
+      "invalid_cases": 0,
+      "pricerange_lower": 2,
+      "opp": 2,
+      "idp": 5,
+      "pricerange_upper": 6
+    },
+    {
+      "input": "tie_run.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 2,
+      "invalid_cases": 0,
+      "pricerange_lower": 2,
+      "opp": 2,
+      "idp": 4,
+      "pricerange_upper": 6
+    },
+    {
+      "input": "tie_run.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 2,
+      "invalid_cases": 0,
+      "pricerange_lower": 2,
+      "opp": 2,
+      "idp": 3,
+      "pricerange_upper": 3
+    },
+    {
+      "input": "tie_run.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 2,
+      "invalid_cases": 0,
+      "pricerange_lower": 5,
+      "opp": 2,
+      "idp": 5,
+      "pricerange_upper": 3
+    },
+    {
+      "input": "tie_run.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 2,
+      "invalid_cases": 0,
+      "pricerange_lower": 3.5,
+      "opp": 2,
+      "idp": 4,
+      "pricerange_upper": 3
+    },
+    {
+      "input": "weighted.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "min",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 2.66666666666667,
+      "opp": 4,
+      "idp": 3.66666666666667,
+      "pricerange_upper": 4.66666666666667,
+      "price_optimal_reach": 3,
+      "price_optimal_revenue": 4,
+      "nms_price": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "nms_reach": [
+        0,
+        0.175,
+        0.2,
+        0.2,
+        0.15,
+        0,
+        0
+      ]
+    },
+    {
+      "input": "weighted.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "max",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 2.66666666666667,
+      "opp": 4,
+      "idp": 3.66666666666667,
+      "pricerange_upper": 4.66666666666667,
+      "price_optimal_reach": 3,
+      "price_optimal_revenue": 4,
+      "nms_price": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "nms_reach": [
+        0,
+        0.175,
+        0.2,
+        0.2,
+        0.15,
+        0,
+        0
+      ]
+    },
+    {
+      "input": "weighted.input.csv",
+      "acceptable_range": "original",
+      "intersection_method": "mean",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 2.66666666666667,
+      "opp": 4,
+      "idp": 3.66666666666667,
+      "pricerange_upper": 4.66666666666667,
+      "price_optimal_reach": 3,
+      "price_optimal_revenue": 4,
+      "nms_price": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "nms_reach": [
+        0,
+        0.175,
+        0.2,
+        0.2,
+        0.15,
+        0,
+        0
+      ]
+    },
+    {
+      "input": "weighted.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "min",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 3.33333333333333,
+      "opp": 4,
+      "idp": 3.66666666666667,
+      "pricerange_upper": 4.33333333333333,
+      "price_optimal_reach": 3,
+      "price_optimal_revenue": 4,
+      "nms_price": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "nms_reach": [
+        0,
+        0.175,
+        0.2,
+        0.2,
+        0.15,
+        0,
+        0
+      ]
+    },
+    {
+      "input": "weighted.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "max",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 3.33333333333333,
+      "opp": 4,
+      "idp": 3.66666666666667,
+      "pricerange_upper": 4.33333333333333,
+      "price_optimal_reach": 3,
+      "price_optimal_revenue": 4,
+      "nms_price": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "nms_reach": [
+        0,
+        0.175,
+        0.2,
+        0.2,
+        0.15,
+        0,
+        0
+      ]
+    },
+    {
+      "input": "weighted.input.csv",
+      "acceptable_range": "narrower",
+      "intersection_method": "mean",
+      "total_sample": 4,
+      "invalid_cases": 0,
+      "pricerange_lower": 3.33333333333333,
+      "opp": 4,
+      "idp": 3.66666666666667,
+      "pricerange_upper": 4.33333333333333,
+      "price_optimal_reach": 3,
+      "price_optimal_revenue": 4,
+      "nms_price": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "nms_reach": [
+        0,
+        0.175,
+        0.2,
+        0.2,
+        0.15,
+        0,
+        0
+      ]
+    }
+  ]
+}

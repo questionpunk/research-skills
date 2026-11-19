@@ -13,8 +13,8 @@ e the margin of error (half the width of the confidence interval), N the populat
 
 ### Margin of error on a proportion (`proportion`)
 
-- n0 = z² p q / e². Cochran's formula. With p = 0.5 and 95% confidence: 384.16, so **385** for ±5 points
-  and 1067.11, so **1,068** for ±3 points.
+- n0 = z² p q / e². Cochran's formula. With p = 0.5 and 95% confidence: 384.15, so **385** for ±5 points
+  and 1067.07, so **1,068** for ±3 points (384.16 and 1067.11 with z rounded to 1.96).
 - Finite population correction: n = n0 / (1 + (n0 − 1)/N). Example: N = 2,000 gives **323**.
 - Reverse: e = z √(p q / n) × √((N − n)/(N − 1)). At p = 0.5, 95%: n = 80 gives ±11.0 points, n = 100
   gives ±9.8, n = 400 gives ±4.9.
@@ -34,7 +34,8 @@ e the margin of error (half the width of the confidence interval), N the populat
   then returns the smallest n whose Wilson interval at p reaches no more than e from p on either side
   (75 for that example). Brown, Cai and DasGupta (2001) show the Wald interval's coverage collapses for p
   near 0 or 1 and recommend Wilson there. The "both sides within e" criterion is this script's choice.
-- In every mode the n returned is the first whole n that the reverse command (`--n`) calls sufficient:
+- In every margin-of-error mode the n returned is the first whole n that the reverse command (`--n`) calls
+  sufficient:
   the script checks n − 1 and n with the same margin function the reverse command uses.
 - Census. When `--n` equals `--population`, every member responded: the script reports the percentage as
   exact, with no sampling error (Cochran 1977, ch. 2: the finite population correction is 0 at n = N).
@@ -45,7 +46,7 @@ e the margin of error (half the width of the confidence interval), N the populat
 
 ### Margin of error on a mean (`mean`)
 
-- n0 = (z σ / e)², with the same finite population correction. Example: σ = 15, e = 2, 95% gives 216.09,
+- n0 = (z σ / e)², with the same finite population correction. Example: σ = 15, e = 2, 95% gives 216.08,
   so **217**.
 - Source: Illowsky and Dean, *Introductory Statistics* (OpenStax), section 8.1 (primary, read in the Lumen
   Learning copy of that section).
@@ -139,12 +140,16 @@ e the margin of error (half the width of the confidence interval), N the populat
 
 ### Gap between two answers in the same sample (`gap`)
 
-- For two shares of one question in one sample (42% chose A, 37% chose B), the shares are negatively
-  correlated: Var(p1 − p2) = [(p1 + p2) − (p1 − p2)²] / (n − 1), so e = z √(that). Franklin 2007 (primary;
+- For two shares of one single-select question in one sample (42% chose A, 37% chose B; each respondent
+  picks one answer), the shares are negatively correlated: Var(p1 − p2) = [(p1 + p2) − (p1 − p2)²] / (n − 1), so e = z √(that). Franklin 2007 (primary;
   he adapts it from Kish 1965, pp. 498–501).
 - Published examples: n = 441, 30% vs 26% gives ±0.0698; n = 735, 31% vs 25% gives ±0.054 (Franklin 2007).
 - The n at which a given gap exceeds its margin is the same equation solved for n: z² [(p1 + p2) −
-  (p1 − p2)²] / (p1 − p2)² + 1.
+  (p1 − p2)²] / (p1 − p2)² + 1. It puts a true gap of that size at the edge of its margin, so a new survey
+  of that n finds it significant only about half the time; for 80% power use (z_α + z_β)² in place of z².
+- A multi-select (check all that apply) question allows both answers, the covariance can be positive, and
+  this formula does not apply; compare such shares with McNemar's test on the discordant pairs (out of
+  scope).
 
 ### Net Promoter Score (`nps`)
 
@@ -153,23 +158,29 @@ e the margin of error (half the width of the confidence interval), N the populat
   sibling skill `nps-analysis`, which read the preprint in full).
 - Margin: n0 = z² Var / e², then the design effect and finite population correction as for a proportion.
   40% promoters and 20% detractors: Var = 0.56, so ±5 NPS points at 95% needs **861**, against 385 for a
-  single percentage. Reverse: e = z √(Var deff / n).
+  single percentage. Reverse: e = z √(Var deff / n), times √((N − n)/(N − 1)) with `--population`.
 - Two independent scores: n per group = (z_α + z_β)² (Var1 + Var2) / d², d the NPS difference as a
   proportion. Lewis and Sauro (2021c, primary) give the same formula and subtract 3 when the analysis uses
   the adjusted-Wald test, which adds 3; the script keeps the 3. Their example: d = 0.10, Var1 + Var2 = 2,
   α = 0.05 two-sided, 80% power: 1,568 per group after −3 with z rounded to 2.802; the script gives 1,570.
-- Default variance 0.67: MeasuringU's realistic maximum (adjusted variances 0.40 to 0.76 in 18 data sets;
-  Lewis and Sauro 2021c). The absolute maximum is 1 (half promoters, half detractors).
+- Default variance 0.67, the value MeasuringU uses as a realistic maximum (Lewis and Sauro 2021c; their 18
+  data sets had adjusted variances of 0.40 to 0.76, so a few exceed it). The absolute maximum is 1 (half
+  promoters, half detractors).
 - Under 30 responses the normal approximation is poor (Rocks 2016, Table 1); the script says to use the
   adjusted-Wald interval of `nps-analysis` instead.
-- Two different samples (two waves, two segments) are independent: use `compare`.
+- Two different samples (two waves, two segments) are independent: use `nps --diff` (not `compare` or `gap`).
+  Paired NPS on the same respondents is out of scope.
 - `nps --table` (this skill's choice of rows): n at ±3, 5, 7 and 10 NPS points with `--margin`; the margin
   at half, one, two and four times `--n` (as `proportion`); n per group (and power at `--n`) for 5, 10, 15
   and 20 point differences with `--diff`. Each row uses the formula above.
 
 ### Subgroups (`subgroups`)
 
-- Total n = minimum base / smallest subgroup's share, rounded up.
+- Total n = minimum base / smallest subgroup's share, rounded up (with a design effect the base is first
+  multiplied by it, so the effective base still reaches the minimum): proportional (natural fallout) sizing,
+  with quotas so the small group does not fall short. The common alternative when a small group inflates
+  the total: disproportionate quotas (the base in every group) weighted back to the population shares,
+  which costs a design effect on the overall result; pass the weights' CV to `--weight-cv` for that.
 - Default minimum base **100**: Sudman 1976 suggests 100 or more in each major subgroup and 20 to 50 in
   minor ones (secondary). A base of 100 gives ±9.8 points at p = 0.5, 95%.
 - For conjoint and MaxDiff use 200 per subgroup (below).
@@ -177,7 +188,7 @@ e the margin of error (half the width of the confidence interval), N the populat
   lists, per subgroup, the total needed (base / share), the expected n at the chosen total, and its margin.
 - `check` reports, for a given n: the overall margin, the smallest subgroup's margin or Wilson interval, and
   the smallest difference two equal halves of the sample could detect (the `compare` formulas with n/2 per
-  group).
+  group), searched up and down from p; the larger of the two is reported, so it holds in either direction.
 
 ### Invitations (`invites`)
 
@@ -291,7 +302,7 @@ All figures below were recomputed with this script or by hand (fixtures N and R)
   for 90% and 2.58 for 99%, ±5 points gives 273 and 666; with exact z (1.645, 2.576) it gives **271** and
   **664**. SurveyMonkey's calculator page lists 1.65 and 2.58 (primary for the table of z-scores).
 - Some planners subtract z² from Cochran's n (n = z² p q / e² − z², which sizes an adjusted-Wald interval):
-  381 instead of 385 at ±5 points. The difference is 4 responses at 95% whatever the margin.
+  381 instead of 385 at ±5 points. The difference is z² ≈ 3.84 before rounding up, so 3 or 4 responses at 95%.
 - Calculators that round to the nearest whole number can show one fewer than this script, which always
   rounds up.
 
@@ -408,7 +419,8 @@ Also cited:
 - Reading an expected subgroup count as a guarantee. Without a quota it falls short about half the time.
 - Treating the conjoint and MaxDiff rules as power calculations, or the 500 minimum as a target. The 500
   counts exposures (MaxDiff) or representations per level (conjoint), not respondents.
-- Sizing an NPS like a single percentage: its variance is larger, so ±5 points takes about twice the n.
+- Sizing an NPS like a single percentage: its variance is larger, so ±5 points takes two to three times the
+  n (2.7 times at the default variance 0.67).
 - Treating qualitative saturation ranges as statistical sample sizes, or reporting percentages from 12
   interviews.
 - Several planned comparisons at α = 0.05 each without adjusting α.

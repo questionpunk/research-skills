@@ -31,7 +31,7 @@ import re
 import sys
 from statistics import NormalDist
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 CATEGORIES = ["A", "O", "M", "I", "R", "Q"]
 NAMES = {"A": "attractive", "O": "one-dimensional", "M": "must-be", "I": "indifferent", "R": "reverse",

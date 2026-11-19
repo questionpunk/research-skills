@@ -48,7 +48,7 @@ import sys
 import time
 from statistics import NormalDist
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 # Thresholds and defaults. Each is listed with its source in references/sources.md.
 SMALL_BASE = 100  # Pew Research Center subgroup reporting rule (margin of error above 10 points below 100)

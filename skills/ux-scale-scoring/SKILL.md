@@ -3,7 +3,7 @@ name: ux-scale-scoring
 description: "Scores standard usability questionnaires from a CSV: SUS (0-100, standard or all-positive wording, with checks for miscoded data), UMUX-Lite (raw, read on the SUS grades, plus the historical SUS-equivalent), SEQ and raw NASA-TLX, with confidence intervals, the SUS curved grade, percentile and adjective from published benchmarks, and tests of two designs (independent or paired) or against a target such as 68. Use for \"SUS score\", \"System Usability Scale results\", \"calculate SUS\", \"UMUX-Lite\", \"single ease question\", \"NASA-TLX\", \"usability questionnaire results\" or \"is our SUS above average\"."
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -58,15 +58,17 @@ check the export's column order against them.
 
 | Input | Default if not given |
 |---|---|
-| Data | CSV, one row per participant (per participant and design in a within-subjects study), one column per item. Any delimiter, UTF-8 or UTF-16, Qualtrics header detected. |
+| Data | CSV, one row per participant (per participant and design or task in a within-subjects study, with a design or task column), one column per item. Reshape a wide export (`task1_seq`, `task2_seq`, ...) to that long form first. Any delimiter, UTF-8 or UTF-16, Qualtrics header detected. |
 | Instrument | Required (`--instrument`). |
 | Item columns | Detected: SUS columns numbered 1 to 10 (`SUS1`, `sus_10`, `Q5_1` ... `Q5_10`); UMUX-Lite by "capabilities" and "easy"; TLX by subscale names. Otherwise `--items` in questionnaire order. |
 | Scale | Fixed by the instrument: SUS 1-5 (nothing else is the SUS); UMUX-Lite and SEQ 1-7 (`--scale 1-5` for a 5-point UMUX-Lite); TLX 0-100 (`--scale 1-21` for the paper form). Text labels ("Strongly agree") are read with the printed map of that scale only. |
-| Design or task column, participant id | None. With both and the same people rating each design, use `--paired`. |
+| Design or task column, participant id | None (`--group-col`, `--id-col`). With both and the same people rating each design or doing each task, use `--paired`. |
 | Target | None. For "above average" on SUS, 68 with `--tail above`. |
-| Direction of a comparison | Two-sided. A one-sided question fixed before the data ("is the new design better?") is `--compare NEW OLD --tail above` (A minus B); not with `--pairwise`, and run a one-sided `--target` separately. |
+| Direction of a comparison | Two-sided. A one-sided question fixed before the data ("is the new design better?") is `--compare NEW OLD --tail above` (A minus B), `--tail below` for TLX, where lower is better; not with `--pairwise`, and run a one-sided `--target` separately. |
 | Skipped SUS items | Participant excluded and counted. `--impute-midpoint` scores one skipped item as 3 (`--max-imputed` to allow more, with the user's agreement) and prints the complete-case result beside it: overall, per group and for each comparison. |
-| Confidence, small base | 95%; 12 participants (`--min-base`, this skill's reporting convention). |
+| Confidence, small base | 95% (`--confidence`); 12 participants (`--min-base`, this skill's reporting convention). |
+| SEQ direction | 7 = very easy. If the form had "very easy" at 1, numbers or labels, pass `--seq-reversed`. |
+| TLX form | Subscales in order mental, physical, temporal, performance, effort, frustration; performance 0 = perfect, 100 = failure. If performance was asked with high = good, `--reverse-performance`. 0-20 or 1-21 marks: `--scale 0-20` or `--scale 1-21`. |
 
 ## Steps
 
@@ -74,8 +76,8 @@ check the export's column order against them.
    or task and participant columns. Check the questionnaire wording if you have it: alternating or
    all-positive SUS, which UMUX-Lite item is which, how TLX performance was anchored.
 2. **Run the script** by its path inside this skill's folder (`<skill-dir>` below), keeping input and output
-   paths relative to the user's project. Check it first on Brooke's published example, which should print
-   `mean 55.0` and grade D:
+   paths relative to the user's project. Brooke's published example checks the install: it prints
+   `mean 55.0` (one participant, so report a score like that alone, without grade or interval):
 
    ```bash
    python3 <skill-dir>/scripts/ux_scale_scoring.py <skill-dir>/fixtures/brooke_1996.input.csv --instrument sus
@@ -86,7 +88,8 @@ check the export's column order against them.
    python3 <skill-dir>/scripts/ux_scale_scoring.py sus.csv --instrument sus --group-col design --compare new old \
      --tail above
    python3 <skill-dir>/scripts/ux_scale_scoring.py umux.csv --instrument umux-lite --items capabilities,ease
-   python3 <skill-dir>/scripts/ux_scale_scoring.py seq.csv --instrument seq --group-col task --pairwise --adjust holm
+   python3 <skill-dir>/scripts/ux_scale_scoring.py seq.csv --instrument seq --group-col task --pairwise --adjust holm \
+     --paired --id-col participant
    python3 <skill-dir>/scripts/ux_scale_scoring.py tlx.csv --instrument tlx --scale 1-21 --group-col condition \
      --compare A B
    ```
@@ -111,16 +114,19 @@ check the export's column order against them.
    Its interval is the transformed interval of the mean, with no prediction error. Percentiles are
    interpolated between grade boundaries and adjectives are the closest Bangor mean: say so. When the script
    notes that the grade and adjective disagree (62.0 is a D but closest to "Good"), report both with their
-   sources or the grade alone. With one participant there is no interval: report the score alone.
+   sources or the grade alone. With one participant report the score alone: no interval, grade or percentile.
+   A single score given without data ("what grade is a 72") is read off the curved grading table in
+   references/sources.md (SUS benchmarks), with no interval.
 6. **Comparisons.** Same participants rated both designs → `--paired` (paired t); different people → the
    default Welch t. Rows without a participant id are never paired; the output counts them. With
    `--group-col` the pooled line ("All participants (pooled across the design groups)") mixes the designs, so
-   it gets no grade, percentile or adjective; in a paired study it has no interval or target test either.
+   it gets no grade, percentile, adjective or target test (the groups are tested), and in a paired study no
+   interval either; rows with a blank group are shown but not tested.
    Report each design and the difference. A one-sided compare (`--tail above`) prints a one-sided bound
    instead of an interval. Report the difference, its interval, p and the verdict, significant or not
    significant; below the small base read the interval, and never write "no difference". With more than two
-   designs or tasks use `--pairwise --adjust holm`; `--adjust` also covers the target tests, as their own
-   family.
+   designs or tasks use `--pairwise --adjust holm` (or `bonferroni`), with `--paired` when the same people did
+   every task; `--adjust` also covers the target tests, as their own family.
 7. **"Is it above average?"** `--target 68 --tail above` for SUS, decided before looking at the data. For SEQ
    and TLX there is no benchmark in this skill; use the user's target or a previous round.
 
@@ -130,7 +136,8 @@ check the export's column order against them.
 ## SUS: <product>, <round or date>
 
 **SUS 76.3 (95% CI 65.1 to 87.4), n = 12.** Grade B (C to A+ across the interval), about the 77th percentile
-of published study means; closest adjective "Good" (Bangor et al. 2009).
+of published study means (interpolated; Sauro and Lewis 2016, Lewis and Sauro 2018); closest adjective
+"Good" (Bangor et al. 2009).
 <One sentence: what the interval allows you to say, e.g. above the average of 68 or not distinguishable.>
 
 Scoring: standard alternating SUS, Brooke (1996); items sus_1 to sus_10, answers 1-5. Rows 13, scored 12,
@@ -151,7 +158,7 @@ excluded 1 (incomplete). Checks: odd/even correlation -0.96; 0 agreed with both 
 - <small base; flagged or straight-lined participants; imputed items; non-standard wording; regression caveat for UMUX-Lite>
 ```
 
-SEQ is reported per task with one decimal more (means on 1-7). TLX: say "lower is better" and whether the
+SEQ is reported per task with two decimals (means on 1-7). TLX: say "lower is better" and whether the
 score is raw (unweighted). Leave out a section when its input is missing.
 
 ## Common mistakes

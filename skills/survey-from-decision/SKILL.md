@@ -3,7 +3,7 @@ name: survey-from-decision
 description: "Designs a survey backward from the decision it informs: decision rule, hypotheses, each question with its reason, the analysis plan with empty result tables, target sample and estimated length. Use for survey design: \"write a survey\", \"design a survey\", \"survey questions for X\", \"customer feedback survey\", \"questionnaire for X\", \"feedback form\", or a CSAT, CES, NPS, in-app, post-purchase, employee pulse or event feedback survey. Not for reviewing an existing survey (that is survey-bias-check)."
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   status: "beta"
   author: "QuestionPunk"
   source: "questionpunk/research-skills"
@@ -27,23 +27,22 @@ required. Keep a metric's wording verbatim from [references/wording-patterns.md]
 for an in-app or post-transaction channel use the micro-survey mode in
 [references/modes-and-fielding.md](references/modes-and-fielding.md).
 
-Employee pulse, event feedback and recruiting screeners are surveys too: design them here (a screener is a
-block of `S` questions; a standalone one: modes-and-fielding.md section 7). Not for these; name the skill:
+Employee pulse and event feedback are surveys too: design them here; a screener inside a survey is a block of
+`S` questions. Not for these; name the skill:
 
 | Request | Skill |
 |---|---|
 | Review or fix a survey that already exists | `survey-bias-check` |
 | How many responses are needed, margin of error | `survey-sample-size` |
-| What to charge: a Van Westendorp price block (its four questions) and its analysis | `van-westendorp-analysis` |
+| A standalone recruiting screener | `screener-writer` (not installed: modes-and-fielding.md section 7) |
+| What to charge: a Van Westendorp, Gabor-Granger or conjoint block and its analysis | `van-westendorp-analysis`, `gabor-granger-analysis`, `conjoint-design` |
 | Rank more than 6 features or messages against each other | `maxdiff-design` |
 | Product-market fit ("how disappointed would you be") | `pmf-survey` |
 | An interview or discussion guide | `ai-interview-guide` |
-| Clean, code or score answers already collected | `survey-data-cleaning`, `open-ended-coding`, `nps-analysis` |
+| Clean, code, score or cross-tabulate answers already collected | `survey-data-cleaning`, `open-ended-coding`, `nps-analysis`, `survey-crosstabs` |
 
 A mixed request (a survey with a price block): write the survey here and name the other skill for that block
-in section 5 (questions left out). Other price methods (Gabor-Granger, conjoint) and crosstab tests have no
-skill in this pack. A skill named here may not be installed: then say so, name the method, and do not stretch
-this skill.
+in section 5 (left out). A skill named here may not be installed: then say so, name the method, and do not stretch this skill.
 
 ## What to ask for
 
@@ -54,8 +53,8 @@ Ask at most one question, and only in one case.
 programme"). A topic or a metric alone ("customer feedback survey", "CSAT survey") is not a decision.
 
 - **No decision in the request:** ask exactly this and wait: *"What will you do differently depending on
-  what the survey shows? Name the two or three options you are choosing between."* The whole reply is that
-  question plus one line saying what you will produce once it is answered. Ask nothing else.
+  what the survey shows? Name the two or three options you are choosing between."* Reply with only that
+  question and one line saying what you will produce once it is answered.
 - **The user answers "not sure" or "just draft it", or cannot be asked:** take the assumed decision for the
   survey kind from the table below, name 3 or 4 candidate options that fit the product (for a coffee
   subscription: delivery, coffee selection, changing or pausing an order, price), mark the decision and
@@ -98,8 +97,8 @@ Work in this order. Do not write a question before step 5.
    - *Existing data:* could analytics, support tickets or sales records answer it? If they answer part, say
      which part and design the survey for the rest.
    - *Method:* a survey counts how common something is among people who can report it. Unlisted reasons or
-     problems: `ai-interview-guide` first. What people actually do: analytics or an A/B test. People in one
-     room: a quick poll. Continue for the part that needs a count; if none does, stop after section 1.
+     problems: `ai-interview-guide` first; actual behaviour: analytics or an A/B test; people in one room: a
+     quick poll. Continue for the part that needs a count; if none does, stop after section 1.
 
 2. **Decision rule.** Write one to three rules before anything else. A metric is a number the survey can
    produce: a percentage giving an answer (preferred), a mean, a difference between two segments; intervals
@@ -115,10 +114,9 @@ Work in this order. Do not write a question before step 5.
      version of the action]." The full action needs the whole interval at or above [value].
    Thresholds and gaps come from the owner's economics (break-even, capacity, cost). If the user gave none,
    propose them and mark them `ASSUMED: confirm before fielding`. If two rules can point to different
-   actions, add a line "Precedence: rule [n] wins because …". Each rule is applied to the 95% interval,
-   not the point estimate: a zone's action is taken only when the whole interval is inside that zone, and
-   a ranking leader only when its lead is at least the gap and the lead's interval excludes zero. Anything
-   else takes the fallback. Write this once under the rules.
+   actions, add "Precedence: rule [n] wins because …". Write once under the rules that each applies to the
+   95% interval, not the point estimate: a zone's action needs the whole interval inside the zone, a ranking
+   leader a lead of at least the gap with an interval that excludes zero; anything else takes the fallback.
 
 3. **Objective and hypotheses.** Objective: one sentence, "Estimate [metric(s)] among [population] to decide
    [decision]." Then 2 to 4 hypotheses `H1`…, each a statement the data can contradict and each tied to a
@@ -184,32 +182,30 @@ Work in this order. Do not write a question before step 5.
 8. **Length.** Use `survey-bias-check`'s estimator if installed: save the respondent view to a file, run
    `python3 <survey-bias-check-dir>/scripts/survey_bias_check.py view.md --route-skip Q5,Q6 --json` (the
    questions off the longest route, comma-separated; omit without routing) and copy `points` and
-   `minutes_rounded`. Otherwise count by hand: 1 per simple closed question (forced choice included); 1 per
-   grid row; 0.5 per multiple-select option, not rounded; 2 per open number; 3 per open text; 1 per three
-   sentences of introduction, rounded up. Count the longest route a respondent can take. Minutes = points ÷ 8,
-   rounded up to the next half minute. Also count the questions (a grid row counts as one). If minutes or
-   count exceed the budget, cut the questions serving the last-ranked hypothesis first, move them to section 5
-   and recount. State both numbers.
+   `minutes_rounded`. Otherwise count the longest route by hand: 1 per simple closed question (forced choice
+   included) and per grid row; 0.5 per multiple-select option, not rounded; 2 per open number; 3 per open
+   text; 1 per three sentences of introduction, rounded up. Minutes = points ÷ 8, rounded up to the next half
+   minute; questions counted with a grid row as one. Over budget: move the last-ranked hypothesis's questions
+   to section 5 and recount. State both numbers.
 
 9. **Population, sample and fielding.** State: the target population; the list or source and who it misses;
-   the channel; how respondents are selected (a random sample, everyone on a list, or whoever volunteers); the
-   screener logic; the segments compared; who sends the invitation, how many reminders, any incentive; who is
-   less likely to answer, how that could move the metric, and one check (compare responders with the list on a
-   variable known for everyone). Then do the precision check in
-   [references/modes-and-fielding.md](references/modes-and-fielding.md) section 5: write the decision
-   criterion (each action needs its whole 95% interval inside its zone), and give the result each action needs
-   at the realistic number of responses. For a lead between two options answered by the same people, use the
+   the channel; selection (a random sample, everyone on a list, or volunteers); the screener logic; the
+   segments compared; sender, reminders, incentive; who is less likely to answer, how that could move the
+   metric, and one check (responders against the list on a variable known for everyone). Then the precision
+   check in [references/modes-and-fielding.md](references/modes-and-fielding.md) section 5: the decision
+   criterion (each action needs its whole 95% interval inside its zone) and the result each action needs at
+   the realistic number of responses. For a lead between two options answered by the same people, use the
    paired calculation there or write that the sample is undetermined until the soft launch.
    `survey-sample-size` computes the n for a single share or two groups; do not invent one.
 
 10. **Self-check.** Run "Checks before answering"; fix every "no" before writing the output.
+
 ## Output
 
-Always these ten sections, with these headings, in this order. No extra sections before them.
-**Short form:** when the question table has five or fewer rows, merge sections 2 and 3 under the heading
-"## 2–3. Objective and hypotheses" and sections 8 and 9 under "## 8–9. Length and assumptions". Never merge
-otherwise, and never merge other sections. **Micro-survey** (1 to 3 questions in-product or after a
-transaction): use the shorter output and checklist in modes-and-fielding.md section 1 instead.
+Always these ten sections, with these headings, in this order, and nothing before them. **Short form:** with
+five or fewer questions, merge sections 2 and 3 as "## 2–3. Objective and hypotheses" and 8 and 9 as
+"## 8–9. Length and assumptions"; never merge otherwise or other sections. **Micro-survey** (1 to 3
+questions in-product or after a transaction): use the output and checklist in modes-and-fielding.md section 1.
 
 ```markdown
 # Survey plan: [short name]
@@ -285,7 +281,7 @@ or "open number (unit)" or "open text", then in brackets the tool settings: rout
 randomisation (`[randomise, "Somewhere else" last]`), limits (`[0–5]`), `[optional]`; **Serves** is `S`, `D`,
 `O`, or one or two of `H1`…; **Analysis** names the shell and the statistic; no cell is empty. The respondent
 view repeats the questions in order, one option per line, answer boxes as `[number]` or `[text]`, routing in
-plain words in parentheses, and no codes, type names or analysis notes, so it pastes into any survey tool and
+plain words in parentheses, no codes, type names or analysis notes, so it pastes into any survey tool and
 `survey-bias-check` reads it.
 
 ## Checks before answering
@@ -306,8 +302,7 @@ plain words in parentheses, and no codes, type names or analysis notes, so it pa
 - Are the length figures computed from the point rules, and within the budget for the channel?
 - Does section 5 have at least 3 entries, each with a reason from the set?
 - Does section 6 state the exclusion criteria and the interval rule, and section 7 the selection method,
-  the fielding line, the non-response check and the result each action needs, without an n it did not
-  compute?
+  fielding, non-response check and the result each action needs, without an n it did not compute?
 - Is the short form used exactly when there are five or fewer questions (micro-surveys excepted)? Did you
   ask at most one question?
 

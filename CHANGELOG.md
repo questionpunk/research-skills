@@ -3,6 +3,40 @@
 The pack and each skill use [semver](https://semver.org). A skill's version is in `catalog.json` and in its
 `SKILL.md` `metadata.version`.
 
+## 0.2.1 (2026-11-19): third review completed, Van Westendorp checked against R
+
+The third (Gemini) review of `survey-bias-check`, `survey-sample-size`, `ux-scale-scoring` and
+`survey-crosstabs` had failed or stopped early in 0.2.0; it was rerun, each finding was reproduced, and every
+confirmed script fix has a regression test.
+
+- `van-westendorp-analysis` 0.2.1: `--compat r` checked against R `pricesensitivitymeter` 1.3.3. Its price
+  points, trial curve and maxima match R in 66 runs (`fixtures/r_psm_1_3_3.expected.json`). One rule differed
+  and now follows R: when curves coincide up to the highest price, `--tie max` and `--tie mean` report the
+  run's first price. R's revenue price is the script's "highest among the observed prices only" line.
+- `ux-scale-scoring` 0.1.1: a 7-point SUS (labels or a few 6s and 7s) and reversed agree labels now stop
+  instead of being scored; SUS columns must be numbered exactly 1 to 10; `--reverse-performance` checks the
+  column order; negated SEQ anchors ("Not at all easy") no longer trip the reversed-SEQ stop, and
+  `--seq-reversed` is refused on text labels; `--target` with groups tests the groups, not the pooled line
+  or blank rows; `--drop-flagged` reports and counts correctly; constant item means give no correlation;
+  "NaN", "0_5", decimal TLX sliders and trailing empty Excel columns are handled.
+- `survey-sample-size` 0.2.1: no crash on `compare --table` near 0% or 100% or on tiny inputs; a one-sided
+  alpha of 0.5 or more is refused; a plan that reaches the population is a census; continuity-corrected
+  power no longer jumps; `nps --diff` refuses `--population` and reports its z values; `subgroups` raises
+  the base by the design effect; power checks state the power; `check` reports the detectable difference
+  that holds in either direction; `gap` is limited to single-select questions and says its n is a 50%-power
+  boundary. Docs: NPS comparisons use `nps --diff`, opt-in wording, more examples.
+- `survey-crosstabs` 0.1.1: equal weights other than 1 no longer scale the chi-square; anonymity notes no
+  longer split hidden cells into small and complementary counts; withheld tables carry no counts or group
+  list in `--json`; groups with no answers stay listed under anonymity; repeated `--hide` flags add up;
+  "0,750" reads as a decimal; Cramér's V is reported; pipes in labels are escaped.
+- `survey-bias-check` 0.2.1: numbered verbal scales ("1 - Very dissatisfied") are checked as rating scales;
+  one product name with a digit no longer turns a list ordinal; "Very / Somewhat / Not very / Not at all
+  likely" is balanced, and a one-sided scale around a neutral midpoint is flagged. Docs: severity column in
+  the output, phone-mode length line, no "behaviour before attitude" rule.
+- `survey-from-decision` 0.2.1: SKILL.md under 300 lines; names the pack's screener, pricing and crosstab skills.
+- `kano-analysis` and `gabor-granger-analysis` 0.1.1: the in-app question types are named as they appear
+  in the add-question menu ("Feature Priorities (Kano)", "Price Ladder").
+
 ## 0.2.0 (2026-11-19): ten new skills, every skill reviewed
 
 Ten new skills:

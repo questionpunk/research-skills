@@ -717,5 +717,64 @@ class InputHandling(unittest.TestCase):
         self.assertEqual(before, path.read_bytes())
 
 
+class GeminiReviewRegressions(unittest.TestCase):
+    """Third (Gemini) review, 2026-11-19, findings 5 to 16. Each failed before the fix."""
+
+    def test_constant_weight_other_than_one_leaves_chi_square_unchanged(self):
+        rows = [["q", "g", "w"]]
+        for g, yes, no in (("A", 30, 20), ("B", 20, 30)):
+            rows += [["Yes", g, "2.0"]] * yes + [["No", g, "2.0"]] * no
+        t = run_json(write_csv(rows), "--rows", "q", "--banner", "g", "--weight", "w")["tables"][0]
+        self.assertAlmostEqual(t["chi_square"]["statistic"], 4.0, places=9)
+
+    def test_cell_note_does_not_split_small_and_complementary_counts(self):
+        rows = [["q"]] + [["Yes"]] + [["No"]] * 5 + [["Maybe"]] * 5
+        out = run(write_csv(rows), "--rows", "q", "--anonymity", "5").stdout
+        self.assertNotIn("complementary cell", out)
+        self.assertIn("2 cell(s) hidden", out)
+
+    def test_withheld_table_json_has_no_counts_or_groups(self):
+        rows = [["q1", "q2", "team"]] + [["a", "x", "Eng"]] + [["a", "", "Eng"]] * 9 + [["b", "", "Legal"]] * 10
+        t = next(t for t in run_json(write_csv(rows), "--rows", "q2", "--banner", "team", "--anonymity", "5")["tables"])
+        self.assertTrue(t["withheld"])
+        self.assertIsNone(t["blank_row"])
+        self.assertEqual(t["columns"], [])
+
+    def test_groups_with_no_answers_stay_listed_under_anonymity(self):
+        rows = [["q1", "q2", "team"]] + [["a", "x", "Eng"]] * 10 + [["b", "y", "Sales"]] * 10 + [["b", "", "Legal"]] * 2
+        tables = run_json(write_csv(rows), "--rows", "q1", "q2", "--banner", "team", "--anonymity", "5")["tables"]
+        q2 = next(t for t in tables if t["row_var"] == "q2")
+        self.assertIn("Legal", [c["label"] for c in q2["columns"]])
+
+    def test_repeated_hide_flags_add_up(self):
+        rows = [["q", "team"]] + [["Yes", "Legal"]] * 6 + [["No", "Legal"]] * 4 + [["Yes", "HR"]] * 6 \
+            + [["No", "HR"]] * 5 + [["Yes", "Eng"]] * 8 + [["No", "Eng"]] * 7
+        t = run_json(write_csv(rows), "--rows", "q", "--banner", "team", "--anonymity", "5", "--hide", "team=Legal",
+                     "--hide", "team=HR")["tables"][0]
+        hidden = {c["label"] for c in t["columns"] if c["suppressed"]}
+        self.assertTrue({"Legal", "HR"} <= hidden)
+        proc = run(write_csv(rows), "--rows", "q", "--banner", "team", "--order", "q=Yes;No", "--order", "q=No;Yes")
+        self.assertEqual(proc.returncode, 2)
+
+    def test_all_zero_counts_stop_cleanly(self):
+        rows = [["q", "g", "count", "w"], ["Yes", "A", "0", "1.5"], ["No", "A", "0", "1.2"], ["Yes", "B", "0", "1"]]
+        proc = run(write_csv(rows), "--rows", "q", "--banner", "g", "--count-col", "count", "--weight", "w")
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+
+    def test_leading_zero_comma_is_a_decimal(self):
+        self.assertIsNone(xt.parse_count("0,500"))
+        self.assertAlmostEqual(xt.parse_number("0,750"), 0.75)
+
+    def test_cramers_v(self):
+        t = run_json(FIXTURES / "agresti_party_gender.input.csv", "--count-col", "count", "--rows", "party",
+                     "--banner", "gender")["tables"][0]
+        self.assertAlmostEqual(t["chi_square"]["cramers_v"], math.sqrt(30.0701490958 / 2757), places=6)
+
+    def test_pipes_in_labels_do_not_break_the_markdown_table(self):
+        rows = [["q", "g"]] + [["Yes | sure", "A"]] * 3 + [["No", "A"]] * 2
+        out = run(write_csv(rows), "--rows", "q", "--banner", "g").stdout
+        self.assertIn("Yes \\| sure", out)
+
+
 if __name__ == "__main__":
     unittest.main()

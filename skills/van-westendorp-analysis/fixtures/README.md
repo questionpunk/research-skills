@@ -19,9 +19,11 @@ is no real respondent data.
 | `basic` with `--max-price`, `--min-price`, `--at`, `--curves-csv` | Counted price-limit exclusion, shares at a candidate price, curve export | Hand arithmetic, section 11 |
 | `nms` with `--nms-preset`, `--nms-too-cheap-prob` | Weight presets and end probabilities | Hand arithmetic, section 12 |
 | `ipp_below_opp`, `no_width`, `tie_run` | Degenerate-result warnings; all four `--tie` rules on a three-price run | Hand arithmetic, section 13 |
+| `r_psm_1_3_3` (inputs: 11 of the files above) | `--compat r` with both range definitions and `--tie` min, max, mean, plus the Newton-Miller-Smith trial curve | Printed by R `pricesensitivitymeter` 1.3.3, section 14 |
 
 Provenance in one line: `conjointly_published` and `orme_smith` are published examples (URLs in their
-sections); every other input file was invented for this skill. The bootstrap has no expected values: its
+sections); every other input file was invented for this skill. `r_psm_1_3_3` holds output printed by R, not
+hand arithmetic. The bootstrap has no expected values: its
 test checks that the same seed gives the same output and that each point lies inside its interval.
 
 ## Rules used in every derivation
@@ -468,3 +470,35 @@ too expensive 0, 0, 1; not cheap 0, 0, 1; not expensive 1, 0, 0. PMC original: T
 `tie_run` (T1: 1, 2, 5, 6; T2: 1, 3, 5, 6). Grid 1, 2, 3, 5, 6. Too cheap 2, 0, 0, 0, 0; too expensive
 0, 0, 0, 0, 2. TC − TE = +2, 0, 0, 0, −2: the curves coincide at 2, 3 and 5. `--tie min` **2**, `--tie max`
 **5**, `--tie midpoint` (2 + 5) / 2 = **3.50**, `--tie mean` (2 + 3 + 5) / 3 = **3.3333**.
+
+## 14. `r_psm_1_3_3` (numbers printed by R)
+
+R 4.5.1 with CRAN `pricesensitivitymeter` 1.3.3, run on 2026-11-19 from this folder. For each input,
+`psm_analysis()` ran with its defaults (`validate = TRUE`, `interpolate = FALSE`, `pi_scale = 5:1`,
+`pi_calibrated = c(0.7, 0.5, 0.3, 0.1, 0)`) except `acceptable_range` and `intersection_method`, which take
+every combination of original/narrower and min/max/mean. `three_question` passes `toocheap = NA`. The
+intent columns are passed only for the four files that have them. `no_width` is left out: R stops with
+"All respondents have intransitive preference structures", and the script under `--compat r` exits 2.
+
+```r
+suppressMessages(library(pricesensitivitymeter))
+num <- function(x) as.numeric(gsub("[$,]", "", x))
+d <- read.csv("basic.input.csv", check.names = FALSE, stringsAsFactors = FALSE)
+r <- psm_analysis(toocheap = num(d[[2]]), cheap = num(d[[3]]), expensive = num(d[[4]]),
+                  tooexpensive = num(d[[5]]), acceptable_range = "original", intersection_method = "min")
+c(r$pricerange_lower, r$opp, r$idp, r$pricerange_upper)  # 6.5 9 9.25 11.5
+# with intent columns: add pi_cheap = num(d[[6]]), pi_expensive = num(d[[7]]) and read
+# r$price_optimal_reach, r$price_optimal_revenue and r$data_nms
+```
+
+What the run showed:
+
+- Price points, analysed counts and the trial curve agree with `--compat r` in all 66 runs.
+- R's crossing rule for coinciding curves: a crossing at each sign change of the difference. In `tie_run`
+  the too cheap and too expensive curves coincide from 2 to 6, the highest observed price, so the
+  difference never turns negative and R reports **2** for min, max and mean. Before this check the script
+  gave 6 for max; `--compat r` now follows R.
+- R's `price_optimal_revenue` is the best observed price: `nms_interior` gives **30**, which the script
+  prints as "highest among the observed prices only". Its headline 50 is the peak between 30 and 100, which
+  R also finds with `interpolate = TRUE`.
+

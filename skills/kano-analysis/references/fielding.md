@@ -5,9 +5,9 @@ server (`https://app.questionpunk.com/api/v1`). Ask the user before creating, ch
 
 ## Creating the questions
 
-QuestionPunk's Kano question type cannot be created over MCP. Either:
+QuestionPunk's Kano question type is created in the app, not over MCP. Either:
 
-- create the Kano question in the app (if the question menu offers "Feature priorities (Kano)"), or
+- create the Kano question in the app (add-question menu: "Feature Priorities (Kano)"), or
 - build each half of each pair as its own question with `question_create`: answer type `multiple_choice`, and
   `textItemDetails.answer_options` set to Berger's five answers in order ("I like it that way", "It must be that
   way", "I am neutral", "I can live with it that way", "I dislike it that way"). Put each dysfunctional question
